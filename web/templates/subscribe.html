@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订阅博雅课程推送</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a14;
+            --card: rgba(22, 22, 44, 0.92);
+            --border: rgba(255, 255, 255, 0.07);
+            --accent: #667eea;
+            --accent-light: #9bb0ff;
+            --text: #eaeaf4;
+            --text-muted: #6464a0;
+            --success: #34d399;
+            --danger: #f87171;
+            --radius: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background-image:
+                radial-gradient(ellipse at 30% 0%, rgba(102, 126, 234, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 100%, rgba(118, 75, 162, 0.08) 0%, transparent 50%);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 520px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(12px);
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 32px 28px;
+            text-align: center;
+        }
+
+        .card-header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .card-header p {
+            font-size: 13px;
+            opacity: 0.85;
+        }
+
+        .card-body {
+            padding: 28px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .form-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .input {
+            width: 100%;
+            padding: 10px 14px;
+            background: rgba(16, 16, 36, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+            font-family: inherit;
+        }
+
+        .input:focus {
+            border-color: rgba(102, 126, 234, 0.55);
+        }
+
+        .select {
+            width: 100%;
+            padding: 10px 14px;
+            background: rgba(16, 16, 36, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .select option {
+            background: #12122a;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .chip {
+            padding: 6px 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chip:hover {
+            background: rgba(102, 126, 234, 0.08);
+            border-color: rgba(102, 126, 234, 0.25);
+        }
+
+        .chip.active {
+            background: rgba(102, 126, 234, 0.15);
+            border-color: rgba(102, 126, 234, 0.4);
+            color: var(--accent-light);
+        }
+
+        .switch-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .switch {
+            position: relative;
+            width: 42px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            display: none;
+        }
+
+        .switch .slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 22px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .switch .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 3px;
+            bottom: 3px;
+            background: #fff;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+
+        .switch input:checked+.slider {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+        }
+
+        .switch input:checked+.slider::before {
+            transform: translateX(20px);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.45);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .message {
+            text-align: center;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .message.success {
+            display: block;
+            background: rgba(52, 211, 153, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(52, 211, 153, 0.2);
+        }
+
+        .message.error {
+            display: block;
+            background: rgba(248, 113, 113, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+        }
+
+        .result-card {
+            text-align: center;
+            padding: 48px 28px;
+        }
+
+        .result-card .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .result-card h2 {
+            font-size: 20px;
+            margin-bottom: 8px;
+        }
+
+        .result-card p {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- 订阅表单 -->
+        <div class="card" id="formCard">
+            <div class="card-header">
+                <h1>🎓 订阅博雅课程推送</h1>
+                <p>输入邮箱，实时接收新课程通知</p>
+            </div>
+            <div class="card-body">
+                <form id="subscribeForm" onsubmit="handleSubscribe(event)">
+                    <div class="form-group">
+                        <label>📧 邮箱地址</label>
+                        <input type="email" class="input" id="emailInput" required placeholder="your@email.com">
+                    </div>
+
+                    <div class="form-group">
+                        <label>🏫 校区偏好</label>
+                        <select class="select" id="campusSelect">
+                            <option value="">不限</option>
+                            <option value="沙河">沙河校区</option>
+                            <option value="学院路">学院路校区</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>🏷️ 课程类别 <span class="form-hint">（可多选，不选则全选）</span></label>
+                        <div class="chip-row" id="categoryChips">
+                            <span class="chip" onclick="toggleChip(this)">博雅课程-安全健康</span>
+                            <span class="chip" onclick="toggleChip(this)">博雅课程-德育</span>
+                            <span class="chip" onclick="toggleChip(this)">博雅课程-美育</span>
+                            <span class="chip" onclick="toggleChip(this)">博雅课程-劳动教育</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group switch-row">
+                        <label style="margin-bottom:0">
+                            ✅ 仅推送自主签到课程
+                            <span class="form-hint" style="display:block">过滤掉常规签到课程</span>
+                        </label>
+                        <label class="switch">
+                            <input type="checkbox" id="selfSignCheck" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn" id="submitBtn">📮 订阅推送</button>
+                    <div class="message" id="msgBox"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 验证/退订结果页 -->
+        <div class="card" id="resultCard" style="display:none">
+            <div class="result-card">
+                <div class="icon" id="resultIcon"></div>
+                <h2 id="resultTitle"></h2>
+                <p id="resultDesc"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleChip(el) { el.classList.toggle('active'); }
+
+        function getSelectedCategories() {
+            return Array.from(document.querySelectorAll('#categoryChips .chip.active'))
+                .map(c => c.textContent.trim());
+        }
+
+        async function handleSubscribe(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const msg = document.getElementById('msgBox');
+            btn.disabled = true;
+            btn.textContent = '⏳ 提交中...';
+            msg.className = 'message';
+            msg.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('emailInput').value.trim(),
+                        campus_filter: document.getElementById('campusSelect').value,
+                        categories: getSelectedCategories(),
+                        self_sign_only: document.getElementById('selfSignCheck').checked,
+                    }),
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    msg.className = 'message success';
+                    msg.textContent = '✅ ' + data.message;
+                    msg.style.display = 'block';
+                } else {
+                    msg.className = 'message error';
+                    msg.textContent = '❌ ' + (data.error || '订阅失败');
+                    msg.style.display = 'block';
+                }
+            } catch (err) {
+                msg.className = 'message error';
+                msg.textContent = '❌ 网络错误，请稍后重试';
+                msg.style.display = 'block';
+            }
+
+            btn.disabled = false;
+            btn.textContent = '📮 订阅推送';
+        }
+
+        // 如果 URL 包含 result 参数，显示结果卡片
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('result')) {
+            document.getElementById('formCard').style.display = 'none';
+            document.getElementById('resultCard').style.display = 'block';
+            const type = params.get('result');
+            const icon = document.getElementById('resultIcon');
+            const title = document.getElementById('resultTitle');
+            const desc = document.getElementById('resultDesc');
+
+            if (type === 'verified') {
+                icon.textContent = '✅';
+                title.textContent = '邮箱验证成功！';
+                desc.textContent = '你将开始接收博雅课程推送通知';
+            } else if (type === 'unsubscribed') {
+                icon.textContent = '👋';
+                title.textContent = '已退订';
+                desc.textContent = '你将不再接收推送邮件，如需重新订阅请回到订阅页面';
+            } else if (type === 'invalid') {
+                icon.textContent = '❌';
+                title.textContent = '链接无效';
+                desc.textContent = '验证链接已过期或不存在';
+            }
+        }
+    </script>
+</body>
+
+</html>

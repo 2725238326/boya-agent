@@ -6,11 +6,11 @@ Flask Web 控制台
 import os
 import asyncio
 import threading
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, redirect
 from flask_cors import CORS
 from loguru import logger
 
-from src.models import Course, FilterConfig, PushLog, EnrollLog, get_session, init_db
+from src.models import Course, FilterConfig, PushLog, EnrollLog, EmailSubscriber, get_session, init_db
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
     get_run_status,
@@ -35,6 +35,12 @@ CORS(app)
 def index():
     """控制台主页"""
     return render_template("index.html")
+
+
+@app.route("/subscribe")
+def subscribe_page():
+    """订阅页面（公开访问）"""
+    return render_template("subscribe.html")
 
 
 # ========== API 路由 ==========
@@ -306,5 +312,113 @@ def atom_feed():
         base_url = request.host_url.rstrip("/")
         xml = generate_atom_feed(courses, base_url)
         return Response(xml, mimetype="application/atom+xml; charset=utf-8")
+    finally:
+        session.close()
+
+
+# ========== 邮件订阅 API ==========
+
+@app.route("/api/subscribe", methods=["POST"])
+def api_subscribe():
+    """用户提交邮件订阅"""
+    from src.push.email_push import send_verification_email
+
+    data = request.get_json()
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"success": False, "error": "请输入有效的邮箱地址"}), 400
+
+    session = get_session()
+    try:
+        existing = session.query(EmailSubscriber).filter_by(email=email).first()
+        if existing:
+            if existing.active and existing.verified:
+                return jsonify({"success": False, "error": "该邮箱已订阅"})
+            # 重新激活
+            existing.active = True
+            existing.verified = False
+            existing.campus_filter = data.get("campus_filter", "")
+            existing.self_sign_only = data.get("self_sign_only", True)
+            existing.categories = data.get("categories", [])
+            session.commit()
+            token = existing.token
+        else:
+            sub = EmailSubscriber(
+                email=email,
+                campus_filter=data.get("campus_filter", ""),
+                self_sign_only=data.get("self_sign_only", True),
+            )
+            sub.categories = data.get("categories", [])
+            session.add(sub)
+            session.commit()
+            token = sub.token
+
+        # 发送验证邮件
+        base_url = request.host_url.rstrip("/")
+        verify_url = f"{base_url}/api/verify/{token}"
+        ok = send_verification_email(email, verify_url)
+
+        if ok:
+            return jsonify({"success": True, "message": "验证邮件已发送，请查收并点击验证链接"})
+        else:
+            return jsonify({"success": True, "message": "订阅成功，但验证邮件发送失败，请联系管理员"})
+    except Exception as e:
+        session.rollback()
+        logger.error(f"订阅失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/verify/<token>")
+def api_verify(token):
+    """验证邮箱"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return redirect("/subscribe?result=invalid")
+        sub.verified = True
+        sub.active = True
+        session.commit()
+        return redirect("/subscribe?result=verified")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"验证失败: {e}")
+        return redirect("/subscribe?result=invalid")
+    finally:
+        session.close()
+
+
+@app.route("/api/unsubscribe/<token>")
+def api_unsubscribe(token):
+    """退订"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return redirect("/subscribe?result=invalid")
+        sub.active = False
+        session.commit()
+        return redirect("/subscribe?result=unsubscribed")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"退订失败: {e}")
+        return redirect("/subscribe?result=invalid")
+    finally:
+        session.close()
+
+
+@app.route("/api/subscribers")
+def api_subscribers():
+    """管理端：查看所有订阅者"""
+    session = get_session()
+    try:
+        subs = session.query(EmailSubscriber).order_by(EmailSubscriber.created_at.desc()).all()
+        return jsonify({
+            "success": True,
+            "data": [s.to_dict() for s in subs],
+            "total": len(subs),
+        })
     finally:
         session.close()

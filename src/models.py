@@ -3,6 +3,7 @@ SQLAlchemy 数据模型 - 课程信息 & 筛选配置
 """
 
 import json
+import secrets
 from datetime import datetime
 from sqlalchemy import inspect, text
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Text
@@ -195,6 +196,42 @@ class EnrollLog(Base):
     attempted_at = Column(DateTime, default=datetime.now)
     success = Column(Boolean, default=False)
     message = Column(Text, default="")
+
+
+class EmailSubscriber(Base):
+    """邮件订阅者"""
+    __tablename__ = "email_subscribers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String, unique=True, nullable=False)
+    token = Column(String, unique=True, default=lambda: secrets.token_urlsafe(32))
+    verified = Column(Boolean, default=False)
+    active = Column(Boolean, default=True)
+    # 偏好设置
+    categories_json = Column(Text, default="[]")
+    campus_filter = Column(String, default="")
+    self_sign_only = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    @property
+    def categories(self) -> list:
+        return json.loads(self.categories_json or "[]")
+
+    @categories.setter
+    def categories(self, value: list):
+        self.categories_json = json.dumps(value, ensure_ascii=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "email": self.email,
+            "verified": self.verified,
+            "active": self.active,
+            "categories": self.categories,
+            "campus_filter": self.campus_filter,
+            "self_sign_only": self.self_sign_only,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+        }
 
 
 def init_db():
