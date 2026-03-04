@@ -5,6 +5,7 @@ Flask Web 控制台
 
 import os
 import asyncio
+import threading
 from flask import Flask, render_template, jsonify, request, Response
 from flask_cors import CORS
 from loguru import logger
@@ -45,7 +46,6 @@ def api_courses():
     try:
         query = session.query(Course).order_by(Course.first_seen.desc())
 
-        # 可选过滤参数
         category = request.args.get("category")
         campus = request.args.get("campus")
         self_sign = request.args.get("self_sign")
@@ -102,7 +102,6 @@ def api_update_config():
             config = FilterConfig(id=1)
             session.add(config)
 
-        # 更新各字段
         if "categories" in data:
             config.categories = data["categories"]
         if "self_sign_only" in data:
@@ -174,13 +173,18 @@ def api_toggle_enroll():
 
 @app.route("/api/trigger", methods=["POST"])
 def api_trigger_scrape():
-    """手动触发一次抓取"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(run_scrape_task())
-        else:
+    """手动触发一次抓取（在独立线程中运行，避免 event loop 冲突）"""
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
             loop.run_until_complete(run_scrape_task())
+        finally:
+            loop.close()
+
+    try:
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
         return jsonify({"success": True, "message": "抓取任务已触发"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -191,7 +195,6 @@ def api_status():
     """获取系统运行状态"""
     status = get_run_status()
 
-    # 追加数据库统计
     session = get_session()
     try:
         status["total_courses_in_db"] = session.query(Course).count()
