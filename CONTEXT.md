@@ -8,49 +8,58 @@
 
 一个自动抓取北航博雅选课系统课程、筛选并通过 Telegram / 邮件推送通知的 Agent。
 部署在腾讯云 Ubuntu 服务器上，通过 Playwright 操控 headless 浏览器访问 WebVPN 课程系统。
+具有基于 Nginx 反代安全保护的管理面板，以及基于原生级 iOS 毛玻璃风格的独立邮件订阅系统。
 
 ---
 
 ## 目录结构
 
-```
+```text
 BUAA_boya/
 ├── src/
 │   ├── auth.py          # WebVPN + SSO 登录逻辑
 │   ├── scraper.py       # 课程列表爬取 + 详情页抓取
-│   ├── filters.py       # 过滤引擎（签到方式、名额、关键词）
+│   ├── filters.py       # 过滤引擎（签到方式、名额、关键词等）
 │   ├── scheduler.py     # APScheduler 定时任务调度
-│   ├── models.py        # SQLAlchemy 数据模型
+│   ├── models.py        # SQLAlchemy 数据模型 (新增 EmailSubscriber)
 │   ├── enroll.py        # 自动选课逻辑
 │   └── push/
 │       ├── telegram_bot.py  # Telegram 推送
-│       ├── email_push.py    # 邮件推送
-│       └── rss_feed.py      # RSS Feed 生成
+│       ├── email_push.py    # 邮件推送流程 (支持多用户+退订)
+│       └── rss_feed.py      # RSS / Atom Feed 生成
 ├── web/
-│   ├── app.py           # Flask Web 控制台 API
+│   ├── app.py           # Flask Web 控制台 API & 订阅相关的 RESTful 端点
 │   ├── templates/
-│   │   └── index.html   # 控制台页面
+│   │   ├── index.html       # 后台管理控制台页面
+│   │   └── subscribe.html   # 多用户邮件订阅页 (基于 Apple Liquid Glass UI)
 │   └── static/
 │       └── app.js       # 前端交互逻辑
 ├── config/
 │   └── default_config.json  # 默认过滤/推送配置（仅首次 init_db 时使用）
 ├── deploy/
-│   └── boya-agent.service   # systemd 服务文件
-├── .env                 # 凭据（不提交 git）
+│   ├── boya-agent.service   # systemd 服务文件
+│   └── setup.sh             # (废弃，已由 GitHub Actions 替代)
+├── .github/workflows/
+│   └── deploy.yml           # GitHub Actions 自动化 CI/CD 部署脚本
+├── .env                 # 服务端环境凭据（包含 Gmail SMTP / Telegram 密钥等，未提交 git）
 ├── requirements.txt
-└── src/main.py          # 入口：启动 Flask + APScheduler
+└── src/main.py          # 入口：启动 Flask + APScheduler (并行多线程)
 ```
 
 ---
 
 ## 核心数据流
 
-```
+```text
 定时器（APScheduler） → ensure_logged_in() → scrape_courses()
     → _enrich_with_details()  ← 点击"详细介绍"获取签到方式
-    → save_courses_to_db()    ← 返回新课程 ID 列表（非 ORM 对象）
-    → filter_courses()        ← 基于 FilterConfig 数据库配置
-    → send_batch_notifications() → Telegram Bot API（需代理）
+    → save_courses_to_db()    ← 返回新课程 ID 列表（非 ORM 对象以免脱离 Session）
+    → _sync_course_lifecycle()← 自动标记过期课程 (expired)
+    → filter_courses()        ← 基于 FilterConfig 全局配置
+    → send_batch_notifications() 
+        ├──> Telegram Bot API (带代理)
+        ├──> RSS / Atom 生成
+        └──> email_push.py → _filter_for_subscriber() → 发送私人定制分流邮件
 ```
 
 ---
@@ -74,88 +83,76 @@ BUAA_boya/
 ### 数据库（`src/models.py`）
 - SQLite，文件：`boya_agent.db`（项目根目录）
 - `Course` 表关键字段：
-  - `sign_method`：列表页的"选课方式"（直接选课/预选等）
-  - `check_in_method`：详情页的"签到方式"（**自主签到/常规签到**）⬅️ 过滤用这个
-  - `description`：课程介绍（详情页）
-- `FilterConfig` 表：用户配置（过滤规则、推送开关等）
-- **重要**：`save_courses_to_db()` 返回 `List[str]`（ID 列表），不是 ORM 对象，避免 Session 脱离问题
+  - `sign_method`：列表页的"选课方式"
+  - `check_in_method`：详情页的"签到方式"（**自主签到/常规签到**）⬅️ 过滤和 UI 展示高度依赖此字段
+  - `expired`：根据 `enroll_end` 自动标记为已过期
+- `FilterConfig` 表：全局用户配置（过滤规则、默认开启开关等）
+- `EmailSubscriber` 表（新增）：存储外部订阅用户的个人偏好（支持 categories 列表、自选校区、独立 `self_sign_only` 等），带 token 邮件验证闭环。
 
-### 过滤引擎（`src/filters.py`）
-`self_sign_only` 检查 `check_in_method`（签到方式），不检查 `sign_method`（选课方式）
+### 后端隔离修复（`web/app.py` & `src/scheduler.py`）
+由于 Playwright 和 Telethon 高度依赖 `asyncio`，Flask 的 request thread 调用 async 方法会报 Event Loop 相关错误。  
+解决方案：`app.py` 中的触发器（如手动抓取）会另起独立的 `threading.Thread` 并注入全新的事件循环 `asyncio.new_event_loop()`，安全实现主从线程分离。
 
-### 推送（`src/push/telegram_bot.py`）
-- 需要通过代理（服务器在国内，Telegram 被墙）
-- 代理配置：`.env` 中 `HTTPS_PROXY=http://127.0.0.1:7890`
-- 消息中显示 `check_in_method`，不显示 `sign_method`
-
-### Web 控制台（`web/app.py` + `web/static/app.js`）
-- Flask 服务，端口 5000
-- 「仅自主签课」过滤：查询 `check_in_method.contains("自主")`
-- 课程卡片标签：优先显示 `check_in_method`，无则 fallback 到 `sign_method`
+### 部署架构与域名
+- 服务端由 Nginx 监听 80 端口，代理至 `127.0.0.1:5000` (Flask)
+- 面向公众暴露 `/subscribe`, `/api/subscribe/`, `/api/verify`, `/api/unsubscribe`
+- 其余全部端点（如 `/`）启用了 Nginx 的 `auth_basic` 模式拦截
+- 部署模式为 **Git 推送驱动**(GitHub Actions)
 
 ---
 
-## 服务器信息
+## 服务器信息（腾讯云）
 
 - IP：`49.233.248.86`
+- 域名：`buaayqq.eu.cc`, `www.buaayqq.eu.cc`（解析通过 DNSPod 或 Cloudflare）
 - 项目路径：`/home/boya-agent/`
 - Python venv：`/home/boya-agent/venv/`
-- systemd 服务：`boya-agent`（主服务）、`mihomo`（代理）
-- 代理：mihomo（Clash Meta），监听 `127.0.0.1:7890`，控制 API `localhost:9090`
-- 当前节点：`🇯🇵 日本高速04|BGP|流媒体`
+- 服务：`boya-agent`（主服务）、`mihomo`（Telegram 代理）
+- HTTP/HTTPS 代理端口：`127.0.0.1:7890`
 
 ### 常用命令
 
 ```bash
-# 服务管理
-sudo systemctl restart boya-agent
+# 查看日志
 sudo journalctl -u boya-agent -f
 
-# 修改数据库配置
-cd /home/boya-agent && /home/boya-agent/venv/bin/python -c "
-from src.models import *; init_db(); s=get_session()
-c = s.query(FilterConfig).first()
-c.self_sign_only = True
-c.min_remaining = 1
-c.telegram_enabled = True
-s.commit(); s.close()
-"
+# 强制重启与拉新
+cd /home/boya-agent && git pull && sudo systemctl restart boya-agent
 
-# 清空课程重新抓取
+# 重置某门课的推送状态（方便热测试推送通道）
 /home/boya-agent/venv/bin/python -c "
-from src.models import *; init_db(); s=get_session()
-s.query(Course).delete(); s.commit(); s.close()
+from src.models import Course, get_session; s=get_session()
+c=s.query(Course).first(); c.pushed=False; s.commit()
 "
-sudo systemctl restart boya-agent
-
-# 切换代理节点
-curl -X PUT http://127.0.0.1:9090/proxies/%F0%9F%9A%80%20%E8%8A%82%E7%82%B9%E9%80%89%E6%8B%A9 \
-  -H "Content-Type: application/json" \
-  -d '{"name": "🇯🇵 日本高速04|BGP|流媒体"}'
 ```
 
 ---
 
-## .env 配置项
+## .env 基本项
 
-```env
+```dotenv
 BUAA_USERNAME=学号
 BUAA_PASSWORD=密码
+
 TELEGRAM_BOT_TOKEN=...
-TELEGRAM_CHAT_ID=7338513888
+TELEGRAM_CHAT_ID=...
 HTTPS_PROXY=http://127.0.0.1:7890
 HTTP_PROXY=http://127.0.0.1:7890
-SCRAPE_INTERVAL_MINUTES=720
+
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+
+WEB_SECRET_KEY=...
 ```
 
 ---
 
-## 已知问题 / 待优化
+## 待优化清单
 
-- [ ] **分页抓取**：目前只抓第一页，`_go_to_next_page()` 已实现但可能需要调试
-- [ ] **会话超时**：博雅系统会话约30分钟失效，`_check_and_recover_session()` 已实现但未充分测试
-- [ ] **推送汇总模式**：目前有新课程即立刻推，可增加"每日汇总"推送选项
-- [ ] **筛选规则 UI**：Web 控制台已有基础配置，可进一步完善（校区筛选、时间段筛选等）
-- [ ] **RSS 推送**：已实现 `/rss` 端点，未充分测试
-- [ ] **自动选课**：`src/enroll.py` 已有框架，未经实战测试
-- [ ] **Telegram 消息格式**：`选课截止: 未知` 问题，`enroll_end` 未能正确解析
+- [ ] **日志精简**: 定时器每十分钟跑一次输出较多，考虑降低无更新时的日志输出级别。
+- [ ] **Telegram Markdown 逃逸**: 目前直接拼接消息由于有下划线或特殊字符，可能触发 MarkdownV2 parser error，已经退化为 HTML 模式，但依然需小心。
+- [ ] **多账号抢课**: `enroll.py` 内部可扩展连接多套教务处凭据。
+- [ ] **每日推送汇总机制**: 模型层已有设计 `daily_summary_time`，代码层需补充对应的定时分发拦截流程。

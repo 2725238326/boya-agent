@@ -1,101 +1,108 @@
 # 🎓 BUAA 博雅课程自动推送智能体
 
-定期抓取博雅选课系统的课程信息，按偏好过滤后通过 Telegram / 邮件 / RSS 推送通知，并支持可选的自动选课功能。
+基于 Playwright 自动化抓取博雅选课系统的实时课程信息，支持多维度内容筛选。通过 Web 控制台可视化管理，提供 Telegram、RSS 通知，并附带一套极其优雅的**液态毛玻璃风格（Liquid Glass）邮件订阅系统**。
 
-## ✨ 功能特性
+## ✨ 核心特性
 
-- 🔐 **SSO 自动登录** - 统一认证自动登录/续期
-- 🕷️ **智能抓取** - Playwright 绕过加密 API，直接读取渲染后课程数据
-- 🎛️ **灵活过滤** - 按类别、签到方式、校区、名额、关键词多维度过滤
-- 📡 **多渠道推送** - Telegram Bot / 邮件 / RSS Feed
-- 🎯 **自动选课** - 可选功能，带意愿优先级和确认提醒
-- 🖥️ **Web 控制台** - 可视化配置和监控
-- ⏰ **定时调度** - 每 N 分钟自动抓取一次
+- 🔐 **SSO 自动化** - 自动处理北航统一身份认证登录与 Token 续期
+- 🕷️ **防反爬抓取** - 基于 Playwright 绕过前端加密，直接读取渲染后数据
+- 🎛️ **智能筛选引擎** - 支持基于课程类别、校区、名额、关键词黑白名单、签到方式（自主/常规）的灵活过滤
+- 📧 **多用户邮件订阅系统** 
+  - 精美的原生级 Apple Liquid Glass UI 风格订阅页
+  - 支持多用户独立订阅
+  - 用户可自定义校区、类别、自主签到等维度的个人推送偏好
+  - 支持完整的邮箱验证与一键退订闭环
+- 📡 **全渠道推送** - Telegram Bot 通知 / 个人化邮件提醒 / 全局 RSS 订阅流
+- 🛡️ **生产级安全部署** 
+  - Nginx 反向代理 + HTTP Basic Auth 保护管控台
+  - 核心配置均使用 `.env` 与加密存储，敏感信息零硬编码
+- 🚀 **自动化 CI/CD** - 基于 GitHub Actions 实现本地 `git push` 后服务器自动完成部署发布
 
-## 🚀 快速部署
+## 📂 核心项目结构
 
-### 1. 上传到服务器
-
-```bash
-scp -r . ubuntu@your-server:/home/ubuntu/boya-agent/
+```text
+├── config/              # 运行产生的配置文件 (DB、.env、全局 config 等)
+├── src/                 
+│   ├── main.py          # 核心流程入口
+│   ├── auth.py          # WebVPN 与 SSO 登录逻辑
+│   ├── scraper.py       # Playwright 页面抓取与解析
+│   ├── models.py        # SQLAlchemy 数据模型 (Course, FilterConfig, EmailSubscriber 等)
+│   ├── scheduler.py     # APScheduler 定时调度引擎
+│   ├── enroll.py        # (保留) 自动抢课模块
+│   └── push/            
+│       ├── email_push.py   # 邮件推送引擎 (SMTP 处理与 HTML 邮件渲染)
+│       └── ...
+├── web/                 # Web 控制台与订阅前端
+│   ├── app.py           # Flask 后端路由与 RESTful API
+│   ├── templates/       
+│   │   ├── index.html       # 暗黑科技风控制台面板
+│   │   └── subscribe.html   # 🍎 iOS 液态毛玻璃风格邮件订阅页
+│   └── static/          # CSS / JS 静态资源
+├── deploy/              # 部署描述与服务配置
+├── .github/workflows/   # GitHub Actions 自动化部署流水线
+└── boya_agent.db        # SQLite 数据库文件
 ```
 
-### 2. 一键部署
+## 🚀 部署与架构说明
 
-```bash
-ssh ubuntu@your-server
-cd /home/ubuntu/boya-agent
-bash deploy/setup.sh
+本项目当前已通过 GitHub Actions 实现自动化部署于 Ubuntu 服务器。
+
+### 1. 架构拓扑
+- **前端入口 (Port 80)**：Nginx 作为反向代理服务器
+- **拦截控制**：
+  - `/subscribe` 与 `/api/*` 系列订阅接口：**完全公开访问**
+  - `/` (控制台)、`/rss` 等管理接口：**Nginx Basic Auth 密码保护**
+- **应用层**：Flask 原生服务器运行于本地 `127.0.0.1:5000` (由 Nginx 代理) 并在后台多线程中执行 `asyncio` 抓取调度。
+
+### 2. 持续集成流程 (CI/CD)
+提交代码到 `main` 分支后，GitHub Actions 会动执行：
+1. SSH 登录生产服务器
+2. 拉取最新代码
+3. 检查并安装缺失的 `requirements.txt`
+4. 通过 `systemctl` 软重启 `boya-agent.service` 使更新无缝生效
+
+### 3. 环境与配置要求
+生产环境依赖以下配置（位于服务器部署目录下的 `.env` 文件）：
+```dotenv
+# === BUAA SSO 登录凭据 ===
+BUAA_USERNAME=xxx
+BUAA_PASSWORD=xxx
+
+# === Telegram Bot ===
+TELEGRAM_BOT_TOKEN=xxx
+TELEGRAM_CHAT_ID=xxx
+
+# === Email SMTP (基于 Gmail 最佳实践) ===
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USERNAME=your_gmail@gmail.com
+SMTP_PASSWORD=16位应用专用密码
+
+# === Web 控制台加密 ===
+WEB_SECRET_KEY=强大的随机字符串
 ```
 
-### 3. 配置凭据
+## 💻 本地开发指南
 
-```bash
-nano /home/ubuntu/boya-agent/.env
-```
+1. **环境准备:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
 
-填入以下信息：
-- `BUAA_USERNAME` - 学号
-- `BUAA_PASSWORD` - 统一认证密码
-- `TELEGRAM_BOT_TOKEN` - Telegram Bot Token（通过 @BotFather 获取）
-- `TELEGRAM_CHAT_ID` - 你的 Chat ID
-- `SMTP_*` - 邮件配置（可选）
+2. **配置填充:**
+   拷贝 `config/.env.example` 到根目录重命名为 `.env` 并填入必要信息。
 
-### 4. 启动
+3. **服务启动:**
+   ```bash
+   python src/main.py
+   ```
+   访问 `http://127.0.0.1:5000` 进入管理控制台，访问 `http://127.0.0.1:5000/subscribe` 体验邮件订阅页。
 
-```bash
-sudo systemctl start boya-agent
-```
+## ⚠️ 隐私声明与风控说明
 
-### 5. 访问
-
-- Web 控制台: `http://<IP>:5000`
-- RSS 订阅: `http://<IP>:5000/rss`
-
-## 📁 项目结构
-
-```
-├── config/              # 配置文件
-├── src/                 # 核心代码
-│   ├── main.py          # 入口
-│   ├── auth.py          # SSO 登录
-│   ├── scraper.py       # 课程抓取
-│   ├── models.py        # 数据模型
-│   ├── filters.py       # 过滤引擎
-│   ├── scheduler.py     # 定时调度
-│   ├── enroll.py        # 自动选课
-│   └── push/            # 推送模块
-├── web/                 # Web 控制台
-│   ├── app.py           # Flask 路由
-│   ├── templates/       # HTML
-│   └── static/          # CSS/JS
-└── deploy/              # 部署脚本
-```
-
-## 🔧 本地开发
-
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium
-
-cp config/.env.example .env
-# 编辑 .env 填入凭据
-
-python src/main.py          # 正常启动
-python src/main.py --once   # 单次运行（测试）
-```
-
-## 📡 Telegram Bot 设置
-
-1. 向 `@BotFather` 发送 `/newbot`
-2. 获取 Bot Token 填入 `.env`
-3. 向你的 Bot 发一条消息
-4. 访问 `https://api.telegram.org/bot<TOKEN>/getUpdates` 获取 Chat ID
-
-## ⚠️ 注意事项
-
-- 自动选课功能默认关闭，请在 Web 控制台手动开启
-- SSO 凭据存储在 `.env` 中，请确保服务器安全
-- 建议配置防火墙仅允许你的 IP 访问 5000 端口
+- **账号安全**：教务账号及密码仅于服务器本地环境变量存放，不会进行任何云端同步。
+- **爬虫风控**：默认使用带缓冲的模拟等待时长，切勿无节制地调低抓取时间间隔，避免教务系统触发风控拦截。
