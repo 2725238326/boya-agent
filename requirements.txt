@@ -1,0 +1,22 @@
+# Core
+playwright>=1.40.0
+apscheduler>=3.10.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Web
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Push - Telegram
+python-telegram-bot>=20.0
+
+# Push - RSS
+feedgen>=1.0.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Utilities
+loguru>=0.7.0

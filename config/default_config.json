@@ -1,0 +1,27 @@
+{
+    "filter": {
+        "categories": [],
+        "self_sign_only": true,
+        "strict_boya_only": false,
+        "min_remaining": 1,
+        "campus_filter": "",
+        "keyword_whitelist": [],
+        "keyword_blacklist": []
+    },
+    "auto_enroll": {
+        "enabled": false,
+        "priority_keywords": [],
+        "confirm_before_enroll": true,
+        "max_auto_enroll_per_day": 2
+    },
+    "push": {
+        "telegram_enabled": false,
+        "email_enabled": false,
+        "rss_enabled": true,
+        "daily_summary_enabled": false,
+        "daily_summary_time": "21:00"
+    },
+    "scheduler": {
+        "interval_minutes": 10
+    }
+}

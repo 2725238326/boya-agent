@@ -1,0 +1,307 @@
+"""
+Flask Web 控制台
+提供筛选配置、课程查看、自动选课开关、系统状态等功能
+"""
+
+import os
+import asyncio
+from flask import Flask, render_template, jsonify, request, Response
+from flask_cors import CORS
+from loguru import logger
+
+from src.models import Course, FilterConfig, PushLog, EnrollLog, get_session, init_db
+from src.push.rss_feed import generate_rss_feed, generate_atom_feed
+from src.scheduler import (
+    get_run_status,
+    run_scrape_task,
+    update_scheduler_interval,
+    update_daily_summary_schedule,
+)
+
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(os.path.dirname(__file__), "templates"),
+    static_folder=os.path.join(os.path.dirname(__file__), "static"),
+)
+app.secret_key = os.getenv("WEB_SECRET_KEY", "boya-agent-secret-key")
+CORS(app)
+
+
+# ========== 页面路由 ==========
+
+@app.route("/")
+def index():
+    """控制台主页"""
+    return render_template("index.html")
+
+
+# ========== API 路由 ==========
+
+@app.route("/api/courses")
+def api_courses():
+    """获取课程列表"""
+    session = get_session()
+    try:
+        query = session.query(Course).order_by(Course.first_seen.desc())
+
+        # 可选过滤参数
+        category = request.args.get("category")
+        campus = request.args.get("campus")
+        self_sign = request.args.get("self_sign")
+        keyword = request.args.get("keyword")
+        include_expired = request.args.get("include_expired", "false").lower() == "true"
+
+        if not include_expired:
+            query = query.filter(Course.expired == False)  # noqa: E712
+
+        if category:
+            query = query.filter(Course.category.contains(category))
+        if campus:
+            query = query.filter(Course.campus.contains(campus))
+        if self_sign == "true":
+            query = query.filter(Course.check_in_method.contains("自主"))
+        if keyword:
+            query = query.filter(Course.name.contains(keyword))
+
+        courses = query.limit(200).all()
+        return jsonify({
+            "success": True,
+            "data": [c.to_dict() for c in courses],
+            "total": len(courses),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    """获取筛选配置"""
+    session = get_session()
+    try:
+        config = session.query(FilterConfig).first()
+        if not config:
+            config = FilterConfig(id=1)
+            session.add(config)
+            session.commit()
+        return jsonify({"success": True, "data": config.to_dict()})
+    finally:
+        session.close()
+
+
+@app.route("/api/config", methods=["PUT"])
+def api_update_config():
+    """更新筛选配置"""
+    session = get_session()
+    try:
+        data = request.get_json()
+        config = session.query(FilterConfig).first()
+        if not config:
+            config = FilterConfig(id=1)
+            session.add(config)
+
+        # 更新各字段
+        if "categories" in data:
+            config.categories = data["categories"]
+        if "self_sign_only" in data:
+            config.self_sign_only = data["self_sign_only"]
+        if "strict_boya_only" in data:
+            config.strict_boya_only = data["strict_boya_only"]
+        if "min_remaining" in data:
+            config.min_remaining = int(data["min_remaining"])
+        if "campus_filter" in data:
+            config.campus_filter = data["campus_filter"]
+        if "keyword_whitelist" in data:
+            config.keyword_whitelist = data["keyword_whitelist"]
+        if "keyword_blacklist" in data:
+            config.keyword_blacklist = data["keyword_blacklist"]
+        if "auto_enroll_enabled" in data:
+            config.auto_enroll_enabled = data["auto_enroll_enabled"]
+        if "priority_keywords" in data:
+            config.priority_keywords = data["priority_keywords"]
+        if "confirm_before_enroll" in data:
+            config.confirm_before_enroll = data["confirm_before_enroll"]
+        if "max_auto_enroll_per_day" in data:
+            config.max_auto_enroll_per_day = int(data["max_auto_enroll_per_day"])
+        if "telegram_enabled" in data:
+            config.telegram_enabled = data["telegram_enabled"]
+        if "email_enabled" in data:
+            config.email_enabled = data["email_enabled"]
+        if "rss_enabled" in data:
+            config.rss_enabled = data["rss_enabled"]
+        if "daily_summary_enabled" in data:
+            config.daily_summary_enabled = data["daily_summary_enabled"]
+        if "daily_summary_time" in data:
+            config.daily_summary_time = str(data["daily_summary_time"]).strip()
+        if "interval_minutes" in data:
+            config.interval_minutes = int(data["interval_minutes"])
+            update_scheduler_interval(config.interval_minutes)
+
+        session.commit()
+        if "daily_summary_enabled" in data or "daily_summary_time" in data:
+            update_daily_summary_schedule()
+        logger.info("配置已更新")
+        return jsonify({"success": True, "message": "配置已保存"})
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/enroll/toggle", methods=["POST"])
+def api_toggle_enroll():
+    """切换自动选课开关"""
+    session = get_session()
+    try:
+        config = session.query(FilterConfig).first()
+        config.auto_enroll_enabled = not config.auto_enroll_enabled
+        session.commit()
+        status = "已开启" if config.auto_enroll_enabled else "已关闭"
+        return jsonify({
+            "success": True,
+            "enabled": config.auto_enroll_enabled,
+            "message": f"自动选课{status}",
+        })
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/trigger", methods=["POST"])
+def api_trigger_scrape():
+    """手动触发一次抓取"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(run_scrape_task())
+        else:
+            loop.run_until_complete(run_scrape_task())
+        return jsonify({"success": True, "message": "抓取任务已触发"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/status")
+def api_status():
+    """获取系统运行状态"""
+    status = get_run_status()
+
+    # 追加数据库统计
+    session = get_session()
+    try:
+        status["total_courses_in_db"] = session.query(Course).count()
+        status["total_expired_courses"] = session.query(Course).filter(Course.expired == True).count()  # noqa: E712
+        status["total_push_logs"] = session.query(PushLog).count()
+        status["total_enroll_logs"] = session.query(EnrollLog).count()
+    finally:
+        session.close()
+
+    return jsonify({"success": True, "data": status})
+
+
+@app.route("/api/categories")
+def api_categories():
+    """获取所有已知课程类别"""
+    session = get_session()
+    try:
+        categories = session.query(Course.category).distinct().all()
+        return jsonify({
+            "success": True,
+            "data": [c[0] for c in categories if c[0]],
+        })
+    finally:
+        session.close()
+
+
+@app.route("/api/logs/push")
+def api_push_logs():
+    """获取推送日志"""
+    session = get_session()
+    try:
+        logs = (
+            session.query(PushLog)
+            .order_by(PushLog.pushed_at.desc())
+            .limit(50)
+            .all()
+        )
+        return jsonify({
+            "success": True,
+            "data": [{
+                "id": l.id,
+                "course_id": l.course_id,
+                "push_type": l.push_type,
+                "pushed_at": l.pushed_at.strftime("%Y-%m-%d %H:%M"),
+                "success": l.success,
+            } for l in logs],
+        })
+    finally:
+        session.close()
+
+
+@app.route("/api/logs/enroll")
+def api_enroll_logs():
+    """获取选课日志"""
+    session = get_session()
+    try:
+        logs = (
+            session.query(EnrollLog)
+            .order_by(EnrollLog.attempted_at.desc())
+            .limit(50)
+            .all()
+        )
+        return jsonify({
+            "success": True,
+            "data": [{
+                "id": l.id,
+                "course_id": l.course_id,
+                "course_name": l.course_name,
+                "attempted_at": l.attempted_at.strftime("%Y-%m-%d %H:%M"),
+                "success": l.success,
+                "message": l.message,
+            } for l in logs],
+        })
+    finally:
+        session.close()
+
+
+# ========== RSS 端点 ==========
+
+@app.route("/rss")
+def rss_feed():
+    """RSS 2.0 Feed"""
+    session = get_session()
+    try:
+        courses = (
+            session.query(Course)
+            .order_by(Course.first_seen.desc())
+            .limit(50)
+            .all()
+        )
+        base_url = request.host_url.rstrip("/")
+        xml = generate_rss_feed(courses, base_url)
+        return Response(xml, mimetype="application/rss+xml; charset=utf-8")
+    finally:
+        session.close()
+
+
+@app.route("/atom")
+def atom_feed():
+    """Atom Feed"""
+    session = get_session()
+    try:
+        courses = (
+            session.query(Course)
+            .order_by(Course.first_seen.desc())
+            .limit(50)
+            .all()
+        )
+        base_url = request.host_url.rstrip("/")
+        xml = generate_atom_feed(courses, base_url)
+        return Response(xml, mimetype="application/atom+xml; charset=utf-8")
+    finally:
+        session.close()
