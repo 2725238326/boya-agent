@@ -40,7 +40,7 @@ def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
 
         if config["use_tls"]:
             # Gmail: STARTTLS on port 587
-            server = smtplib.SMTP(config["server"], config["port"])
+            server = smtplib.SMTP(config["server"], config["port"], timeout=10)
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -50,7 +50,7 @@ def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
         else:
             # SSL on port 465 (QQ etc.)
             context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(config["server"], config["port"], context=context) as server:
+            with smtplib.SMTP_SSL(config["server"], config["port"], context=context, timeout=10) as server:
                 server.login(config["username"], config["password"])
                 server.send_message(msg)
 
