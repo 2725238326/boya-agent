@@ -4,34 +4,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>订阅博雅课程推送</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>订阅博雅课程</title>
     <style>
         :root {
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --border: #e2e8f0;
-            --accent: #3b82f6;
-            --accent-light: #eff6ff;
-            --accent-hover: #2563eb;
-            --text: #1e293b;
-            --text-muted: #64748b;
-            --success: #10b981;
-            --danger: #ef4444;
-            --radius: 12px;
+            /* Apple light theme colors */
+            --bg-color: #f5f5f7;
+            --text-main: #1d1d1f;
+            --text-muted: #86868b;
+            --accent: #0071e3;
+            --accent-hover: #0077ed;
+            --success: #34c759;
+            --danger: #ff3b30;
+
+            /* Liquid glass properties */
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --glass-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+
+            /* Flowing mesh gradient colors */
+            --mesh-1: #e0c3fc;
+            --mesh-2: #8ec5fc;
+            --mesh-3: #fce38a;
+            --mesh-4: #f38181;
         }
 
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
+            /* Modern system typography prioritizing SF Pro */
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(circle at 15% 50%, rgba(224, 195, 252, 0.45) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(142, 197, 252, 0.45) 0%, transparent 50%),
+                radial-gradient(circle at 50% 80%, rgba(252, 227, 138, 0.35) 0%, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -41,38 +55,43 @@
 
         .container {
             width: 100%;
-            max-width: 480px;
+            max-width: 460px;
         }
 
         .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            background: var(--glass-bg);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            border-radius: 28px;
+            box-shadow: var(--glass-shadow);
             overflow: hidden;
+            transform: translateZ(0);
+            /* Force hardware acceleration */
         }
 
         .card-header {
-            background: #ffffff;
-            padding: 32px 28px 16px;
+            padding: 40px 32px 16px;
             text-align: center;
-            border-bottom: 1px solid var(--border);
         }
 
         .card-header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--text);
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.015em;
             margin-bottom: 8px;
+            color: var(--text-main);
         }
 
         .card-header p {
-            font-size: 14px;
+            font-size: 15px;
             color: var(--text-muted);
+            font-weight: 400;
+            margin-top: 4px;
         }
 
         .card-body {
-            padding: 28px;
+            padding: 16px 32px 40px;
         }
 
         .form-group {
@@ -81,105 +100,120 @@
 
         .form-group label {
             display: block;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
             margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            opacity: 0.8;
         }
 
         .form-hint {
             font-size: 12px;
             color: var(--text-muted);
             font-weight: 400;
-            margin-left: 4px;
+            text-transform: none;
+            letter-spacing: normal;
         }
 
         .input,
         .select {
             width: 100%;
-            padding: 12px 14px;
-            background: #ffffff;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 14px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            color: var(--text-main);
+            font-size: 16px;
             outline: none;
-            transition: all 0.2s;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
             font-family: inherit;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
         }
 
         .input:focus,
         .select:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            background: #ffffff;
+            border-color: rgba(0, 113, 227, 0.4);
+            box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.15);
+        }
+
+        .input::placeholder {
+            color: #a1a1a6;
         }
 
         .select {
             appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath stroke='%2386868b' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 12px center;
-            background-size: 16px;
+            background-position: right 16px center;
             padding-right: 40px;
             cursor: pointer;
-        }
-
-        .select option {
-            color: var(--text);
         }
 
         .chip-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 10px;
         }
 
         .chip {
-            padding: 6px 14px;
-            background: #f1f5f9;
-            border: 1px solid transparent;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(0, 0, 0, 0.05);
             border-radius: 20px;
-            font-size: 13px;
+            font-size: 14px;
             color: var(--text-muted);
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
             user-select: none;
+            font-weight: 500;
         }
 
         .chip:hover {
-            background: #e2e8f0;
-            color: var(--text);
+            background: rgba(255, 255, 255, 0.8);
+            color: var(--text-main);
         }
 
         .chip.active {
-            background: var(--accent-light);
-            border-color: rgba(59, 130, 246, 0.3);
-            color: var(--accent-hover);
-            font-weight: 500;
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25);
         }
 
         .switch-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px;
-            background: #f8fafc;
-            border-radius: 8px;
-            border: 1px solid var(--border);
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 16px;
+            border: 1px solid rgba(0, 0, 0, 0.03);
+            margin-top: 12px;
         }
 
         .switch-row label:first-child {
             margin-bottom: 0;
             font-weight: 500;
-            font-size: 14px;
+            font-size: 15px;
+            text-transform: none;
+            letter-spacing: normal;
         }
 
+        .switch-row .form-hint {
+            display: block;
+            margin-top: 4px;
+            font-size: 13px;
+        }
+
+        /* iOS style toggle */
         .switch {
             position: relative;
-            width: 44px;
-            height: 24px;
+            width: 50px;
+            height: 30px;
             flex-shrink: 0;
-            display: inline-block;
         }
 
         .switch input {
@@ -195,26 +229,26 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #cbd5e1;
-            transition: .3s;
-            border-radius: 24px;
+            background-color: #e9e9ea;
+            transition: .4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            border-radius: 30px;
         }
 
         .switch .slider:before {
             position: absolute;
             content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
+            height: 26px;
+            width: 26px;
+            left: 2px;
+            bottom: 2px;
             background-color: white;
-            transition: .3s;
+            transition: .4s cubic-bezier(0.25, 0.8, 0.25, 1);
             border-radius: 50%;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.1);
         }
 
         .switch input:checked+.slider {
-            background-color: var(--accent);
+            background-color: var(--success);
         }
 
         .switch input:checked+.slider:before {
@@ -223,73 +257,120 @@
 
         .btn {
             width: 100%;
-            padding: 14px;
+            padding: 16px;
             background: var(--accent);
             border: none;
-            border-radius: 8px;
+            border-radius: 14px;
             color: #fff;
-            font-size: 15px;
+            font-size: 17px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
             font-family: inherit;
-            margin-top: 8px;
+            margin-top: 12px;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.2);
         }
 
         .btn:hover {
             background: var(--accent-hover);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 113, 227, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 8px rgba(0, 113, 227, 0.2);
         }
 
         .btn:disabled {
-            opacity: 0.65;
+            opacity: 0.5;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .message {
             text-align: center;
-            padding: 14px;
-            border-radius: 8px;
+            padding: 16px;
+            border-radius: 12px;
             font-size: 14px;
-            margin-top: 16px;
+            font-weight: 500;
+            margin-top: 20px;
             display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .message.success {
             display: block;
-            background: #ecfdf5;
-            color: #059669;
-            border: 1px solid #a7f3d0;
+            background: rgba(52, 199, 89, 0.1);
+            color: #248a3d;
         }
 
         .message.error {
             display: block;
-            background: #fef2f2;
-            color: #dc2626;
-            border: 1px solid #fecaca;
+            background: rgba(255, 59, 48, 0.1);
+            color: #c90000;
         }
 
         .result-card {
             text-align: center;
-            padding: 48px 32px;
+            padding: 60px 40px;
         }
 
-        .result-card .icon {
-            font-size: 56px;
-            margin-bottom: 20px;
+        .result-card .icon-wrapper {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        .icon-wrapper.success {
+            background: rgba(52, 199, 89, 0.15);
+            color: var(--success);
+        }
+
+        .icon-wrapper.error {
+            background: rgba(255, 59, 48, 0.15);
+            color: var(--danger);
+        }
+
+        .icon-wrapper.info {
+            background: rgba(0, 113, 227, 0.15);
+            color: var(--accent);
+        }
+
+        .result-card svg {
+            width: 40px;
+            height: 40px;
         }
 
         .result-card h2 {
-            font-size: 22px;
-            color: var(--text);
+            font-size: 24px;
+            color: var(--text-main);
             margin-bottom: 12px;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: -0.015em;
         }
 
         .result-card p {
             font-size: 15px;
             color: var(--text-muted);
-            line-height: 1.5;
+            line-height: 1.6;
         }
     </style>
 </head>
@@ -299,27 +380,27 @@
         <!-- 订阅表单 -->
         <div class="card" id="formCard">
             <div class="card-header">
-                <h1>🎓 订阅博雅课程推送</h1>
+                <h1>订阅博雅课程</h1>
                 <p>输入邮箱，实时接收新课程通知</p>
             </div>
             <div class="card-body">
                 <form id="subscribeForm" onsubmit="handleSubscribe(event)">
                     <div class="form-group">
-                        <label>📧 邮箱地址</label>
-                        <input type="email" class="input" id="emailInput" required placeholder="your@email.com">
+                        <label>邮箱地址</label>
+                        <input type="email" class="input" id="emailInput" required placeholder="name@example.com">
                     </div>
 
                     <div class="form-group">
-                        <label>🏫 校区偏好</label>
+                        <label>校区偏好</label>
                         <select class="select" id="campusSelect">
-                            <option value="">不限</option>
+                            <option value="">全部校区</option>
                             <option value="沙河">沙河校区</option>
                             <option value="学院路">学院路校区</option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label>🏷️ 课程类别 <span class="form-hint">（可多选，不选则全选）</span></label>
+                        <label>课程类别 <span class="form-hint">未选择则默认推送全部类别</span></label>
                         <div class="chip-row" id="categoryChips">
                             <span class="chip" onclick="toggleChip(this)">博雅课程-安全健康</span>
                             <span class="chip" onclick="toggleChip(this)">博雅课程-德育</span>
@@ -329,9 +410,9 @@
                     </div>
 
                     <div class="form-group switch-row">
-                        <label style="margin-bottom:0">
-                            ✅ 仅推送自主签到课程
-                            <span class="form-hint" style="display:block">过滤掉常规签到课程</span>
+                        <label>
+                            仅推送自主签到课程
+                            <span class="form-hint">过滤掉由老师或系统统一签到的常规课程</span>
                         </label>
                         <label class="switch">
                             <input type="checkbox" id="selfSignCheck" checked>
@@ -339,7 +420,7 @@
                         </label>
                     </div>
 
-                    <button type="submit" class="btn" id="submitBtn">📮 订阅推送</button>
+                    <button type="submit" class="btn" id="submitBtn">订阅推送</button>
                     <div class="message" id="msgBox"></div>
                 </form>
             </div>
@@ -348,14 +429,25 @@
         <!-- 验证/退订结果页 -->
         <div class="card" id="resultCard" style="display:none">
             <div class="result-card">
-                <div class="icon" id="resultIcon"></div>
-                <h2 id="resultTitle"></h2>
-                <p id="resultDesc"></p>
+                <div class="icon-wrapper" id="resultIconWrapper">
+                    <svg id="resultIconSvg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor" stroke-width="2">
+                        <!-- Icon paths injected by JS -->
+                    </svg>
+                </div>
+                <h2 id="resultTitle">处理中...</h2>
+                <p id="resultDesc">请稍候</p>
             </div>
         </div>
     </div>
 
     <script>
+        const ICONS = {
+            success: '<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />',
+            error: '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />',
+            info: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />'
+        };
+
         function toggleChip(el) { el.classList.toggle('active'); }
 
         function getSelectedCategories() {
@@ -368,7 +460,7 @@
             const btn = document.getElementById('submitBtn');
             const msg = document.getElementById('msgBox');
             btn.disabled = true;
-            btn.textContent = '⏳ 提交中...';
+            btn.textContent = '提交中...';
             msg.className = 'message';
             msg.style.display = 'none';
 
@@ -387,45 +479,50 @@
 
                 if (data.success) {
                     msg.className = 'message success';
-                    msg.textContent = '✅ ' + data.message;
+                    msg.textContent = data.message;
                     msg.style.display = 'block';
                 } else {
                     msg.className = 'message error';
-                    msg.textContent = '❌ ' + (data.error || '订阅失败');
+                    msg.textContent = data.error || '订阅失败';
                     msg.style.display = 'block';
                 }
             } catch (err) {
                 msg.className = 'message error';
-                msg.textContent = '❌ 网络错误，请稍后重试';
+                msg.textContent = '网络错误，请稍后重试';
                 msg.style.display = 'block';
             }
 
             btn.disabled = false;
-            btn.textContent = '📮 订阅推送';
+            btn.textContent = '订阅推送';
         }
 
-        // 如果 URL 包含 result 参数，显示结果卡片
+        // 处理结果回调显示
         const params = new URLSearchParams(window.location.search);
         if (params.has('result')) {
             document.getElementById('formCard').style.display = 'none';
             document.getElementById('resultCard').style.display = 'block';
+
             const type = params.get('result');
-            const icon = document.getElementById('resultIcon');
+            const iconWrapper = document.getElementById('resultIconWrapper');
+            const iconSvg = document.getElementById('resultIconSvg');
             const title = document.getElementById('resultTitle');
             const desc = document.getElementById('resultDesc');
 
             if (type === 'verified') {
-                icon.textContent = '✅';
-                title.textContent = '邮箱验证成功！';
-                desc.textContent = '你将开始接收博雅课程推送通知';
+                iconWrapper.className = 'icon-wrapper success';
+                iconSvg.innerHTML = ICONS.success;
+                title.textContent = '邮箱验证成功';
+                desc.textContent = '你已成功订阅，系统将根据偏好为你实时推送最新博雅课程';
             } else if (type === 'unsubscribed') {
-                icon.textContent = '👋';
-                title.textContent = '已退订';
-                desc.textContent = '你将不再接收推送邮件，如需重新订阅请回到订阅页面';
+                iconWrapper.className = 'icon-wrapper info';
+                iconSvg.innerHTML = ICONS.info;
+                title.textContent = '退订成功';
+                desc.textContent = '你将不再接收推送邮件，如需重新订阅请返回订阅页面';
             } else if (type === 'invalid') {
-                icon.textContent = '❌';
-                title.textContent = '链接无效';
-                desc.textContent = '验证链接已过期或不存在';
+                iconWrapper.className = 'icon-wrapper error';
+                iconSvg.innerHTML = ICONS.error;
+                title.textContent = '链接无效或已过期';
+                desc.textContent = '无法完成操作，请确保使用了最新的邮箱链接';
             }
         }
     </script>
