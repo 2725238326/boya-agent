@@ -347,36 +347,4 @@ def send_enroll_reminder_email(to_email: str, course) -> bool:
     return _send_raw_email(to_email, f"选课提醒：{course.name}", html)
 
 
-async def send_reminder_telegram(course) -> bool:
-    """通过 Telegram 发送选课即将开始的提醒"""
-    try:
-        from src.push.telegram_bot import send_batch_notifications
-        # We exploit the existing notification function
-        # but prefix with a reminder tag
-        import os
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        if not token or not chat_id:
-            return False
 
-        import aiohttp
-        enroll_str = course.enroll_start.strftime('%Y-%m-%d %H:%M') if course.enroll_start else '即将'
-        text = (
-            f"⏰ <b>选课即将开始提醒</b>\n\n"
-            f"<b>{course.name}</b>\n"
-            f"{course.category} · {course.teacher}\n"
-            f"选课开始：<b>{enroll_str}</b>\n\n"
-            f"请立即打开博雅选课系统准备选课"
-        )
-        proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-            }, proxy=proxy) as resp:
-                return resp.status == 200
-    except Exception as e:
-        logger.warning(f"Telegram 选课提醒发送失败: {e}")
-        return False

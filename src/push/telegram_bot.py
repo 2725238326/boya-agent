@@ -249,6 +249,36 @@ async def send_enroll_confirmation(course) -> bool:
         return False
 
 
+
+async def send_enroll_confirmation(course) -> bool:
+    """发送选课确认提醒"""
+    if not HAS_TELEGRAM:
+        return False
+
+    try:
+        bot = get_bot()
+        chat_id = get_chat_id()
+
+        msg = (
+            f"🔔 *自动选课确认*\n\n"
+            f"即将为您选课:\n"
+            f"📖 *{_escape_md(course.name)}*\n"
+            f"⏰ {_escape_md(course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知')}\n"
+            f"📍 {_escape_md(course.location)}\n\n"
+            f"如需取消，请在 Web 控制台关闭自动选课开关。"
+        )
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=msg,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"发送选课确认失败: {e}")
+        return False
+
+
 async def send_enroll_result(course, success: bool, message: str = "") -> bool:
     """发送选课结果通知"""
     if not HAS_TELEGRAM:
@@ -291,4 +321,35 @@ async def send_status_message(text: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Telegram 消息发送失败: {e}")
+        return False
+
+
+async def send_reminder_telegram(course) -> bool:
+    """通过 Telegram 发送选课即将开始的提醒"""
+    try:
+        import aiohttp
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if not token or not chat_id:
+            return False
+
+        enroll_str = course.enroll_start.strftime('%Y-%m-%d %H:%M') if course.enroll_start else '即将'
+        text = (
+            f"⏰ <b>选课即将开始提醒</b>\n\n"
+            f"<b>{course.name}</b>\n"
+            f"{course.category} · {course.teacher}\n"
+            f"选课开始：<b>{enroll_str}</b>\n\n"
+            f"请立即打开博雅选课系统准备选课"
+        )
+        proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+            }, proxy=proxy) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.warning(f"Telegram 选课提醒发送失败: {e}")
         return False
