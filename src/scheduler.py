@@ -43,22 +43,13 @@ _browser_state = {
 }
 
 
-async def get_or_create_page():
-    """获取或创建浏览器 page"""
-    if _browser_state["page"] is None or _browser_state["browser"] is None:
-        pw, browser, context, page = await create_browser_context()
-        _browser_state.update(pw=pw, browser=browser, context=context, page=page)
-    return _browser_state["page"]
-
-
-async def close_browser():
-    """关闭浏览器"""
+async def _close_browser_local(pw, browser):
+    """局部关闭浏览器（不依赖全局状态）"""
     try:
-        if _browser_state["browser"]:
-            await _browser_state["browser"].close()
-        if _browser_state["pw"]:
-            await _browser_state["pw"].stop()
-        _browser_state.update(pw=None, browser=None, context=None, page=None)
+        if browser:
+            await browser.close()
+        if pw:
+            await pw.stop()
     except Exception as e:
         logger.warning(f"关闭浏览器时出错: {e}")
 
@@ -66,6 +57,7 @@ async def close_browser():
 async def run_scrape_task():
     """
     核心任务：登录 → 抓取 → 入库 → 过滤 → 推送 → (可选)自动选课
+    每次调用创建全新浏览器，规避跨 event loop 的对象共享问题
     """
     if run_status["is_running"]:
         logger.warning("上一轮任务仍在运行，跳过本次")
@@ -75,21 +67,20 @@ async def run_scrape_task():
     run_status["last_run"] = datetime.now()
     run_status["total_runs"] += 1
 
+    pw = browser = context = page = None
     try:
         logger.info("=" * 50)
         logger.info(f"开始第 {run_status['total_runs']} 轮抓取任务")
 
-        # 1. 获取浏览器并确保登录
-        page = await get_or_create_page()
+        # 1. 创建全新浏览器并确保登录
+        pw, browser, context, page = await create_browser_context()
         logged_in = await ensure_logged_in(page)
         if not logged_in:
             run_status["last_error"] = "登录失败"
             logger.error("登录失败，跳过本轮任务")
-            # 浏览器可能已损坏，关闭后下次重建
-            await close_browser()
             return
 
-        # 同步课程生命周期（即使没有新课也会维护过期状态）
+        # 同步课程生命周期
         _sync_course_lifecycle()
 
         # 2. 抓取课程
@@ -99,7 +90,7 @@ async def run_scrape_task():
             run_status["last_success"] = datetime.now()
             return
 
-        # 3. 保存到数据库（去重），返回新课程 ID 列表
+        # 3. 保存到数据库（去重）
         new_course_ids = save_courses_to_db(courses_data)
         _sync_course_lifecycle()
         run_status["total_new_courses"] += len(new_course_ids)
@@ -111,7 +102,7 @@ async def run_scrape_task():
 
         logger.info(f"发现 {len(new_course_ids)} 门新课程")
 
-        # 从数据库查询新课程（绑定到当前 Session）
+        # 从数据库查询新课程
         session = get_session()
         try:
             db_courses = session.query(Course).filter(Course.id.in_(new_course_ids)).all()
@@ -128,7 +119,7 @@ async def run_scrape_task():
 
             logger.info(f"{len(passed_courses)} 门课程通过过滤")
 
-            # 5. 推送（可切换为每日汇总模式）
+            # 5. 推送
             pushed_count = 0
 
             if config.daily_summary_enabled:
@@ -147,7 +138,6 @@ async def run_scrape_task():
                         pushed_count += len(passed_courses)
                         _log_push(passed_courses, "email", len(passed_courses))
 
-                # 至少一个通道成功后才标记
                 if pushed_count > 0:
                     for course in passed_courses:
                         course.pushed = True
@@ -168,10 +158,9 @@ async def run_scrape_task():
     except Exception as e:
         run_status["last_error"] = str(e)
         logger.error(f"抓取任务出错: {e}")
-        # 浏览器可能异常，重置
-        await close_browser()
     finally:
         run_status["is_running"] = False
+        await _close_browser_local(pw, browser)
 
 
 async def run_daily_summary_task():
