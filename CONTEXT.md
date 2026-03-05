@@ -20,8 +20,8 @@ BUAA_boya/
 │   ├── auth.py          # WebVPN + SSO 登录逻辑
 │   ├── scraper.py       # 课程列表爬取 + 详情页抓取
 │   ├── filters.py       # 过滤引擎（签到方式、名额、关键词等）
-│   ├── scheduler.py     # APScheduler 定时任务调度
-│   ├── models.py        # SQLAlchemy 数据模型 (新增 EmailSubscriber)
+│   ├── scheduler.py     # APScheduler 定时任务调度 (含定时抓取和每分钟刷新的选课提醒)
+│   ├── models.py        # SQLAlchemy 数据模型 (含 EmailSubscriber 和 CourseReminder)
 │   ├── enroll.py        # 自动选课逻辑
 │   └── push/
 │       ├── telegram_bot.py  # Telegram 推送
@@ -31,7 +31,7 @@ BUAA_boya/
 │   ├── app.py           # Flask Web 控制台 API & 订阅相关的 RESTful 端点
 │   ├── templates/
 │   │   ├── index.html       # 后台管理控制台页面
-│   │   └── subscribe.html   # 多用户邮件订阅页 (基于 Apple Liquid Glass UI)
+│   │   └── subscribe.html   # 多用户邮件订阅页 (基于 Apple Liquid Glass UI，含选课提醒注册回显)
 │   └── static/
 │       └── app.js       # 前端交互逻辑
 ├── config/
@@ -87,7 +87,8 @@ BUAA_boya/
   - `check_in_method`：详情页的"签到方式"（**自主签到/常规签到**）⬅️ 过滤和 UI 展示高度依赖此字段
   - `expired`：根据 `enroll_end` 自动标记为已过期
 - `FilterConfig` 表：全局用户配置（过滤规则、默认开启开关等）
-- `EmailSubscriber` 表（新增）：存储外部订阅用户的个人偏好（支持 categories 列表、自选校区、独立 `self_sign_only` 等），带 token 邮件验证闭环。
+- `EmailSubscriber` 表：存储外部订阅用户的个人偏好（支持 categories 列表、自选校区、独立 `self_sign_only` 等），带 token 邮件验证闭环。
+- `CourseReminder` 表（新增）：跨线程/跨系统的选课提醒记录器，结合 `scheduler.py` 中的 `check_course_reminders()` 每分钟比对并向用户发邮件+TG 推送（默认选课前 5 分钟响铃）。
 
 ### 后端隔离修复（`web/app.py` & `src/scheduler.py`）
 由于 Playwright 和 Telethon 高度依赖 `asyncio`，Flask 的 request thread 调用 async 方法会报 Event Loop 相关错误。  
@@ -95,7 +96,7 @@ BUAA_boya/
 
 ### 部署架构与域名
 - 服务端由 Nginx 监听 80 端口，代理至 `127.0.0.1:5000` (Flask)
-- 面向公众暴露 `/subscribe`, `/api/subscribe/`, `/api/verify`, `/api/unsubscribe`
+- 面向公众暴露 `/subscribe`, `/api/subscribe/`, `/api/verify`, `/api/unsubscribe`, `/api/remind`
 - 其余全部端点（如 `/`）启用了 Nginx 的 `auth_basic` 模式拦截
 - 部署模式为 **Git 推送驱动**(GitHub Actions)
 

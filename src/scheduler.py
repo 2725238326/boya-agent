@@ -14,8 +14,10 @@ from src.models import Course, PushLog, get_session, init_db, FilterConfig
 from src.scraper import create_browser_context, scrape_courses, save_courses_to_db
 from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
-from src.push.telegram_bot import send_batch_notifications, send_daily_summary_notification
-from src.push.email_push import send_email_notification
+from src.push.email_push import send_email_notification, send_enroll_reminder_email
+from src.push.rss_feed import generate_rss_feed
+from src.enroll import auto_enroll_if_enabled
+from src.push.telegram_bot import send_batch_notifications, send_daily_summary_notification, send_reminder_telegram
 from src.push.rss_feed import generate_rss_feed
 from src.enroll import auto_enroll_if_enabled
 
@@ -240,6 +242,54 @@ def _log_push(courses, push_type, count):
         session.close()
 
 
+async def check_course_reminders():
+    """检查并发送临近的选课提醒（每分钟执行）"""
+    from src.models import CourseReminder, EmailSubscriber
+    session = get_session()
+    try:
+        now = datetime.now()
+        # 查找未发送的提醒
+        pending_reminders = session.query(CourseReminder).filter_by(sent=False).all()
+        if not pending_reminders:
+            return
+
+        for reminder in pending_reminders:
+            course = session.query(Course).filter_by(id=reminder.course_id).first()
+            sub = session.query(EmailSubscriber).filter_by(id=reminder.subscriber_id, active=True).first()
+            
+            if not course or not sub:
+                reminder.sent = True  # 无效数据，标记为已发送
+                continue
+                
+            if not course.enroll_start:
+                continue
+
+            # 计算现在到选课开始还有多少分钟
+            time_diff = course.enroll_start - now
+            minutes_left = time_diff.total_seconds() / 60
+
+            # 如果剩余时间 <= 设定的提醒时间（加上 1 分钟宽限，防止刚好跳过），且尚未过期
+            if 0 < minutes_left <= (reminder.remind_before_minutes + 1):
+                try:
+                    # 分别尝试发邮件和 Telegram
+                    send_enroll_reminder_email(sub.email, course)
+                    await send_reminder_telegram(course)
+                    
+                    reminder.sent = True
+                    logger.info(f"已发送选课提醒: {sub.email} -> {course.name}")
+                except Exception as e:
+                    logger.error(f"发送选课提醒失败 {sub.email} -> {course.name}: {e}")
+            elif minutes_left <= 0:
+                # 已经过了选课时间，标记为已发送
+                reminder.sent = True
+
+        session.commit()
+    except Exception as e:
+        logger.error(f"检查选课提醒出错: {e}")
+    finally:
+        session.close()
+
+
 def start_scheduler(interval_minutes: int = 10):
     """启动定时调度器"""
     scheduler.add_job(
@@ -248,6 +298,12 @@ def start_scheduler(interval_minutes: int = 10):
         id="scrape_task",
         replace_existing=True,
         max_instances=1,
+    )
+    scheduler.add_job(
+        check_course_reminders,
+        trigger=IntervalTrigger(minutes=1),
+        id="course_reminders_task",
+        replace_existing=True,
     )
     _configure_daily_summary_job()
     scheduler.start()

@@ -518,6 +518,11 @@
                 iconSvg.innerHTML = ICONS.info;
                 title.textContent = '退订成功';
                 desc.textContent = '你将不再接收推送邮件，如需重新订阅请返回订阅页面';
+            } else if (type === 'reminded') {
+                iconWrapper.className = 'icon-wrapper success';
+                iconSvg.innerHTML = ICONS.success;
+                title.textContent = '提醒注册成功';
+                desc.textContent = '我们将在该课程选课开始前 5 分钟向你发送邮件提醒，请留意收件箱';
             } else if (type === 'invalid') {
                 iconWrapper.className = 'icon-wrapper error';
                 iconSvg.innerHTML = ICONS.error;
