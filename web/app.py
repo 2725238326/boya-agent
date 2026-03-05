@@ -460,3 +460,41 @@ def api_remind(token, course_id):
         return redirect("/subscribe?result=invalid")
     finally:
         session.close()
+
+
+# ========== 测试工具 ==========
+
+@app.route("/api/test-email", methods=["POST"])
+def api_test_email():
+    """发送测试邮件：用数据库中真实课程数据构建邮件并发送到指定邮箱"""
+    from src.push.email_push import _build_notification_html, _send_raw_email
+
+    data = request.get_json() or {}
+    to_email = (data.get("email") or "").strip()
+    if not to_email or "@" not in to_email:
+        return jsonify({"success": False, "error": "请提供有效的目标邮箱"}), 400
+
+    session = get_session()
+    try:
+        courses = session.query(Course).filter(Course.expired == False).limit(4).all()  # noqa: E712
+        if not courses:
+            return jsonify({"success": False, "error": "数据库中没有可用课程"}), 404
+
+        base_url = request.host_url.rstrip("/")
+        html = _build_notification_html(
+            courses,
+            unsubscribe_url=f"{base_url}/api/unsubscribe/test",
+            sub_token="test",
+            base_url=base_url,
+        )
+        ok = _send_raw_email(to_email, f"[测试] 博雅课程通知 ({len(courses)} 门)", html)
+        if ok:
+            logger.info(f"测试邮件发送成功 -> {to_email}")
+            return jsonify({"success": True, "message": f"测试邮件已发送到 {to_email}，共 {len(courses)} 门课程"})
+        else:
+            return jsonify({"success": False, "error": "邮件发送失败，请检查 SMTP 配置"}), 500
+    except Exception as e:
+        logger.error(f"测试邮件失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
