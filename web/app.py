@@ -10,7 +10,7 @@ from flask import Flask, render_template, jsonify, request, Response, redirect
 from flask_cors import CORS
 from loguru import logger
 
-from src.models import Course, FilterConfig, PushLog, EnrollLog, EmailSubscriber, get_session, init_db
+from src.models import Course, FilterConfig, PushLog, EnrollLog, EmailSubscriber, CourseReminder, get_session, init_db
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
     get_run_status,
@@ -420,5 +420,43 @@ def api_subscribers():
             "data": [s.to_dict() for s in subs],
             "total": len(subs),
         })
+    finally:
+        session.close()
+
+
+@app.route("/api/remind/<token>/<course_id>")
+def api_remind(token, course_id):
+    """注册选课提醒：用户点击邮件中的「提醒我选课」按钮"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token, active=True).first()
+        if not sub:
+            return redirect("/subscribe?result=invalid")
+
+        course = session.query(Course).filter_by(id=course_id).first()
+        if not course:
+            return redirect("/subscribe?result=invalid")
+
+        # 防止重复注册
+        existing = (
+            session.query(CourseReminder)
+            .filter_by(subscriber_id=sub.id, course_id=course_id, sent=False)
+            .first()
+        )
+        if not existing:
+            reminder = CourseReminder(
+                subscriber_id=sub.id,
+                course_id=course_id,
+                remind_before_minutes=5,
+            )
+            session.add(reminder)
+            session.commit()
+            logger.info(f"选课提醒已注册: {sub.email} -> {course.name}")
+
+        return redirect("/subscribe?result=reminded")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"注册选课提醒失败: {e}")
+        return redirect("/subscribe?result=invalid")
     finally:
         session.close()

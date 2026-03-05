@@ -60,40 +60,70 @@ def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
         return False
 
 
+# ========== 通用样式 ==========
+
+_EMAIL_ACCENT = "#0071e3"  # Apple blue
+_EMAIL_BG = "#f5f5f7"
+_EMAIL_CARD_BG = "#ffffff"
+_EMAIL_TEXT = "#1d1d1f"
+_EMAIL_MUTED = "#86868b"
+
+
+def _email_shell(title: str, body_html: str, footer_html: str = "") -> str:
+    """统一的邮件外壳模板 — 移动端 & 桌面端双适配"""
+    return f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+</head>
+<body style="margin:0; padding:0; background:{_EMAIL_BG};
+             font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+             -webkit-font-smoothing:antialiased; color:{_EMAIL_TEXT};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
+       border-radius:20px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,0.06);">
+<!-- Header -->
+<tr><td style="background:{_EMAIL_ACCENT}; padding:28px 24px; text-align:center;">
+  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700; letter-spacing:-0.01em;">{title}</h1>
+</td></tr>
+<!-- Body -->
+<tr><td style="padding:24px;">
+{body_html}
+</td></tr>
+<!-- Footer -->
+<tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
+  BUAA 博雅课程推送{footer_html}
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
 # ========== 验证邮件 ==========
 
 def send_verification_email(to_email: str, verify_url: str) -> bool:
     """发送邮箱验证邮件"""
-    html = f"""
-    <html>
-    <body style="font-family: -apple-system, sans-serif; background:#f5f5f5; padding:20px; margin:0;">
-        <div style="max-width:500px; margin:0 auto; background:#fff; border-radius:16px; overflow:hidden;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-            <div style="background:linear-gradient(135deg, #667eea, #764ba2); padding:30px; text-align:center;">
-                <h1 style="color:#fff; margin:0; font-size:22px;">🎓 验证你的邮箱</h1>
-            </div>
-            <div style="padding:30px; text-align:center;">
-                <p style="color:#555; font-size:15px; margin-bottom:24px;">
-                    点击下方按钮验证邮箱，即可开始接收博雅课程推送通知
-                </p>
-                <a href="{verify_url}"
-                   style="display:inline-block; padding:14px 36px; background:linear-gradient(135deg,#667eea,#764ba2);
-                          color:#fff; text-decoration:none; border-radius:10px; font-weight:bold; font-size:15px;">
-                    ✅ 验证邮箱
-                </a>
-                <p style="color:#999; font-size:12px; margin-top:20px;">
-                    如果按钮无法点击，请复制以下链接到浏览器：<br>
-                    <span style="color:#667eea;">{verify_url}</span>
-                </p>
-            </div>
-            <div style="background:#f9f9f9; padding:12px; text-align:center; font-size:11px; color:#bbb;">
-                由 BUAA 博雅课程推送智能体发送
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    ok = _send_raw_email(to_email, "🎓 验证你的博雅课程推送订阅", html)
+    body = f"""
+<p style="font-size:15px; color:{_EMAIL_TEXT}; line-height:1.6; text-align:center; margin:0 0 24px;">
+  点击下方按钮验证邮箱，即可开始接收博雅课程推送通知
+</p>
+<table role="presentation" width="100%"><tr><td align="center">
+  <a href="{verify_url}" style="display:inline-block; padding:14px 40px; background:{_EMAIL_ACCENT};
+     color:#fff; text-decoration:none; border-radius:12px; font-weight:600; font-size:16px;">
+    验证邮箱
+  </a>
+</td></tr></table>
+<p style="font-size:12px; color:{_EMAIL_MUTED}; text-align:center; margin:20px 0 0; word-break:break-all;">
+  如按钮无法点击，请复制链接：<br>{verify_url}
+</p>"""
+    html = _email_shell("验证你的邮箱", body)
+    ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html)
     if ok:
         logger.info(f"验证邮件已发送: {to_email}")
     return ok
@@ -101,89 +131,97 @@ def send_verification_email(to_email: str, verify_url: str) -> bool:
 
 # ========== 课程通知 ==========
 
-def _build_course_html(course) -> str:
-    """构建单条课程 HTML 卡片"""
+
+def _build_course_html(course, remind_url: str = "") -> str:
+    """构建单条课程 HTML 卡片 — 移动端友好的单列布局"""
     check_in = getattr(course, 'check_in_method', '') or getattr(course, 'sign_method', '') or ''
-    sign_color = "#4CAF50" if "自主" in check_in else "#FF9800"
+    is_self_sign = "自主" in check_in
+    sign_color = "#34c759" if is_self_sign else "#ff9500"
     remaining = course.remaining
-    cap_color = "#4CAF50" if remaining > 10 else ("#FF9800" if remaining > 0 else "#F44336")
+    cap_color = "#34c759" if remaining > 10 else ("#ff9500" if remaining > 0 else "#ff3b30")
+
+    enroll_start_str = course.enroll_start.strftime('%m/%d %H:%M') if course.enroll_start else '未知'
+    start_str = course.start_time.strftime('%m/%d %H:%M') if course.start_time else '未知'
+
+    remind_btn = ""
+    if remind_url:
+        remind_btn = f"""
+<table role="presentation" width="100%" style="margin-top:14px;"><tr><td align="center">
+  <a href="{remind_url}" style="display:inline-block; padding:10px 24px; background:#f5f5f7;
+     color:{_EMAIL_ACCENT}; text-decoration:none; border-radius:10px; font-weight:600; font-size:13px;
+     border:1px solid #e5e5ea;">提醒我选课</a>
+</td></tr></table>"""
 
     return f"""
-    <div style="border:1px solid #e0e0e0; border-radius:12px; padding:20px; margin:15px 0;
-                background:linear-gradient(135deg, #667eea11, #764ba211);
-                box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-        <h3 style="margin:0 0 12px 0; color:#333; font-size:18px;">
-            📖 {course.name}
-        </h3>
-        <table style="width:100%; border-collapse:collapse; font-size:14px; color:#555;">
-            <tr>
-                <td style="padding:6px 0;"><strong>🏷️ 类别</strong></td>
-                <td>{course.category}</td>
-                <td style="padding:6px 0;"><strong>👨‍🏫 教师</strong></td>
-                <td>{course.teacher}</td>
-            </tr>
-            <tr>
-                <td style="padding:6px 0;"><strong>📍 地点</strong></td>
-                <td>{course.location}</td>
-                <td style="padding:6px 0;"><strong>🏫 校区</strong></td>
-                <td>{course.campus}</td>
-            </tr>
-            <tr>
-                <td style="padding:6px 0;"><strong>⏰ 课程</strong></td>
-                <td>{course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知'}</td>
-                <td style="padding:6px 0;"><strong>⏰ 结束</strong></td>
-                <td>{course.end_time.strftime('%Y-%m-%d %H:%M') if course.end_time else '未知'}</td>
-            </tr>
-            <tr>
-                <td style="padding:6px 0;"><strong>✍️ 签到</strong></td>
-                <td><span style="color:{sign_color}; font-weight:bold;">{check_in or '直接选课'}</span></td>
-                <td style="padding:6px 0;"><strong>👥 名额</strong></td>
-                <td><span style="color:{cap_color}; font-weight:bold;">{course.enrolled}/{course.capacity} (剩余 {remaining})</span></td>
-            </tr>
-        </table>
-    </div>
-    """
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 16px; border:1px solid #f0f0f0; border-radius:16px; overflow:hidden;">
+<tr><td style="padding:20px;">
+  <p style="margin:0 0 4px; font-size:17px; font-weight:600; color:{_EMAIL_TEXT}; line-height:1.4;">
+    {course.name}
+  </p>
+  <p style="margin:0 0 14px; font-size:13px; color:{_EMAIL_MUTED};">
+    {course.category} · {course.teacher} · {course.campus}
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px; color:{_EMAIL_TEXT};">
+    <tr>
+      <td style="padding:5px 0; width:50%;"><span style="color:{_EMAIL_MUTED}">地点</span><br>{course.location}</td>
+      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">签到方式</span><br><span style="color:{sign_color}; font-weight:600;">{check_in or '直接选课'}</span></td>
+    </tr>
+    <tr>
+      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">课程时间</span><br>{start_str}</td>
+      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">名额</span><br><span style="color:{cap_color}; font-weight:600;">{course.enrolled}/{course.capacity} (剩余 {remaining})</span></td>
+    </tr>
+    <tr>
+      <td colspan="2" style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">选课开始</span><br>{enroll_start_str}</td>
+    </tr>
+  </table>
+  {remind_btn}
+</td></tr>
+</table>"""
 
 
-def _build_notification_html(courses: list, unsubscribe_url: str = "") -> str:
+def _build_notification_html(courses: list, unsubscribe_url: str = "", sub_token: str = "", base_url: str = "") -> str:
     """构建完整通知邮件"""
-    cards = "\n".join(_build_course_html(c) for c in courses)
+    cards = []
+    for c in courses:
+        remind_url = f"{base_url}/api/remind/{sub_token}/{c.id}" if sub_token and base_url else ""
+        cards.append(_build_course_html(c, remind_url))
+
+    cards_html = "\n".join(cards)
+    subtitle = f'<p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">发现 {len(courses)} 门符合条件的新课程</p>'
+
     unsub_link = ""
     if unsubscribe_url:
-        unsub_link = f' | <a href="{unsubscribe_url}" style="color:#667eea;">退订</a>'
+        unsub_link = f' · <a href="{unsubscribe_url}" style="color:{_EMAIL_ACCENT};">退订</a>'
 
+    body = f"{subtitle if len(courses) > 0 else ''}</td></tr><tr><td style='padding:24px;'>{cards_html}"
+    footer = unsub_link
+
+    # We inline the shell manually here for the subtitle in the header
     return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                 background:#f5f5f5; padding:20px; margin:0;">
-        <div style="max-width:700px; margin:0 auto; background:#fff;
-                    border-radius:16px; overflow:hidden;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-            <div style="background:linear-gradient(135deg, #667eea, #764ba2);
-                        padding:30px; text-align:center;">
-                <h1 style="color:#fff; margin:0; font-size:24px;">
-                    🎓 博雅课程新通知
-                </h1>
-                <p style="color:rgba(255,255,255,0.8); margin:8px 0 0 0; font-size:14px;">
-                    共发现 {len(courses)} 门符合条件的新课程
-                </p>
-            </div>
-            <div style="padding:20px;">
-                {cards}
-            </div>
-            <div style="background:#f9f9f9; padding:15px; text-align:center;
-                        border-top:1px solid #eee; font-size:12px; color:#999;">
-                由 BUAA 博雅课程推送智能体自动发送{unsub_link}
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:{_EMAIL_BG};
+             font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+             -webkit-font-smoothing:antialiased; color:{_EMAIL_TEXT};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
+       border-radius:20px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,0.06);">
+<tr><td style="background:{_EMAIL_ACCENT}; padding:28px 24px; text-align:center;">
+  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700;">博雅课程新通知</h1>
+  <p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">发现 {len(courses)} 门符合条件的新课程</p>
+</td></tr>
+<tr><td style="padding:24px;">
+{cards_html}
+</td></tr>
+<tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
+  BUAA 博雅课程推送{unsub_link}
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
 
 
 def _filter_for_subscriber(courses: list, sub) -> list:
@@ -232,8 +270,8 @@ async def send_email_to_subscribers(courses: list, base_url: str = "") -> int:
                 continue
 
             unsub_url = f"{base_url}/api/unsubscribe/{sub.token}" if base_url else ""
-            html = _build_notification_html(filtered, unsub_url)
-            ok = _send_raw_email(sub.email, f"📚 博雅新课程通知 ({len(filtered)} 门)", html)
+            html = _build_notification_html(filtered, unsub_url, sub_token=sub.token, base_url=base_url)
+            ok = _send_raw_email(sub.email, f"博雅新课程通知 ({len(filtered)} 门)", html)
             if ok:
                 sent_count += 1
                 logger.info(f"邮件推送成功: {len(filtered)} 门课程 -> {sub.email}")
@@ -265,21 +303,80 @@ async def send_enroll_result_email(course, success: bool, message: str = "") -> 
             .all()
         )
 
-        status = "成功 ✅" if success else "失败 ❌"
-        html = f"""
-        <html><body style="font-family: sans-serif; padding:20px;">
-        <h2>{'✅' if success else '❌'} 自动选课{status}</h2>
-        <p><strong>课程：</strong>{course.name}</p>
-        <p><strong>时间：</strong>{course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知'}</p>
-        <p><strong>地点：</strong>{course.location}</p>
-        {"<p><strong>备注：</strong>" + message + "</p>" if message else ""}
-        </body></html>
-        """
+        status_label = "成功" if success else "失败"
+        body = f"""
+<p style="font-size:15px; line-height:1.6; margin:0 0 12px;">
+  <strong>课程：</strong>{course.name}<br>
+  <strong>时间：</strong>{course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知'}<br>
+  <strong>地点：</strong>{course.location}
+</p>
+{f'<p style="font-size:14px; color:{_EMAIL_MUTED};">备注：{message}</p>' if message else ''}"""
+        html = _email_shell(f"自动选课{status_label}", body)
 
         sent = 0
         for sub in subs:
-            if _send_raw_email(sub.email, f"选课{status}: {course.name}", html):
+            if _send_raw_email(sub.email, f"选课{status_label}: {course.name}", html):
                 sent += 1
         return sent > 0
     finally:
         session.close()
+
+
+# ========== 选课提醒 ==========
+
+def send_enroll_reminder_email(to_email: str, course) -> bool:
+    """发送选课即将开始提醒"""
+    enroll_str = course.enroll_start.strftime('%Y-%m-%d %H:%M') if course.enroll_start else '即将'
+    body = f"""
+<p style="font-size:16px; font-weight:600; color:{_EMAIL_TEXT}; margin:0 0 8px;">
+  {course.name}
+</p>
+<p style="font-size:14px; color:{_EMAIL_MUTED}; margin:0 0 20px;">
+  {course.category} · {course.teacher} · {course.campus}
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="background:#f5f5f7; border-radius:12px; margin-bottom:20px;">
+<tr><td style="padding:16px; text-align:center;">
+  <p style="margin:0; font-size:14px; color:{_EMAIL_MUTED};">选课开始时间</p>
+  <p style="margin:4px 0 0; font-size:24px; font-weight:700; color:{_EMAIL_ACCENT};">{enroll_str}</p>
+</td></tr></table>
+<p style="font-size:14px; color:{_EMAIL_TEXT}; text-align:center; margin:0;">
+  请提前打开博雅选课系统准备选课
+</p>"""
+    html = _email_shell("选课即将开始", body)
+    return _send_raw_email(to_email, f"选课提醒：{course.name}", html)
+
+
+async def send_reminder_telegram(course) -> bool:
+    """通过 Telegram 发送选课即将开始的提醒"""
+    try:
+        from src.push.telegram_bot import send_batch_notifications
+        # We exploit the existing notification function
+        # but prefix with a reminder tag
+        import os
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if not token or not chat_id:
+            return False
+
+        import aiohttp
+        enroll_str = course.enroll_start.strftime('%Y-%m-%d %H:%M') if course.enroll_start else '即将'
+        text = (
+            f"⏰ <b>选课即将开始提醒</b>\n\n"
+            f"<b>{course.name}</b>\n"
+            f"{course.category} · {course.teacher}\n"
+            f"选课开始：<b>{enroll_str}</b>\n\n"
+            f"请立即打开博雅选课系统准备选课"
+        )
+        proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+            }, proxy=proxy) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.warning(f"Telegram 选课提醒发送失败: {e}")
+        return False

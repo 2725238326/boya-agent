@@ -233,6 +233,18 @@ class EmailSubscriber(Base):
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
         }
 
+class CourseReminder(Base):
+    """选课提醒：用户通过邮件中的“提醒我选课”按钮注册"""
+    __tablename__ = "course_reminders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subscriber_id = Column(Integer, nullable=False)   # 关联 EmailSubscriber.id
+    course_id = Column(String, nullable=False)         # 关联 Course.id
+    remind_before_minutes = Column(Integer, default=5)
+    sent = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 
 def init_db():
     """初始化数据库表，如果不存在则创建"""
