@@ -29,7 +29,7 @@
         btn.id = "bridgeLoginBtn";
         btn.className = "btn";
         btn.style.display = "none";
-        btn.textContent = "I already verified, click to login";
+        btn.textContent = "\u6211\u5df2\u5728\u5176\u4ed6\u8bbe\u5907\u5b8c\u6210\u9a8c\u8bc1\uff0c\u70b9\u51fb\u8fd9\u91cc\u767b\u5f55";
         btn.addEventListener("click", bridgeLogin);
 
         loginBtn.insertAdjacentElement("afterend", btn);
@@ -87,12 +87,13 @@
                 stopBridgePolling();
                 clearBridgeTicket();
                 setBridgeButtonVisible(false);
+                showMessage("\u672c\u6b21\u9a8c\u8bc1\u72b6\u6001\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u767b\u5f55\u94fe\u63a5\u3002", "error");
                 return;
             }
             if (status.verified) {
                 stopBridgePolling();
                 setBridgeButtonVisible(true);
-                showMessage("Verification complete. Click the button below to login.", "success");
+                showMessage("\u5df2\u68c0\u6d4b\u5230\u4f60\u5b8c\u6210\u4e86\u90ae\u7bb1\u9a8c\u8bc1\uff0c\u73b0\u5728\u53ef\u4ee5\u76f4\u63a5\u767b\u5f55\uff0c\u65e0\u9700\u91cd\u65b0\u8f93\u5165\u90ae\u7bb1\u3002", "success");
             }
         } catch (_) {
             // next polling tick will retry
@@ -114,7 +115,7 @@
         if (!btn) return;
 
         btn.disabled = true;
-        btn.textContent = "Logging in...";
+        btn.textContent = "\u767b\u5f55\u4e2d...";
         try {
             const resp = await fetch(`/api/subscribe/bridge/${encodeURIComponent(bridgeTicket)}/claim`, {
                 method: "POST",
@@ -122,7 +123,7 @@
             });
             const data = await resp.json();
             if (!data.success) {
-                showMessage(data.error || "Login failed. Please request a new login link.", "error");
+                showMessage(data.error || "\u767b\u5f55\u5931\u8d25\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u767b\u5f55\u94fe\u63a5\u3002", "error");
                 return;
             }
 
@@ -131,10 +132,10 @@
             const url = data.data && data.data.portal_url ? data.data.portal_url : "/portal?login=ok";
             window.location.href = url;
         } catch (_) {
-            showMessage("Network error. Please retry.", "error");
+            showMessage("\u7f51\u7edc\u5f02\u5e38\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002", "error");
         } finally {
             btn.disabled = false;
-            btn.textContent = "I already verified, click to login";
+            btn.textContent = "\u6211\u5df2\u5728\u5176\u4ed6\u8bbe\u5907\u5b8c\u6210\u9a8c\u8bc1\uff0c\u70b9\u51fb\u8fd9\u91cc\u767b\u5f55";
         }
     }
 

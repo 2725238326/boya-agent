@@ -20,7 +20,7 @@
             </a>
             <div class="portal-user">
                 <span class="portal-user-email" id="userEmail">加载中…</span>
-                <button class="portal-user-btn" onclick="switchAccount()">切换账号</button>
+                <button class="portal-user-btn" onclick="switchAccount()">更换邮箱</button>
             </div>
         </div>
     </nav>
@@ -231,15 +231,21 @@
                             保存设置
                         </button>
 
-                        <div style="margin-top:20px; padding-top:16px; border-top:1px solid rgba(0,0,0,0.06);">
-                            <button class="portal-btn-save" id="btnLogoutDevice" onclick="logoutCurrentDevice()"
-                                style="background:#f2f2f7; color:var(--portal-text-secondary); font-size:14px; padding:10px; margin-top:0;">
-                                退出当前设备
-                            </button>
-                            <button class="portal-btn-save" id="btnUnsubscribe" onclick="unsubscribe()"
-                                style="background:transparent; color:var(--portal-danger); font-size:14px; padding:10px; margin-top:0;">
-                                退订推送
-                            </button>
+                        <div class="portal-session-actions">
+                            <div class="portal-session-note">
+                                <div class="portal-session-title">当前设备会保持登录</div>
+                                <div class="portal-session-hint">
+                                    下次打开会自动进入门户。只有在共用设备或准备更换邮箱时，才需要退出当前设备。
+                                </div>
+                            </div>
+                            <div class="portal-session-links">
+                                <button class="portal-link-btn muted" id="btnLogoutDevice" onclick="logoutCurrentDevice()">
+                                    仅在本设备退出
+                                </button>
+                                <button class="portal-link-btn danger" id="btnUnsubscribe" onclick="unsubscribe()">
+                                    退订推送
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -264,7 +270,7 @@
         (function () {
             const params = new URLSearchParams(window.location.search);
             if (params.get('login') === 'ok' && typeof showPortalToast === 'function') {
-                showPortalToast('已经成功登录', 'success');
+                showPortalToast('已成功登录，下次打开会自动进入门户', 'success');
             }
         })();
 
