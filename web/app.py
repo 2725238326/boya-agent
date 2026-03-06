@@ -199,6 +199,7 @@ def api_trigger_scrape():
 @app.route("/api/status")
 def api_status():
     """获取系统运行状态"""
+    from src.scheduler import _browser_state, _push_buffer
     status = get_run_status()
 
     session = get_session()
@@ -209,6 +210,20 @@ def api_status():
         status["total_enroll_logs"] = session.query(EnrollLog).count()
     finally:
         session.close()
+
+    # 浏览器和推送缓冲区状态
+    browser_alive = False
+    try:
+        page = _browser_state.get("page")
+        if page:
+            _ = page.url
+            browser_alive = True
+    except Exception:
+        pass
+
+    status["browser_alive"] = browser_alive
+    status["push_buffer_urgent"] = len(_push_buffer.get("urgent", []))
+    status["push_buffer_soon"] = len(_push_buffer.get("soon", []))
 
     return jsonify({"success": True, "data": status})
 
@@ -381,7 +396,8 @@ def api_verify(token):
         sub.verified = True
         sub.active = True
         session.commit()
-        return redirect("/subscribe?result=verified")
+        # 验证成功后直接进入用户门户
+        return redirect(f"/portal?token={sub.token}&email={sub.email}")
     except Exception as e:
         session.rollback()
         logger.error(f"验证失败: {e}")

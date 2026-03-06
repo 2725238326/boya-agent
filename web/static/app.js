@@ -408,12 +408,18 @@ async function loadStatus() {
     if (el('statPushed')) el('statPushed').textContent = d.total_pushed;
     if (el('statDbCourses')) el('statDbCourses').textContent = d.total_courses_in_db || 0;
     if (el('statExpiredCourses')) el('statExpiredCourses').textContent = d.total_expired_courses || 0;
+    if (el('statBrowserAlive')) el('statBrowserAlive').textContent = d.browser_alive ? '🟢 存活' : '🔴 离线';
+    if (el('statBufferUrgent')) el('statBufferUrgent').textContent = d.push_buffer_urgent || 0;
+    if (el('statBufferSoon')) el('statBufferSoon').textContent = d.push_buffer_soon || 0;
 
     // Dashboard strip
     if (el('dashTotalCourses')) el('dashTotalCourses').textContent = d.total_courses_in_db || 0;
     if (el('dashNewCourses')) el('dashNewCourses').textContent = d.total_new_courses || 0;
     if (el('dashPushed')) el('dashPushed').textContent = d.total_pushed || 0;
     if (el('dashExpired')) el('dashExpired').textContent = d.total_expired_courses || 0;
+    if (el('dashBrowserStatus')) el('dashBrowserStatus').textContent = d.browser_alive ? '存活' : '离线';
+    if (el('dashBrowserIcon')) el('dashBrowserIcon').textContent = d.browser_alive ? '🟢' : '🔴';
+    if (el('dashBufferCount')) el('dashBufferCount').textContent = (d.push_buffer_urgent || 0) + (d.push_buffer_soon || 0);
     if (el('dashLastRun')) {
         const t = d.last_run || '未运行';
         el('dashLastRun').textContent = t.length > 10 ? t.slice(11, 16) : t;
