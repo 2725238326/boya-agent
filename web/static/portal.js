@@ -192,7 +192,8 @@ function renderCourseCard(course, isFull = false) {
     else if (remaining <= 10) fillClass = 'yellow';
 
     const isReminded = portalState.reminderCourseIds.has(course.id);
-    const remindBtn = course.expired
+    const canSetReminder = !course.expired && remaining > 0;
+    const remindBtn = !canSetReminder
         ? ''
         : isReminded
             ? `<button class="portal-btn-remind reminded" disabled>✓ 已设提醒</button>`

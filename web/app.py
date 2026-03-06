@@ -466,6 +466,10 @@ def api_remind(token, course_id):
             if is_json:
                 return jsonify({"success": False, "error": "课程不存在"}), 404
             return redirect("/subscribe?result=invalid")
+        if course.expired or course.remaining <= 0:
+            if is_json:
+                return jsonify({"success": False, "error": "该课程当前不可提醒（已满或已过期）"}), 400
+            return redirect("/subscribe?result=invalid")
 
         # 防止重复注册
         existing = (
