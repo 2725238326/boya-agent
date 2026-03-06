@@ -205,7 +205,6 @@ def api_status():
     session = get_session()
     try:
         status["total_courses_in_db"] = session.query(Course).count()
-        status["total_expired_courses"] = session.query(Course).filter(Course.expired == True).count()  # noqa: E712
         status["total_push_logs"] = session.query(PushLog).count()
         status["total_enroll_logs"] = session.query(EnrollLog).count()
     finally:

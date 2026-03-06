@@ -636,28 +636,41 @@ def _configure_daily_summary_job():
 
 
 def _sync_course_lifecycle():
-    """同步课程生命周期：到期课程标记为 expired"""
+    """
+    同步课程生命周期：选课结束超过 30 分钟 → 直接删除（数据库 + 推送缓冲区）
+    无需先标记 expired，到期即删。
+    """
     session = get_session()
     try:
         now = datetime.now()
-        active_courses = (
+        cutoff = now - timedelta(minutes=30)
+
+        # 查找选课已结束超过 30 分钟的课程
+        dead_courses = (
             session.query(Course)
-            .filter(Course.expired == False)  # noqa: E712
+            .filter(Course.enroll_end != None)  # noqa: E711
+            .filter(Course.enroll_end < cutoff)
             .all()
         )
 
-        expired_count = 0
-        for course in active_courses:
-            if course.enroll_end and course.enroll_end < now:
-                course.expired = True
-                expired_count += 1
+        if not dead_courses:
+            return
 
-        if expired_count > 0:
-            session.commit()
-            logger.info(f"课程生命周期同步完成：新增过期 {expired_count} 门")
+        dead_ids = {c.id for c in dead_courses}
+
+        # 从推送缓冲区移除
+        for key in _push_buffer:
+            _push_buffer[key] = [cid for cid in _push_buffer[key] if cid not in dead_ids]
+
+        # 删除数据库记录
+        for course in dead_courses:
+            session.delete(course)
+        session.commit()
+        logger.info(f"已删除 {len(dead_courses)} 门选课已结束 30 分钟以上的课程")
+
     except Exception as e:
         session.rollback()
-        logger.error(f"同步课程生命周期失败: {e}")
+        logger.error(f"课程生命周期同步失败: {e}")
     finally:
         session.close()
 
