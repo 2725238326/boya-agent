@@ -10,7 +10,17 @@ from flask import Flask, render_template, jsonify, request, Response, redirect
 from flask_cors import CORS
 from loguru import logger
 
-from src.models import Course, FilterConfig, PushLog, EnrollLog, EmailSubscriber, CourseReminder, get_session, init_db
+from src.models import (
+    Course,
+    FilterConfig,
+    PushLog,
+    EnrollLog,
+    EmailSubscriber,
+    CourseReminder,
+    NotificationEvent,
+    get_session,
+    init_db,
+)
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
     get_run_status,
@@ -623,6 +633,56 @@ def api_subscriber_reminders(token):
             })
 
         return jsonify({"success": True, "data": result, "total": len(result)})
+    finally:
+        session.close()
+
+
+@app.route("/api/subscriber/<token>/notifications")
+def api_subscriber_notifications(token):
+    """获取订阅者通知中心时间线（默认最近 24 小时）"""
+    from datetime import datetime, timedelta
+
+    hours_raw = request.args.get("hours", "24")
+    limit_raw = request.args.get("limit", "100")
+
+    try:
+        hours = max(1, min(int(hours_raw), 168))
+    except ValueError:
+        hours = 24
+    try:
+        limit = max(1, min(int(limit_raw), 300))
+    except ValueError:
+        limit = 100
+
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "无效的 token"}), 404
+
+        cutoff = datetime.now() - timedelta(hours=hours)
+        events = (
+            session.query(NotificationEvent)
+            .filter(NotificationEvent.subscriber_id == sub.id)
+            .filter(NotificationEvent.sent_at >= cutoff)
+            .order_by(NotificationEvent.sent_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        data = [{
+            "id": e.id,
+            "course_id": e.course_id,
+            "course_name": e.course_name,
+            "course_category": e.course_category,
+            "event_type": e.event_type,
+            "channel": e.channel,
+            "success": e.success,
+            "message": e.message,
+            "sent_at": e.sent_at.strftime("%Y-%m-%d %H:%M") if e.sent_at else "",
+        } for e in events]
+
+        return jsonify({"success": True, "data": data, "total": len(data)})
     finally:
         session.close()
 

@@ -346,7 +346,7 @@ body.portal-body {
     padding: 3px;
     background: rgba(0, 0, 0, 0.04);
     border-radius: 10px;
-    max-width: 360px;
+    max-width: 520px;
     margin-left: auto;
     margin-right: auto;
 }
@@ -396,6 +396,72 @@ body.portal-body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* ── Notification Timeline ─────────── */
+.portal-notify-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.04);
+}
+
+.portal-notify-item:last-child {
+    border-bottom: none;
+}
+
+.portal-notify-main {
+    min-width: 0;
+}
+
+.portal-notify-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--portal-text);
+    line-height: 1.4;
+}
+
+.portal-notify-meta {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--portal-text-muted);
+}
+
+.portal-notify-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.portal-notify-type,
+.portal-notify-status {
+    padding: 4px 10px;
+    border-radius: 980px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.portal-notify-type.new {
+    background: rgba(0, 113, 227, 0.08);
+    color: var(--portal-accent);
+}
+
+.portal-notify-type.snipe {
+    background: rgba(255, 59, 48, 0.1);
+    color: var(--portal-danger);
+}
+
+.portal-notify-status.success {
+    background: rgba(52, 199, 89, 0.1);
+    color: #248a3d;
+}
+
+.portal-notify-status.failed {
+    background: rgba(255, 149, 0, 0.12);
+    color: #c93400;
 }
 
 /* ── Filter Bar ────────────────────── */
@@ -1155,5 +1221,10 @@ body.portal-body {
 
     .portal-quick-desc {
         display: none;
+    }
+
+    .portal-notify-item {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

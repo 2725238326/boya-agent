@@ -8,6 +8,7 @@ let portalState = {
     email: '',
     subscriber: null,
     reminderCourseIds: new Set(),
+    notifications: [],
 };
 
 // ══════ Init ══════
@@ -49,10 +50,11 @@ async function portalApi(url, options = {}) {
 // ══════ Data Loading ══════
 async function loadPortalData() {
     // Load in parallel
-    const [coursesRes, remindersRes, categoriesRes] = await Promise.all([
+    const [coursesRes, remindersRes, categoriesRes, notificationsRes] = await Promise.all([
         portalApi('/api/courses'),
         portalApi(`/api/subscriber/${portalState.token}/reminders`),
         portalApi('/api/categories'),
+        portalApi(`/api/subscriber/${portalState.token}/notifications?hours=24&limit=120`),
     ]);
 
     // Load subscriber info
@@ -86,7 +88,14 @@ async function loadPortalData() {
         if (pendingCount > 0) {
             badge.textContent = pendingCount;
             badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
         }
+    }
+
+    if (notificationsRes.success) {
+        portalState.notifications = notificationsRes.data;
+        renderNotifications(notificationsRes.data);
     }
 }
 
@@ -358,6 +367,40 @@ function renderReminders(reminders) {
             </span>
         </div>
     `).join('');
+}
+
+// ══════ Notification Center ══════
+function renderNotifications(notifications) {
+    const container = document.getElementById('notificationTimeline');
+    if (!notifications || !notifications.length) {
+        container.innerHTML = `
+            <div class="portal-empty">
+                <div class="portal-empty-icon">📭</div>
+                <div class="portal-empty-text">最近 24 小时暂无推送记录</div>
+                <div class="portal-empty-hint">系统发送通知后会在这里显示时间线</div>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = notifications.map(item => {
+        const typeClass = item.event_type === 'snipe' ? 'snipe' : 'new';
+        const typeText = item.event_type === 'snipe' ? '退课补录' : '新发';
+        const statusText = item.success ? '已送达' : '发送失败';
+        const statusClass = item.success ? 'success' : 'failed';
+        return `
+        <div class="portal-notify-item">
+            <div class="portal-notify-main">
+                <div class="portal-notify-title">${escapeHtml(item.course_name || '未知课程')}</div>
+                <div class="portal-notify-meta">
+                    ${escapeHtml(item.course_category || '未分类')} · ${escapeHtml(item.channel || 'email')} · ${escapeHtml(item.sent_at || '')}
+                </div>
+            </div>
+            <div class="portal-notify-badges">
+                <span class="portal-notify-type ${typeClass}">${typeText}</span>
+                <span class="portal-notify-status ${statusClass}">${statusText}</span>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // ══════ Switch Account ══════

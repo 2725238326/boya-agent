@@ -244,13 +244,13 @@ def _filter_for_subscriber(courses: list, sub) -> list:
     return result
 
 
-async def send_email_to_subscribers(courses: list, base_url: str = "") -> int:
+async def send_email_to_subscribers(courses: list, base_url: str = "", event_type: str = "new") -> int:
     """
     向所有活跃且已验证的订阅者发送课程通知
     每个订阅者按自己的偏好独立过滤
     返回成功发送数
     """
-    from src.models import EmailSubscriber, get_session
+    from src.models import EmailSubscriber, NotificationEvent, get_session
 
     session = get_session()
     try:
@@ -278,16 +278,34 @@ async def send_email_to_subscribers(courses: list, base_url: str = "") -> int:
             else:
                 logger.warning(f"邮件推送失败: {sub.email}")
 
+            for course in filtered:
+                event = NotificationEvent(
+                    subscriber_id=sub.id,
+                    subscriber_email=sub.email,
+                    course_id=course.id,
+                    course_name=course.name,
+                    course_category=getattr(course, "category", "") or "",
+                    event_type=event_type,
+                    channel="email",
+                    success=ok,
+                )
+                session.add(event)
+
+        session.commit()
+
         return sent_count
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
 
 # ========== 兼容旧接口 ==========
 
-async def send_email_notification(courses: list) -> bool:
+async def send_email_notification(courses: list, event_type: str = "new") -> bool:
     """旧接口兼容：向所有订阅者推送"""
-    count = await send_email_to_subscribers(courses)
+    count = await send_email_to_subscribers(courses, event_type=event_type)
     return count > 0
 
 

@@ -245,6 +245,23 @@ class CourseReminder(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class NotificationEvent(Base):
+    """面向订阅者的通知中心事件（用于门户时间线）"""
+    __tablename__ = "notification_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subscriber_id = Column(Integer, nullable=False)
+    subscriber_email = Column(String, nullable=False)
+    course_id = Column(String, nullable=False)
+    course_name = Column(String, default="")
+    course_category = Column(String, default="")
+    event_type = Column(String, default="new")     # new / snipe
+    channel = Column(String, default="email")
+    sent_at = Column(DateTime, default=datetime.now)
+    success = Column(Boolean, default=True)
+    message = Column(Text, default="")
+
+
 
 def init_db():
     """初始化数据库表，如果不存在则创建"""

@@ -87,6 +87,7 @@
         <!-- Tab Bar -->
         <div class="portal-tabs">
             <button class="portal-tab active" data-tab="courses">课程</button>
+            <button class="portal-tab" data-tab="notifications">通知中心</button>
             <button class="portal-tab" data-tab="manage">
                 提醒 &amp; 设置
                 <span id="reminderBadge" style="display:none; background:var(--portal-danger); color:#fff;
@@ -121,6 +122,19 @@
                 <div class="portal-empty" style="grid-column:1/-1;">
                     <div class="portal-empty-icon">⏳</div>
                     <div class="portal-empty-text">正在加载课程…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Panel: Notifications ═══ -->
+        <div class="portal-tab-panel" id="panel-notifications">
+            <div class="portal-section-card">
+                <div class="portal-section-header">📰 通知中心（最近 24 小时）</div>
+                <div class="portal-section-body" id="notificationTimeline">
+                    <div class="portal-empty">
+                        <div class="portal-empty-icon">📬</div>
+                        <div class="portal-empty-text">正在加载通知记录…</div>
+                    </div>
                 </div>
             </div>
         </div>
