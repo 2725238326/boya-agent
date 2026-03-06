@@ -517,16 +517,13 @@ async def _go_to_next_page(page: Page) -> bool:
 
 def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     """
-    将抓取到的课程保存到数据库，返回新发现课程的 ID 列表
-
-    Args:
-        courses_data: 课程信息字典列表
-
-    Returns:
-        新课程 ID 字符串列表
+    将抓取到的课程保存到数据库，返回新发现课程的 ID 列表。
+    同时检测退课捡漏（之前满→现在有名额），保存到全局 _reopened_course_ids。
     """
+    global _reopened_course_ids
     session = get_session()
     new_course_ids = []
+    _reopened_course_ids = []
 
     try:
         for data in courses_data:
@@ -536,6 +533,16 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
             is_expired = bool(enroll_end_dt and enroll_end_dt < now)
 
             if existing:
+                # 检测退课捡漏：之前满了(remaining==0)，现在有名额了
+                old_remaining = max(0, existing.capacity - existing.enrolled)
+                new_enrolled = data.get("enrolled", existing.enrolled)
+                new_capacity = data.get("capacity", existing.capacity)
+                new_remaining = max(0, new_capacity - new_enrolled)
+
+                if old_remaining == 0 and new_remaining > 0 and not is_expired:
+                    _reopened_course_ids.append(data["id"])
+                    logger.info(f"🔥 退课捡漏: [{existing.name}] 新增 {new_remaining} 个名额!")
+
                 # 更新已有课程信息
                 existing.name = data.get("name", existing.name)
                 existing.category = data.get("category", existing.category)
@@ -547,8 +554,8 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 existing.enroll_start = parse_datetime(data.get("enroll_start", "")) or existing.enroll_start
                 existing.enroll_end = enroll_end_dt or existing.enroll_end
                 existing.sign_method = data.get("sign_method", existing.sign_method)
-                existing.enrolled = data.get("enrolled", existing.enrolled)
-                existing.capacity = data.get("capacity", existing.capacity)
+                existing.enrolled = new_enrolled
+                existing.capacity = new_capacity
                 existing.status = data.get("status", existing.status)
                 existing.campus = data.get("campus", existing.campus)
                 existing.open_college = data.get("open_college", existing.open_college)
@@ -594,8 +601,9 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 new_course_ids.append(data["id"])
 
         session.commit()
+        extra = f", {len(_reopened_course_ids)} 门退课捡漏" if _reopened_course_ids else ""
         logger.info(f"数据库更新完成: {len(new_course_ids)} 条新课程, "
-                     f"{len(courses_data) - len(new_course_ids)} 条已有课程已更新")
+                     f"{len(courses_data) - len(new_course_ids)} 条已有课程已更新{extra}")
     except Exception as e:
         session.rollback()
         logger.error(f"保存课程到数据库失败: {e}")
@@ -603,3 +611,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
         session.close()
 
     return new_course_ids
+
+
+# 全局变量：退课捡漏课程 ID（由 save_courses_to_db 设置, run_scrape_task 消费）
+_reopened_course_ids = []

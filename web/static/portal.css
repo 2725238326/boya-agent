@@ -595,6 +595,73 @@ body.portal-body {
     font-weight: 400;
 }
 
+/* ── Full Course Collapsed Section ── */
+.portal-full-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    margin: 8px 0 16px;
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    border-radius: var(--portal-radius-sm);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--portal-text-secondary);
+    transition: var(--portal-transition);
+    user-select: none;
+}
+
+.portal-full-toggle:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--portal-text);
+}
+
+.portal-full-toggle-icon {
+    font-size: 11px;
+    color: var(--portal-text-muted);
+    transition: var(--portal-transition);
+}
+
+.portal-full-count {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--portal-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 980px;
+}
+
+.portal-full-hint {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--portal-text-muted);
+    margin-left: auto;
+}
+
+.portal-full-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 12px;
+    margin-bottom: 36px;
+    animation: portalFadeIn 0.35s ease;
+}
+
+/* Dimmed full course cards */
+.portal-card-full {
+    opacity: 0.55;
+}
+
+.portal-card-full:hover {
+    opacity: 0.85;
+}
+
+.portal-badge-full {
+    background: rgba(255, 59, 48, 0.08);
+    color: var(--portal-danger);
+}
+
 .portal-card-actions {
     margin-top: 16px;
     display: flex;

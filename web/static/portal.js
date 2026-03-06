@@ -71,7 +71,8 @@ async function loadPortalData() {
     // Courses
     if (coursesRes.success) {
         const activeCourses = coursesRes.data.filter(c => !c.expired);
-        document.getElementById('heroCount').textContent = activeCourses.length;
+        const availableCourses = activeCourses.filter(c => c.remaining > 0);
+        document.getElementById('heroCount').textContent = availableCourses.length;
         renderCourses(coursesRes.data);
     }
 
@@ -115,10 +116,59 @@ function renderCourses(courses) {
             </div>`;
         return;
     }
-    grid.innerHTML = courses.map(c => renderCourseCard(c)).join('');
+
+    // 分为有名额 / 已满
+    const available = courses.filter(c => c.remaining > 0 || c.expired);
+    const full = courses.filter(c => c.remaining <= 0 && !c.expired);
+
+    let html = '';
+
+    // 有名额的课程
+    if (available.length > 0) {
+        html += available.map(c => renderCourseCard(c)).join('');
+    } else {
+        html += `<div class="portal-empty" style="grid-column:1/-1;">
+            <div class="portal-empty-icon">🎉</div>
+            <div class="portal-empty-text">所有课程都已满员</div>
+            <div class="portal-empty-hint">有退课名额时系统会立即通知你</div>
+        </div>`;
+    }
+
+    grid.innerHTML = html;
+
+    // 已满课程折叠区
+    let fullSection = document.getElementById('fullCoursesSection');
+    if (full.length > 0) {
+        if (!fullSection) {
+            fullSection = document.createElement('div');
+            fullSection.id = 'fullCoursesSection';
+            grid.parentNode.insertBefore(fullSection, grid.nextSibling);
+        }
+        fullSection.innerHTML = `
+            <div class="portal-full-toggle" onclick="toggleFullCourses()">
+                <span class="portal-full-toggle-icon" id="fullToggleIcon">▶</span>
+                <span>已满课程</span>
+                <span class="portal-full-count">${full.length}</span>
+                <span class="portal-full-hint">有退课时系统自动即时推送</span>
+            </div>
+            <div class="portal-full-grid" id="fullCoursesGrid" style="display:none;">
+                ${full.map(c => renderCourseCard(c, true)).join('')}
+            </div>`;
+    } else if (fullSection) {
+        fullSection.remove();
+    }
 }
 
-function renderCourseCard(course) {
+function toggleFullCourses() {
+    const grid = document.getElementById('fullCoursesGrid');
+    const icon = document.getElementById('fullToggleIcon');
+    if (!grid) return;
+    const isHidden = grid.style.display === 'none';
+    grid.style.display = isHidden ? 'grid' : 'none';
+    icon.textContent = isHidden ? '▼' : '▶';
+}
+
+function renderCourseCard(course, isFull = false) {
     const checkIn = course.check_in_method || course.sign_method || '';
     const isSelf = checkIn.includes('自主');
     const signBadge = isSelf
@@ -139,10 +189,14 @@ function renderCourseCard(course) {
             ? `<button class="portal-btn-remind reminded" disabled>✓ 已设提醒</button>`
             : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">🔔 提醒我选课</button>`;
 
+    const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
+    const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">已满</span>' : '';
+
     return `
-    <div class="portal-course-card">
+    <div class="${cardClass}">
         <div class="portal-card-top">
             <span class="portal-course-name">${escapeHtml(course.name)}</span>
+            ${fullBadge}
             ${signBadge}
         </div>
         <div class="portal-card-meta">

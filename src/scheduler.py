@@ -199,8 +199,26 @@ async def run_scrape_task():
         _sync_course_lifecycle()
         run_status["total_new_courses"] += len(new_course_ids)
 
+        # 3.5 退课捡漏：有人退课空出名额 → 立即推送
+        from src.scraper import _reopened_course_ids
+        reopened_pushed = 0
+        if _reopened_course_ids:
+            session = get_session()
+            try:
+                reopened = session.query(Course).filter(Course.id.in_(_reopened_course_ids)).all()
+                config = load_filter_config()
+                if reopened:
+                    logger.info(f"🔥 {len(reopened)} 门课程退课捡漏，立即推送!")
+                    reopened_pushed = await _do_push(reopened, config, session)
+                    run_status["total_pushed"] += reopened_pushed
+            finally:
+                session.close()
+
         if not new_course_ids:
-            logger.info("没有新课程，本轮无需推送")
+            if reopened_pushed:
+                logger.info(f"没有新课程，但退课捡漏推送了 {reopened_pushed} 条")
+            else:
+                logger.info("没有新课程，本轮无需推送")
             run_status["last_success"] = datetime.now()
             return
 
@@ -256,7 +274,7 @@ async def run_scrape_task():
         run_status["last_success"] = datetime.now()
         run_status["last_error"] = None
         _consecutive_failures = 0  # 成功后重置失败计数
-        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, "
+        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, 退课捡漏 {reopened_pushed} 条, "
                      f"缓冲区: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}")
 
     except Exception as e:
