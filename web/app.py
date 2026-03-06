@@ -928,9 +928,21 @@ def portal_page():
     token = (request.args.get("token") or "").strip()
     email = (request.args.get("email") or "").strip()
     if token:
+        session = get_session()
+        try:
+            sub = (
+                session.query(EmailSubscriber)
+                .filter_by(token=token, verified=True, active=True)
+                .first()
+            )
+        finally:
+            session.close()
+        if not sub:
+            return redirect("/subscribe?force=1")
         target = "/portal"
-        if email:
-            target = f"/portal?email={email}"
+        target_email = email or sub.email
+        if target_email:
+            target = f"/portal?email={target_email}"
         resp = make_response(redirect(target))
         return _set_portal_session_cookie(resp, token)
     return render_template("portal.html")
