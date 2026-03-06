@@ -495,7 +495,7 @@
 
                 if (data.success) {
                     msg.className = 'message success';
-                    msg.textContent = data.message;
+                    msg.textContent = data.message + ' 请查收验证邮件，验证后将自动进入课程门户。';
                     msg.style.display = 'block';
                 } else {
                     msg.className = 'message error';
@@ -517,7 +517,7 @@
         const savedEmail = localStorage.getItem('portal_email');
         const params = new URLSearchParams(window.location.search);
 
-        if (savedToken && !params.has('result')) {
+        if (savedToken && !params.has('result') && !params.has('force')) {
             window.location.href = `/portal?token=${savedToken}&email=${encodeURIComponent(savedEmail || '')}`;
         }
 

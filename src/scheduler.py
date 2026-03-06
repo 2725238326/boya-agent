@@ -574,6 +574,14 @@ def start_scheduler(interval_minutes: int = 3):
         replace_existing=True,
     )
 
+    # 🧹 每日清理过期 30 天以上的课程
+    scheduler.add_job(
+        cleanup_old_courses,
+        trigger=CronTrigger(hour=4, minute=0),  # 凌晨 4 点
+        id="cleanup_old_courses",
+        replace_existing=True,
+    )
+
     _configure_daily_summary_job()
     scheduler.start()
     logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
@@ -650,6 +658,30 @@ def _sync_course_lifecycle():
     except Exception as e:
         session.rollback()
         logger.error(f"同步课程生命周期失败: {e}")
+    finally:
+        session.close()
+
+def cleanup_old_courses(max_days: int = 30):
+    """清理过期超过 max_days 天的课程"""
+    session = get_session()
+    try:
+        cutoff = datetime.now() - timedelta(days=max_days)
+        old_courses = (
+            session.query(Course)
+            .filter(Course.expired == True)  # noqa: E712
+            .filter(Course.enroll_end < cutoff)
+            .all()
+        )
+        count = len(old_courses)
+        if count == 0:
+            return
+        for c in old_courses:
+            session.delete(c)
+        session.commit()
+        logger.info(f"🧹 已清理 {count} 门过期超过 {max_days} 天的课程")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"清理过期课程失败: {e}")
     finally:
         session.close()
 

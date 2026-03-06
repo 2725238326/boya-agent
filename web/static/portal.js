@@ -310,7 +310,31 @@ function renderReminders(reminders) {
 function switchAccount() {
     localStorage.removeItem('portal_token');
     localStorage.removeItem('portal_email');
-    window.location.href = '/subscribe';
+    window.location.href = '/subscribe?force=1';
+}
+
+// ══════ Unsubscribe ══════
+async function unsubscribe() {
+    if (!confirm('确定要退订推送吗？退订后将不再收到任何课程通知邮件。')) return;
+
+    const btn = document.getElementById('btnUnsubscribe');
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+
+    try {
+        const resp = await fetch(`/api/unsubscribe/${portalState.token}`);
+        // The API redirects, but we handle it ourselves
+        localStorage.removeItem('portal_token');
+        localStorage.removeItem('portal_email');
+        showPortalToast('已成功退订推送', 'success');
+        setTimeout(() => {
+            window.location.href = '/subscribe?result=unsubscribed';
+        }, 1500);
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '退订推送';
+        showPortalToast('退订失败，请稍后重试', 'error');
+    }
 }
 
 // ══════ Toast ══════

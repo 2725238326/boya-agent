@@ -133,6 +133,9 @@ function renderCourseCard(course) {
             <span>已选 ${course.enrolled}/${capacity}</span>
             <span>剩余 ${remaining} 人</span>
         </div>
+        ${!course.expired ? `<div style="margin-top:8px;text-align:right;">
+            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">📤 推送此课程</button>
+        </div>` : ''}
     </div>`;
 }
 
@@ -486,6 +489,28 @@ async function loadEnrollLogs() {
             <td>${escapeHtml(log.message || '')}</td>
         </tr>
     `).join('');
+}
+
+// ========== 手动推送指定课程 ==========
+async function manualPush(courseId, btnEl) {
+    if (!confirm('确认要手动推送此课程给所有订阅者吗？')) return;
+    btnEl.disabled = true;
+    btnEl.textContent = '推送中…';
+
+    const result = await api('/api/manual-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course_id: courseId }),
+    });
+
+    if (result.success) {
+        showToast(`推送成功: ${result.message || ''}`, 'success');
+        btnEl.textContent = '✓ 已推送';
+    } else {
+        showToast('推送失败: ' + (result.error || ''), 'error');
+        btnEl.disabled = false;
+        btnEl.textContent = '📤 推送此课程';
+    }
 }
 
 // ========== 手动触发 ==========

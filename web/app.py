@@ -626,3 +626,74 @@ def api_subscriber_reminders(token):
         return jsonify({"success": True, "data": result, "total": len(result)})
     finally:
         session.close()
+
+
+# ========== 管理工具 ==========
+
+@app.route("/api/manual-push", methods=["POST"])
+def api_manual_push():
+    """手动推送指定课程给所有活跃邮件订阅者"""
+    from src.push.email_push import send_email_notification
+    import asyncio
+
+    data = request.get_json() or {}
+    course_id = data.get("course_id")
+    if not course_id:
+        return jsonify({"success": False, "error": "缺少 course_id"}), 400
+
+    session = get_session()
+    try:
+        course = session.query(Course).filter_by(id=course_id).first()
+        if not course:
+            return jsonify({"success": False, "error": "课程不存在"}), 404
+
+        # 发送邮件推送
+        try:
+            loop = asyncio.new_event_loop()
+            ok = loop.run_until_complete(send_email_notification([course]))
+            loop.close()
+        except Exception as e:
+            return jsonify({"success": False, "error": f"推送失败: {e}"}), 500
+
+        if ok:
+            course.pushed = True
+            session.commit()
+            return jsonify({"success": True, "message": f"已推送: {course.name}"})
+        else:
+            return jsonify({"success": False, "error": "邮件发送失败"}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/cleanup-expired", methods=["POST"])
+def api_cleanup_expired():
+    """清理 30 天以上的过期课程"""
+    from datetime import datetime, timedelta
+
+    days = request.get_json(silent=True) or {}
+    max_days = days.get("days", 30)
+
+    session = get_session()
+    try:
+        cutoff = datetime.now() - timedelta(days=max_days)
+        old_courses = (
+            session.query(Course)
+            .filter(Course.expired == True)  # noqa: E712
+            .filter(Course.enroll_end < cutoff)
+            .all()
+        )
+
+        count = len(old_courses)
+        for c in old_courses:
+            session.delete(c)
+        session.commit()
+
+        logger.info(f"清理了 {count} 门过期超过 {max_days} 天的课程")
+        return jsonify({"success": True, "deleted": count, "message": f"已清理 {count} 门课程"})
+    except Exception as e:
+        session.rollback()
+        logger.error(f"清理过期课程失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
