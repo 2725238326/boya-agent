@@ -459,17 +459,33 @@
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
             const msg = document.getElementById('msgBox');
+            const email = document.getElementById('emailInput').value.trim();
             btn.disabled = true;
-            btn.textContent = '提交中...';
+            btn.textContent = '处理中...';
             msg.className = 'message';
             msg.style.display = 'none';
 
             try {
+                // 先查询是否已是已验证的订阅者 → 直接跳转门户
+                const lookupResp = await fetch('/api/subscriber/lookup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email }),
+                });
+                const lookupData = await lookupResp.json();
+                if (lookupData.success && lookupData.data && lookupData.data.token) {
+                    localStorage.setItem('portal_token', lookupData.data.token);
+                    localStorage.setItem('portal_email', email);
+                    window.location.href = `/portal?token=${lookupData.data.token}&email=${encodeURIComponent(email)}`;
+                    return;
+                }
+
+                // 否则走正常订阅流程
                 const resp = await fetch('/api/subscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: document.getElementById('emailInput').value.trim(),
+                        email: email,
                         campus_filter: document.getElementById('campusSelect').value,
                         categories: getSelectedCategories(),
                         self_sign_only: document.getElementById('selfSignCheck').checked,
@@ -496,8 +512,16 @@
             btn.textContent = '订阅推送';
         }
 
-        // 处理结果回调显示
+        // 自动跳转：如果用户已登录过门户，直接进入
+        const savedToken = localStorage.getItem('portal_token');
+        const savedEmail = localStorage.getItem('portal_email');
         const params = new URLSearchParams(window.location.search);
+
+        if (savedToken && !params.has('result')) {
+            window.location.href = `/portal?token=${savedToken}&email=${encodeURIComponent(savedEmail || '')}`;
+        }
+
+        // 处理结果回调显示
         if (params.has('result')) {
             document.getElementById('formCard').style.display = 'none';
             document.getElementById('resultCard').style.display = 'block';

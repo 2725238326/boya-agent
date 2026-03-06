@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>博雅课程 — 用户门户</title>
+    <meta name="description" content="查看博雅课程、管理订阅偏好、设置选课提醒">
+    <link rel="stylesheet" href="/static/portal.css">
+</head>
+
+<body class="portal-body">
+
+    <!-- ═══ Navigation ═══ -->
+    <nav class="portal-nav">
+        <div class="portal-nav-inner">
+            <a class="portal-logo" href="/portal">
+                <span class="portal-logo-icon">📚</span>
+                <span>博雅课程</span>
+            </a>
+            <div class="portal-user">
+                <span class="portal-user-email" id="userEmail">加载中…</span>
+                <button class="portal-user-btn" onclick="switchAccount()">切换账号</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ═══ Main ═══ -->
+    <main class="portal-main">
+
+        <!-- Hero -->
+        <section class="portal-hero">
+            <h1 class="portal-hero-title"><span id="heroCount">—</span> 门课程可选</h1>
+            <p class="portal-hero-subtitle">当前有效的博雅课程</p>
+        </section>
+
+        <!-- Tab Bar -->
+        <div class="portal-tabs">
+            <button class="portal-tab active" data-tab="courses">课程</button>
+            <button class="portal-tab" data-tab="manage">
+                提醒 & 设置
+                <span id="reminderBadge" style="display:none; background:var(--portal-danger); color:#fff;
+                    font-size:10px; padding:1px 6px; border-radius:10px; margin-left:4px; font-weight:700;"></span>
+            </button>
+        </div>
+
+        <!-- ═══ Panel: Courses ═══ -->
+        <div class="portal-tab-panel active" id="panel-courses">
+
+            <!-- Filter Bar -->
+            <div class="portal-filter-bar">
+                <input class="portal-search" id="portalSearch" type="text" placeholder="搜索课程名称…"
+                    oninput="filterCourses()">
+                <select class="portal-select" id="portalCampus" onchange="filterCourses()">
+                    <option value="">全部校区</option>
+                    <option value="沙河">沙河校区</option>
+                    <option value="学院路">学院路校区</option>
+                </select>
+                <label class="portal-checkbox-label">
+                    <input type="checkbox" id="portalSelfSign" onchange="filterCourses()">
+                    仅自主签到
+                </label>
+                <label class="portal-checkbox-label">
+                    <input type="checkbox" id="portalExpired" onchange="filterCourses()">
+                    含已过期
+                </label>
+            </div>
+
+            <!-- Course Grid -->
+            <div class="portal-course-grid" id="courseGrid">
+                <div class="portal-empty" style="grid-column:1/-1;">
+                    <div class="portal-empty-icon">⏳</div>
+                    <div class="portal-empty-text">正在加载课程…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Panel: Reminders & Settings ═══ -->
+        <div class="portal-tab-panel" id="panel-manage">
+            <div class="portal-split">
+
+                <!-- Left: Reminders -->
+                <div class="portal-section-card">
+                    <div class="portal-section-header">🔔 选课提醒</div>
+                    <div class="portal-section-body" id="reminderList">
+                        <div class="portal-empty">
+                            <div class="portal-empty-icon">🔔</div>
+                            <div class="portal-empty-text">暂无选课提醒</div>
+                            <div class="portal-empty-hint">在课程页面点击「提醒我选课」注册提醒</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Settings -->
+                <div class="portal-section-card">
+                    <div class="portal-section-header">⚙️ 订阅设置</div>
+                    <div class="portal-section-body">
+
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">校区偏好</label>
+                            <select class="portal-select" id="settingsCampus" style="width:100%;">
+                                <option value="">全部校区</option>
+                                <option value="沙河">沙河校区</option>
+                                <option value="学院路">学院路校区</option>
+                            </select>
+                        </div>
+
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">
+                                课程类别
+                                <span class="portal-form-hint">未选择则接收全部类别</span>
+                            </label>
+                            <div class="portal-chip-row" id="settingsCategories">
+                                <!-- JS renders chips -->
+                            </div>
+                        </div>
+
+                        <div class="portal-form-group">
+                            <div class="portal-switch-row">
+                                <div>
+                                    <div class="portal-switch-text">仅自主签到</div>
+                                    <div class="portal-switch-hint">过滤掉常规签到课程</div>
+                                </div>
+                                <label class="portal-switch">
+                                    <input type="checkbox" id="settingsSelfSign" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="portal-form-group">
+                            <div class="portal-switch-row">
+                                <div>
+                                    <div class="portal-switch-text">接收推送</div>
+                                    <div class="portal-switch-hint">关闭后暂停所有邮件通知</div>
+                                </div>
+                                <label class="portal-switch">
+                                    <input type="checkbox" id="settingsActive" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button class="portal-btn-save" id="btnSaveSettings" onclick="saveSettings()">
+                            保存设置
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="portal-footer">
+        BUAA 博雅课程推送 ·
+        <a href="/subscribe">订阅管理</a>
+    </footer>
+
+    <!-- Toast Container -->
+    <div class="portal-toast-container" id="portalToastContainer"></div>
+
+    <script src="/static/portal.js"></script>
+</body>
+
+</html>

@@ -424,17 +424,22 @@ def api_subscribers():
         session.close()
 
 
-@app.route("/api/remind/<token>/<course_id>")
+@app.route("/api/remind/<token>/<course_id>", methods=["GET", "POST"])
 def api_remind(token, course_id):
     """注册选课提醒：用户点击邮件中的「提醒我选课」按钮"""
+    is_json = request.is_json or request.headers.get('Accept', '').startswith('application/json')
     session = get_session()
     try:
         sub = session.query(EmailSubscriber).filter_by(token=token, active=True).first()
         if not sub:
+            if is_json:
+                return jsonify({"success": False, "error": "无效的 token"}), 404
             return redirect("/subscribe?result=invalid")
 
         course = session.query(Course).filter_by(id=course_id).first()
         if not course:
+            if is_json:
+                return jsonify({"success": False, "error": "课程不存在"}), 404
             return redirect("/subscribe?result=invalid")
 
         # 防止重复注册
@@ -453,10 +458,14 @@ def api_remind(token, course_id):
             session.commit()
             logger.info(f"选课提醒已注册: {sub.email} -> {course.name}")
 
+        if is_json:
+            return jsonify({"success": True, "message": f"已注册提醒: {course.name}"})
         return redirect("/subscribe?result=reminded")
     except Exception as e:
         session.rollback()
         logger.error(f"注册选课提醒失败: {e}")
+        if is_json:
+            return jsonify({"success": False, "error": str(e)}), 500
         return redirect("/subscribe?result=invalid")
     finally:
         session.close()
@@ -496,5 +505,108 @@ def api_test_email():
     except Exception as e:
         logger.error(f"测试邮件失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+# ========== 用户门户 ==========
+
+@app.route("/portal")
+def portal_page():
+    """用户门户页面"""
+    return render_template("portal.html")
+
+
+@app.route("/api/subscriber/lookup", methods=["POST"])
+def api_subscriber_lookup():
+    """根据邮箱查询订阅者信息（已验证且活跃的）"""
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"success": False, "error": "请输入有效的邮箱"}), 400
+
+    session = get_session()
+    try:
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(email=email, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return jsonify({"success": False, "error": "该邮箱尚未订阅或未验证"})
+
+        return jsonify({
+            "success": True,
+            "data": {
+                **sub.to_dict(),
+                "token": sub.token,
+            },
+        })
+    finally:
+        session.close()
+
+
+@app.route("/api/subscriber/<token>", methods=["PUT"])
+def api_subscriber_update(token):
+    """更新订阅者偏好设置"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "无效的 token"}), 404
+
+        data = request.get_json() or {}
+        if "categories" in data:
+            sub.categories = data["categories"]
+        if "campus_filter" in data:
+            sub.campus_filter = data["campus_filter"]
+        if "self_sign_only" in data:
+            sub.self_sign_only = bool(data["self_sign_only"])
+        if "active" in data:
+            sub.active = bool(data["active"])
+
+        session.commit()
+        logger.info(f"订阅者偏好已更新: {sub.email}")
+        return jsonify({"success": True, "message": "偏好已保存", "data": sub.to_dict()})
+    except Exception as e:
+        session.rollback()
+        logger.error(f"更新订阅者偏好失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/subscriber/<token>/reminders")
+def api_subscriber_reminders(token):
+    """获取订阅者的选课提醒列表（含课程详情）"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "无效的 token"}), 404
+
+        reminders = (
+            session.query(CourseReminder)
+            .filter_by(subscriber_id=sub.id)
+            .order_by(CourseReminder.created_at.desc())
+            .all()
+        )
+
+        result = []
+        for r in reminders:
+            course = session.query(Course).filter_by(id=r.course_id).first()
+            result.append({
+                "id": r.id,
+                "course_id": r.course_id,
+                "course_name": course.name if course else "未知课程",
+                "course_category": course.category if course else "",
+                "course_teacher": course.teacher if course else "",
+                "enroll_start": course.enroll_start.strftime("%Y-%m-%d %H:%M") if course and course.enroll_start else "",
+                "remind_before_minutes": r.remind_before_minutes,
+                "sent": r.sent,
+                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+            })
+
+        return jsonify({"success": True, "data": result, "total": len(result)})
     finally:
         session.close()
