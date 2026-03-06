@@ -80,6 +80,19 @@ def _get_session_token() -> str:
     return (request.cookies.get(PORTAL_SESSION_COOKIE) or "").strip()
 
 
+def _get_public_base_url() -> str:
+    """
+    获取对外可访问基址。优先使用 APP_PUBLIC_BASE_URL，避免生成 127.0.0.1 链接。
+    """
+    configured = (os.getenv("APP_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+
+    host = (request.headers.get("X-Forwarded-Host") or request.host).strip()
+    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "http").strip()
+    return f"{proto}://{host}"
+
+
 def _check_login_email_cooldown(email: str) -> int:
     """返回剩余冷却秒数；0 表示可发送"""
     last_ts = _login_email_last_sent_at.get(email)
@@ -504,7 +517,7 @@ def api_subscribe():
                         "error": f"请求过于频繁，请 {remain} 秒后再试",
                         "retry_after": remain,
                     }), 429
-                base_url = request.host_url.rstrip("/")
+                base_url = _get_public_base_url()
                 login_url = f"{base_url}/api/login/{existing.token}"
                 ok = send_login_email(email, login_url)
                 if ok:
@@ -531,7 +544,7 @@ def api_subscribe():
             token = sub.token
 
         # 发送验证邮件
-        base_url = request.host_url.rstrip("/")
+        base_url = _get_public_base_url()
         verify_url = f"{base_url}/api/verify/{token}"
         ok = send_verification_email(email, verify_url)
 
@@ -575,7 +588,7 @@ def api_login_request():
                 "retry_after": remain,
             }), 429
 
-        base_url = request.host_url.rstrip("/")
+        base_url = _get_public_base_url()
         login_url = f"{base_url}/api/login/{sub.token}"
         ok = send_login_email(email, login_url)
         if not ok:

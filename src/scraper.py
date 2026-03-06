@@ -42,9 +42,11 @@ async def create_browser_context() -> tuple:
     return pw, browser, context, page
 
 
-def generate_course_id(name: str, start_time: str) -> str:
-    """根据课程名 + 开始时间生成唯一 ID"""
-    raw = f"{name}_{start_time}"
+def generate_course_id(name: str, start_time: str, enroll_start: str = "", teacher: str = "") -> str:
+    """根据课程名 + 开始时间(+选课时间兜底) 生成唯一 ID，防止不同课程 ID 碰撞"""
+    # 优先用课程时间，再用选课开始时间作为区分不同场次的兜底
+    time_key = start_time.strip() or enroll_start.strip() or teacher.strip()
+    raw = f"{name}_{time_key}"
     return hashlib.md5(raw.encode()).hexdigest()[:16]
 
 
@@ -455,7 +457,7 @@ async def _parse_course_table(page: Page) -> List[dict]:
             capacity_text = cell_texts[8] if len(cell_texts) > 8 else ""
             enrolled, capacity = parse_capacity(capacity_text)
 
-            course_id = generate_course_id(name, start_time_str)
+            course_id = generate_course_id(name, start_time_str, enroll_start_str, teacher)
 
             course_data = {
                 "id": course_id,
