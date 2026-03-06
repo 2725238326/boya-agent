@@ -1,10 +1,16 @@
 """
 定时调度模块
-使用 APScheduler 定期执行抓取 → 过滤 → 推送任务链
+使用 APScheduler 定期执行抓取 → 过滤 → 智能推送任务链
+
+推送策略（按距选课开始时间分级）：
+  🔴 紧急  (<1h)     → 立即推送
+  🟡 近期  (1h~12h)  → 每 3 小时汇总推送
+  🟢 从容  (12h~24h) → 每 12 小时汇总推送
+  🔵 远期  (>24h)    → 每日汇总推送
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -18,8 +24,6 @@ from src.push.email_push import send_email_notification, send_enroll_reminder_em
 from src.push.rss_feed import generate_rss_feed
 from src.enroll import auto_enroll_if_enabled
 from src.push.telegram_bot import send_batch_notifications, send_daily_summary_notification, send_reminder_telegram
-from src.push.rss_feed import generate_rss_feed
-from src.enroll import auto_enroll_if_enabled
 
 # 全局调度器实例
 scheduler = AsyncIOScheduler()
@@ -36,7 +40,7 @@ run_status = {
     "last_daily_summary": None,
 }
 
-# 全局浏览器实例（避免每次重新启动）
+# 全局浏览器实例（持久化复用）
 _browser_state = {
     "pw": None,
     "browser": None,
@@ -44,6 +48,18 @@ _browser_state = {
     "page": None,
 }
 
+# ── 推送缓冲区 ──────────────────────────────────────────
+# 按紧急级别缓冲课程 ID（避免重复推送）
+_push_buffer = {
+    "urgent": [],    # 🟡 1h~12h，每 3 小时 flush
+    "soon": [],      # 🟢 12h~24h，每 12 小时 flush
+}
+_pushed_course_ids = set()  # 本次运行期间已推送的课程 ID
+
+
+# ═══════════════════════════════════════════════════════
+#  浏览器生命周期管理
+# ═══════════════════════════════════════════════════════
 
 async def _close_browser_local(pw, browser):
     """局部关闭浏览器（不依赖全局状态）"""
@@ -56,10 +72,91 @@ async def _close_browser_local(pw, browser):
         logger.warning(f"关闭浏览器时出错: {e}")
 
 
+async def _ensure_browser():
+    """
+    确保全局浏览器可用。
+    如果浏览器不存在或已崩溃 → 创建新的
+    如果会话过期 → 重新登录
+    返回 page 或 None（失败时）
+    """
+    global _browser_state
+
+    page = _browser_state.get("page")
+
+    # 检查浏览器是否仍然存活
+    if page:
+        try:
+            # 简单探测：如果页面已关闭，这里会抛异常
+            _ = page.url
+            return page
+        except Exception:
+            logger.warning("浏览器页面已失效，重建浏览器...")
+            await _close_browser_local(_browser_state.get("pw"), _browser_state.get("browser"))
+            _browser_state = {"pw": None, "browser": None, "context": None, "page": None}
+
+    # 创建全新浏览器
+    logger.info("创建新浏览器实例...")
+    try:
+        pw, browser, context, page = await create_browser_context()
+        _browser_state["pw"] = pw
+        _browser_state["browser"] = browser
+        _browser_state["context"] = context
+        _browser_state["page"] = page
+
+        # 登录
+        logged_in = await ensure_logged_in(page)
+        if not logged_in:
+            logger.error("登录失败")
+            await _close_browser_local(pw, browser)
+            _browser_state = {"pw": None, "browser": None, "context": None, "page": None}
+            return None
+
+        return page
+    except Exception as e:
+        logger.error(f"创建浏览器失败: {e}")
+        return None
+
+
+# ═══════════════════════════════════════════════════════
+#  推送紧急级别分类
+# ═══════════════════════════════════════════════════════
+
+def _classify_push_urgency(course):
+    """
+    根据距离选课开始的时间，将课程分入紧急级别。
+    返回: "immediate" | "urgent" | "soon" | "daily"
+    """
+    now = datetime.now()
+
+    if not course.enroll_start:
+        return "daily"  # 无选课时间，归入每日汇总
+
+    delta = course.enroll_start - now
+    hours_left = delta.total_seconds() / 3600
+
+    if hours_left <= 0:
+        # 选课已经开始
+        if course.remaining > 0:
+            return "immediate"  # 还有名额，紧急通知
+        return "daily"  # 已满，不急
+
+    if hours_left <= 1:
+        return "immediate"   # 🔴 <1h → 立即推送
+    elif hours_left <= 12:
+        return "urgent"      # 🟡 1h~12h → 每 3 小时汇总
+    elif hours_left <= 24:
+        return "soon"        # 🟢 12h~24h → 每 12 小时汇总
+    else:
+        return "daily"       # 🔵 >24h → 每日汇总
+
+
+# ═══════════════════════════════════════════════════════
+#  核心抓取任务
+# ═══════════════════════════════════════════════════════
+
 async def run_scrape_task():
     """
-    核心任务：登录 → 抓取 → 入库 → 过滤 → 推送 → (可选)自动选课
-    每次调用创建全新浏览器，规避跨 event loop 的对象共享问题
+    核心任务：复用浏览器 → 刷新抓取 → 入库 → 过滤 → 分级推送
     """
     if run_status["is_running"]:
         logger.warning("上一轮任务仍在运行，跳过本次")
@@ -69,23 +166,21 @@ async def run_scrape_task():
     run_status["last_run"] = datetime.now()
     run_status["total_runs"] += 1
 
-    pw = browser = context = page = None
     try:
         logger.info("=" * 50)
         logger.info(f"开始第 {run_status['total_runs']} 轮抓取任务")
 
-        # 1. 创建全新浏览器并确保登录
-        pw, browser, context, page = await create_browser_context()
-        logged_in = await ensure_logged_in(page)
-        if not logged_in:
-            run_status["last_error"] = "登录失败"
-            logger.error("登录失败，跳过本轮任务")
+        # 1. 确保浏览器可用（复用或重建）
+        page = await _ensure_browser()
+        if not page:
+            run_status["last_error"] = "浏览器/登录失败"
+            logger.error("浏览器不可用，跳过本轮任务")
             return
 
         # 同步课程生命周期
         _sync_course_lifecycle()
 
-        # 2. 抓取课程
+        # 2. 抓取课程（复用已有页面）
         courses_data = await scrape_courses(page)
         if not courses_data:
             logger.info("未抓取到任何课程")
@@ -121,29 +216,27 @@ async def run_scrape_task():
 
             logger.info(f"{len(passed_courses)} 门课程通过过滤")
 
-            # 5. 推送
+            # 5. 分级推送
+            immediate_courses = []
+            for course in passed_courses:
+                if course.id in _pushed_course_ids:
+                    continue  # 已推送过，跳过
+
+                level = _classify_push_urgency(course)
+                logger.info(f"  课程 [{course.name}] 紧急级别: {level}")
+
+                if level == "immediate":
+                    immediate_courses.append(course)
+                elif level == "urgent":
+                    _push_buffer["urgent"].append(course.id)
+                elif level == "soon":
+                    _push_buffer["soon"].append(course.id)
+                # "daily" → 不入缓冲区，等 run_daily_summary_task 处理
+
+            # 立即推送 🔴 级别
             pushed_count = 0
-
-            if config.daily_summary_enabled:
-                logger.info("每日汇总模式已开启：本轮不即时推送，等待每日汇总任务")
-            else:
-                # Telegram 推送
-                if config.telegram_enabled:
-                    count = await send_batch_notifications(passed_courses)
-                    pushed_count += count
-                    _log_push(passed_courses, "telegram", count)
-
-                # 邮件推送
-                if config.email_enabled:
-                    ok = await send_email_notification(passed_courses)
-                    if ok:
-                        pushed_count += len(passed_courses)
-                        _log_push(passed_courses, "email", len(passed_courses))
-
-                if pushed_count > 0:
-                    for course in passed_courses:
-                        course.pushed = True
-                    session.commit()
+            if immediate_courses:
+                pushed_count = await _do_push(immediate_courses, config, session)
 
             run_status["total_pushed"] += pushed_count
 
@@ -155,24 +248,143 @@ async def run_scrape_task():
 
         run_status["last_success"] = datetime.now()
         run_status["last_error"] = None
-        logger.info(f"本轮任务完成: 推送 {pushed_count} 条通知")
+        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, "
+                     f"缓冲区: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}")
 
     except Exception as e:
         run_status["last_error"] = str(e)
         logger.error(f"抓取任务出错: {e}")
+        # 如果出错可能是浏览器崩了，下次会自动重建
     finally:
         run_status["is_running"] = False
-        await _close_browser_local(pw, browser)
+        # 注意：不再关闭浏览器！保持复用
 
+
+# ═══════════════════════════════════════════════════════
+#  推送执行
+# ═══════════════════════════════════════════════════════
+
+async def _do_push(courses, config, session):
+    """执行推送并标记已推送"""
+    pushed_count = 0
+
+    if config.telegram_enabled:
+        count = await send_batch_notifications(courses)
+        pushed_count += count
+        _log_push(courses, "telegram", count)
+
+    if config.email_enabled:
+        ok = await send_email_notification(courses)
+        if ok:
+            pushed_count += len(courses)
+            _log_push(courses, "email", len(courses))
+
+    if pushed_count > 0:
+        for course in courses:
+            course.pushed = True
+            _pushed_course_ids.add(course.id)
+        session.commit()
+
+    return pushed_count
+
+
+async def flush_push_buffer(buffer_key: str):
+    """
+    定时刷新推送缓冲区（由调度器调用）
+    buffer_key: "urgent" 或 "soon"
+    """
+    course_ids = list(set(_push_buffer.get(buffer_key, [])))
+    _push_buffer[buffer_key] = []
+
+    if not course_ids:
+        return
+
+    # 去掉已推送过的
+    course_ids = [cid for cid in course_ids if cid not in _pushed_course_ids]
+    if not course_ids:
+        return
+
+    session = get_session()
+    try:
+        config = load_filter_config()
+        courses = (
+            session.query(Course)
+            .filter(Course.id.in_(course_ids))
+            .filter(Course.expired == False)  # noqa: E712
+            .all()
+        )
+        if not courses:
+            return
+
+        label = "🟡 近期汇总" if buffer_key == "urgent" else "🟢 从容汇总"
+        logger.info(f"{label}: 推送 {len(courses)} 门课程")
+
+        pushed_count = await _do_push(courses, config, session)
+        run_status["total_pushed"] += pushed_count
+        logger.info(f"{label}: 完成, 推送 {pushed_count} 条")
+    except Exception as e:
+        logger.error(f"刷新推送缓冲区失败 [{buffer_key}]: {e}")
+    finally:
+        session.close()
+
+
+async def check_urgency_escalation():
+    """
+    每分钟检查：缓冲区中的课程是否升级到了 🔴 紧急级别
+    如果是，立即推送
+    """
+    now = datetime.now()
+    escalated_ids = []
+
+    # 检查 urgent 和 soon 缓冲区
+    for key in ["urgent", "soon"]:
+        remaining = []
+        for cid in _push_buffer.get(key, []):
+            if cid in _pushed_course_ids:
+                continue  # 已推送过
+
+            session = get_session()
+            try:
+                course = session.query(Course).filter_by(id=cid).first()
+                if not course or course.expired:
+                    continue
+                if course.enroll_start:
+                    hours_left = (course.enroll_start - now).total_seconds() / 3600
+                    if hours_left <= 1:
+                        escalated_ids.append(cid)
+                        continue  # 升级，不放回缓冲区
+                remaining.append(cid)
+            finally:
+                session.close()
+        _push_buffer[key] = remaining
+
+    if not escalated_ids:
+        return
+
+    # 立即推送升级的课程
+    session = get_session()
+    try:
+        config = load_filter_config()
+        courses = session.query(Course).filter(Course.id.in_(escalated_ids)).all()
+        if courses:
+            logger.info(f"🔴 紧急升级推送: {len(courses)} 门课程选课即将开始")
+            pushed_count = await _do_push(courses, config, session)
+            run_status["total_pushed"] += pushed_count
+    except Exception as e:
+        logger.error(f"紧急升级推送失败: {e}")
+    finally:
+        session.close()
+
+
+# ═══════════════════════════════════════════════════════
+#  每日汇总（保留原有逻辑）
+# ═══════════════════════════════════════════════════════
 
 async def run_daily_summary_task():
     """每日汇总推送任务：将未推送且通过过滤的课程汇总后发送"""
     session = get_session()
     try:
         config = load_filter_config()
-        if not config.daily_summary_enabled:
-            logger.info("每日汇总模式未启用，跳过每日汇总任务")
-            return
 
         pending_courses = (
             session.query(Course)
@@ -210,6 +422,7 @@ async def run_daily_summary_task():
         if pushed_count > 0:
             for course in passed_courses:
                 course.pushed = True
+                _pushed_course_ids.add(course.id)
             session.commit()
             run_status["total_pushed"] += pushed_count
             run_status["last_daily_summary"] = datetime.now()
@@ -221,6 +434,10 @@ async def run_daily_summary_task():
     finally:
         session.close()
 
+
+# ═══════════════════════════════════════════════════════
+#  辅助函数
+# ═══════════════════════════════════════════════════════
 
 def _log_push(courses, push_type, count):
     """记录推送日志"""
@@ -256,11 +473,11 @@ async def check_course_reminders():
         for reminder in pending_reminders:
             course = session.query(Course).filter_by(id=reminder.course_id).first()
             sub = session.query(EmailSubscriber).filter_by(id=reminder.subscriber_id, active=True).first()
-            
+
             if not course or not sub:
                 reminder.sent = True  # 无效数据，标记为已发送
                 continue
-                
+
             if not course.enroll_start:
                 continue
 
@@ -274,7 +491,7 @@ async def check_course_reminders():
                     # 分别尝试发邮件和 Telegram
                     send_enroll_reminder_email(sub.email, course)
                     await send_reminder_telegram(course)
-                    
+
                     reminder.sent = True
                     logger.info(f"已发送选课提醒: {sub.email} -> {course.name}")
                 except Exception as e:
@@ -290,8 +507,13 @@ async def check_course_reminders():
         session.close()
 
 
-def start_scheduler(interval_minutes: int = 10):
+# ═══════════════════════════════════════════════════════
+#  调度器管理
+# ═══════════════════════════════════════════════════════
+
+def start_scheduler(interval_minutes: int = 3):
     """启动定时调度器"""
+    # 抓取任务（默认 3 分钟，因为只是刷新页面）
     scheduler.add_job(
         run_scrape_task,
         trigger=IntervalTrigger(minutes=interval_minutes),
@@ -299,15 +521,41 @@ def start_scheduler(interval_minutes: int = 10):
         replace_existing=True,
         max_instances=1,
     )
+
+    # 选课提醒检查 + 紧急级别升级（每分钟）
     scheduler.add_job(
         check_course_reminders,
         trigger=IntervalTrigger(minutes=1),
         id="course_reminders_task",
         replace_existing=True,
     )
+    scheduler.add_job(
+        check_urgency_escalation,
+        trigger=IntervalTrigger(minutes=1),
+        id="urgency_escalation_task",
+        replace_existing=True,
+    )
+
+    # 🟡 近期缓冲区 flush（每 3 小时）
+    scheduler.add_job(
+        lambda: asyncio.ensure_future(flush_push_buffer("urgent")),
+        trigger=IntervalTrigger(hours=3),
+        id="flush_urgent_buffer",
+        replace_existing=True,
+    )
+
+    # 🟢 从容缓冲区 flush（每 12 小时）
+    scheduler.add_job(
+        lambda: asyncio.ensure_future(flush_push_buffer("soon")),
+        trigger=IntervalTrigger(hours=12),
+        id="flush_soon_buffer",
+        replace_existing=True,
+    )
+
     _configure_daily_summary_job()
     scheduler.start()
-    logger.info(f"定时调度已启动，每 {interval_minutes} 分钟执行一次抓取任务")
+    logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
+                f"近期汇总=每3小时, 从容汇总=每12小时")
 
 
 def update_scheduler_interval(interval_minutes: int):
