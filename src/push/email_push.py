@@ -219,6 +219,15 @@ def send_login_email(to_email: str, login_url: str) -> bool:
     登录门户
   </a>
 </td></tr></table>
+<p style="font-size:13px; color:{_EMAIL_TEXT}; text-align:center; margin:16px 0 0; line-height:1.6;">
+  若在 QQ 邮箱内无法打开，请点击右上角「在浏览器打开」后再登录
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin-top:14px; background:#f5f5f7; border:1px solid #e5e5ea; border-radius:10px;">
+<tr><td style="padding:12px;">
+  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">复制链接到系统浏览器打开：</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_TEXT}; word-break:break-all;">{login_url}</p>
+</td></tr></table>
 <p style="font-size:12px; color:{_EMAIL_MUTED}; text-align:center; margin:20px 0 0; word-break:break-all;">
   如按钮无法点击，请复制链接：<br>{login_url}
 </p>"""
