@@ -2,10 +2,12 @@
 邮件推送模块
 支持 Gmail SMTP 发送 HTML 格式课程通知邮件
 支持多订阅者按个人偏好过滤推送
+支持通过 HTTP CONNECT 代理发送（绕过云厂商端口封锁）
 """
 
 import os
 import ssl
+import socket
 import smtplib
 import time
 from email.mime.text import MIMEText
@@ -25,8 +27,57 @@ def _get_smtp_config() -> dict:
     }
 
 
+def _get_proxy_config():
+    """从环境变量解析代理配置，返回 (host, port) 或 None"""
+    proxy_url = os.getenv("SMTP_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or ""
+    if not proxy_url:
+        return None
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname
+        port = parsed.port
+        if host and port:
+            return (host, port)
+    except Exception as e:
+        logger.warning(f"解析代理配置失败: {e}")
+    return None
+
+
+def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 15):
+    """通过 HTTP CONNECT 隧道创建到目标的 TCP 连接"""
+    proxy = _get_proxy_config()
+    if not proxy:
+        return None
+
+    proxy_host, proxy_port = proxy
+    try:
+        sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
+        # 发送 CONNECT 请求
+        connect_req = f"CONNECT {dest_host}:{dest_port} HTTP/1.1\r\nHost: {dest_host}:{dest_port}\r\n\r\n"
+        sock.sendall(connect_req.encode())
+        # 读取代理响应
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+        response_line = response.decode("utf-8", errors="replace").split("\r\n")[0]
+        if "200" in response_line:
+            logger.debug(f"SMTP 代理隧道建立成功: {proxy_host}:{proxy_port} -> {dest_host}:{dest_port}")
+            return sock
+        else:
+            sock.close()
+            logger.error(f"代理 CONNECT 失败: {response_line}")
+            return None
+    except Exception as e:
+        logger.error(f"代理连接失败: {e}")
+        return None
+
+
 def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
-    """底层发邮件函数"""
+    """底层发邮件函数，自动检测并使用 HTTP 代理隧道"""
     config = _get_smtp_config()
     if not config["username"] or not config["password"]:
         logger.error("未配置 SMTP 账号/密码")
@@ -39,10 +90,24 @@ def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
         msg["To"] = to_email
         msg.attach(MIMEText(html, "html", "utf-8"))
 
+        # 尝试通过代理建立隧道
+        proxy_sock = _create_proxy_socket(config["server"], config["port"])
+
         if config["use_tls"]:
             # Gmail: STARTTLS on port 587
-            server = smtplib.SMTP(config["server"], config["port"], timeout=10)
-            server.ehlo()
+            if proxy_sock:
+                # 通过代理隧道连接
+                server = smtplib.SMTP()
+                server.timeout = 15
+                server._host = config["server"]
+                server.sock = proxy_sock
+                server.file = proxy_sock.makefile('rb')
+                # 读取 SMTP banner (220 smtp.gmail.com ...)
+                server.getreply()
+                server.ehlo()
+            else:
+                server = smtplib.SMTP(config["server"], config["port"], timeout=15)
+                server.ehlo()
             server.starttls()
             server.ehlo()
             server.login(config["username"], config["password"])
@@ -51,9 +116,21 @@ def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
         else:
             # SSL on port 465 (QQ etc.)
             context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(config["server"], config["port"], context=context, timeout=10) as server:
+            if proxy_sock:
+                ssl_sock = context.wrap_socket(proxy_sock, server_hostname=config["server"])
+                server = smtplib.SMTP_SSL(context=context, timeout=15)
+                server._host = config["server"]
+                server.sock = ssl_sock
+                server.file = ssl_sock.makefile('rb')
+                server.getreply()
+                server.ehlo_or_helo_if_needed()
                 server.login(config["username"], config["password"])
                 server.send_message(msg)
+                server.quit()
+            else:
+                with smtplib.SMTP_SSL(config["server"], config["port"], context=context, timeout=15) as server:
+                    server.login(config["username"], config["password"])
+                    server.send_message(msg)
 
         return True
     except Exception as e:
@@ -218,16 +295,11 @@ def _build_notification_html(courses: list, unsubscribe_url: str = "", sub_token
         cards.append(_build_course_html(c, remind_url))
 
     cards_html = "\n".join(cards)
-    subtitle = f'<p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">发现 {len(courses)} 门符合条件的新课程</p>'
 
     unsub_link = ""
     if unsubscribe_url:
         unsub_link = f' · <a href="{unsubscribe_url}" style="color:{_EMAIL_ACCENT};">退订</a>'
 
-    body = f"{subtitle if len(courses) > 0 else ''}</td></tr><tr><td style='padding:24px;'>{cards_html}"
-    footer = unsub_link
-
-    # We inline the shell manually here for the subtitle in the header
     return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -393,6 +465,3 @@ def send_enroll_reminder_email(to_email: str, course) -> bool:
 </p>"""
     html = _email_shell("选课即将开始", body)
     return _send_raw_email(to_email, f"选课提醒：{course.name}", html)
-
-
-
