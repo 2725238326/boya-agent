@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -58,6 +59,8 @@ _push_buffer = {
 # 连续失败计数器（用于 Telegram 告警）
 _consecutive_failures = 0
 _MAX_FAILURES_BEFORE_ALERT = 3
+URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
+SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 
 
 # ═══════════════════════════════════════════════════════
@@ -209,7 +212,13 @@ async def run_scrape_task():
                 config = load_filter_config()
                 if reopened:
                     logger.info(f"🔥 {len(reopened)} 门课程退课捡漏，立即推送!")
-                    reopened_pushed = await _do_push(reopened, config, session, event_type="snipe")
+                    reopened_pushed = await _do_push(
+                        reopened,
+                        config,
+                        session,
+                        event_type="snipe",
+                        delivery_mode="priority",
+                    )
                     run_status["total_pushed"] += reopened_pushed
             finally:
                 session.close()
@@ -261,7 +270,13 @@ async def run_scrape_task():
             # 立即推送 🔴 级别
             pushed_count = 0
             if immediate_courses:
-                pushed_count = await _do_push(immediate_courses, config, session, event_type="new")
+                pushed_count = await _do_push(
+                    immediate_courses,
+                    config,
+                    session,
+                    event_type="new",
+                    delivery_mode="priority",
+                )
 
             run_status["total_pushed"] += pushed_count
 
@@ -292,12 +307,12 @@ async def run_scrape_task():
 #  推送执行
 # ═══════════════════════════════════════════════════════
 
-async def _do_push(courses, config, session, event_type: str = "new"):
+async def _do_push(courses, config, session, event_type: str = "new", delivery_mode: str = "instant"):
     """执行推送并标记已推送（仅邮件，Telegram 已转为管理员告警专用）"""
     pushed_count = 0
 
     if config.email_enabled:
-        ok = await send_email_notification(courses, event_type=event_type)
+        ok = await send_email_notification(courses, event_type=event_type, delivery_mode=delivery_mode)
         if ok:
             pushed_count += len(courses)
             _log_push(courses, "email", len(courses))
@@ -369,7 +384,13 @@ async def flush_push_buffer(buffer_key: str):
         label = "🟡 近期汇总" if buffer_key == "urgent" else "🟢 从容汇总"
         logger.info(f"{label}: 推送 {len(courses)} 门课程")
 
-        pushed_count = await _do_push(courses, config, session, event_type="new")
+        pushed_count = await _do_push(
+            courses,
+            config,
+            session,
+            event_type="new",
+            delivery_mode="digest_urgent" if buffer_key == "urgent" else "digest_soon",
+        )
         run_status["total_pushed"] += pushed_count
         logger.info(f"{label}: 完成, 推送 {pushed_count} 条")
     except Exception as e:
@@ -415,7 +436,13 @@ async def check_urgency_escalation():
         courses = session.query(Course).filter(Course.id.in_(escalated_ids)).all()
         if courses:
             logger.info(f"🔴 紧急升级推送: {len(courses)} 门课程选课即将开始")
-            pushed_count = await _do_push(courses, config, session, event_type="new")
+            pushed_count = await _do_push(
+                courses,
+                config,
+                session,
+                event_type="new",
+                delivery_mode="priority",
+            )
             run_status["total_pushed"] += pushed_count
     except Exception as e:
         logger.error(f"紧急升级推送失败: {e}")
@@ -455,7 +482,11 @@ async def run_daily_summary_task():
         pushed_count = 0
 
         if config.email_enabled:
-            ok = await send_email_notification(passed_courses, event_type="new")
+            ok = await send_email_notification(
+                passed_courses,
+                event_type="new",
+                delivery_mode="digest_daily",
+            )
             if ok:
                 pushed_count += len(passed_courses)
                 _log_push(passed_courses, "daily_email", len(passed_courses))
@@ -579,7 +610,7 @@ def start_scheduler(interval_minutes: int = 3):
     # 🟡 近期缓冲区 flush（每 3 小时）
     scheduler.add_job(
         lambda: asyncio.ensure_future(flush_push_buffer("urgent")),
-        trigger=IntervalTrigger(hours=3),
+        trigger=IntervalTrigger(minutes=URGENT_DIGEST_MINUTES),
         id="flush_urgent_buffer",
         replace_existing=True,
     )
@@ -587,7 +618,7 @@ def start_scheduler(interval_minutes: int = 3):
     # 🟢 从容缓冲区 flush（每 12 小时）
     scheduler.add_job(
         lambda: asyncio.ensure_future(flush_push_buffer("soon")),
-        trigger=IntervalTrigger(hours=12),
+        trigger=IntervalTrigger(minutes=SOON_DIGEST_MINUTES),
         id="flush_soon_buffer",
         replace_existing=True,
     )
@@ -603,7 +634,7 @@ def start_scheduler(interval_minutes: int = 3):
     _configure_daily_summary_job()
     scheduler.start()
     logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
-                f"近期汇总=每3小时, 从容汇总=每12小时")
+                f"近期汇总=每{URGENT_DIGEST_MINUTES}分钟, 新课摘要=每{SOON_DIGEST_MINUTES}分钟")
 
 
 def update_scheduler_interval(interval_minutes: int):

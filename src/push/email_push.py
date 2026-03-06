@@ -366,18 +366,94 @@ def _build_course_html(course, remind_url: str = "") -> str:
 </table>"""
 
 
-def _build_notification_html(courses: list, unsubscribe_url: str = "", sub_token: str = "", base_url: str = "") -> str:
-    """构建完整通知邮件"""
+def _describe_subscription_reason(sub) -> str:
+    """Build a human-readable summary of subscriber preferences."""
+    campus_text = sub.campus_filter or "\u5168\u90e8\u6821\u533a"
+    categories = sub.categories or []
+    category_text = "\u3001".join(categories) if categories else "\u5168\u90e8\u7c7b\u522b"
+    sign_text = "\u4ec5\u81ea\u4e3b\u7b7e\u5230\u8bfe\u7a0b" if sub.self_sign_only else "\u5305\u542b\u5e38\u89c4\u7b7e\u5230\u8bfe\u7a0b"
+    return f"{campus_text} / {category_text} / {sign_text}"
+
+
+def _build_notification_subject(event_type: str, delivery_mode: str, course_count: int) -> str:
+    """Build notification email subject."""
+    if event_type == "snipe":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u9000\u8bfe\u8865\u5f55\u63d0\u9192 ({course_count} \u95e8)"
+    if delivery_mode == "priority":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u5373\u65f6\u63d0\u9192 ({course_count} \u95e8)"
+    if delivery_mode == "digest_urgent":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u8fd1\u671f\u6458\u8981 ({course_count} \u95e8)"
+    if delivery_mode == "digest_soon":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u65b0\u8bfe\u6458\u8981 ({course_count} \u95e8)"
+    if delivery_mode == "digest_daily":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u4eca\u65e5\u6c47\u603b ({course_count} \u95e8)"
+    return f"\u535a\u96c5\u65b0\u8bfe\u7a0b\u901a\u77e5 ({course_count} \u95e8)"
+
+
+def _build_notification_intro(event_type: str, delivery_mode: str, course_count: int) -> tuple[str, str]:
+    """Return email heading and intro copy."""
+    if event_type == "snipe":
+        return (
+            "\u4f60\u5173\u6ce8\u7684\u8bfe\u7a0b\u51fa\u73b0\u7a7a\u51fa\u540d\u989d",
+            "\u8fd9\u7c7b\u901a\u77e5\u4f1a\u4f18\u5148\u53d1\u9001\uff0c\u5e2e\u4f60\u66f4\u5feb\u53d1\u73b0\u53ef\u4ee5\u7acb\u5373\u5c1d\u8bd5\u7684\u9000\u8bfe\u8865\u5f55\u8bfe\u7a0b\u3002",
+        )
+    if delivery_mode == "priority":
+        return (
+            "\u9002\u5408\u7acb\u5373\u5904\u7406\u7684\u8bfe\u7a0b\u5df2\u51fa\u73b0",
+            "\u8fd9\u4e9b\u8bfe\u7a0b\u8981\u4e48\u5df2\u7ecf\u5f00\u62a2\uff0c\u8981\u4e48\u5373\u5c06\u5f00\u59cb\u9009\u8bfe\uff0c\u6240\u4ee5\u6ca1\u6709\u8d70\u6458\u8981\uff0c\u76f4\u63a5\u5355\u72ec\u63d0\u9192\u3002",
+        )
+    if delivery_mode == "digest_urgent":
+        return (
+            "\u8fc7\u53bb\u51e0\u5206\u949f\u7684\u8fd1\u671f\u8bfe\u7a0b\u6458\u8981",
+            "\u4e3a\u4e86\u51cf\u5c11\u90ae\u4ef6\u6253\u6270\uff0c\u7cfb\u7edf\u4f1a\u628a\u76f8\u8fd1\u65f6\u95f4\u5185\u51fa\u73b0\u7684\u65b0\u8bfe\u7a0b\u5408\u5e76\u6210\u4e00\u5c01\u90ae\u4ef6\u3002\u8fd9\u662f\u6700\u8fd1\u4e00\u6279\u7684\u8bfe\u7a0b\u6458\u8981\u3002",
+        )
+    if delivery_mode == "digest_soon":
+        return (
+            "\u65b0\u53d1\u73b0\u8bfe\u7a0b\u6458\u8981",
+            "\u8fd9\u5c01\u90ae\u4ef6\u628a\u6700\u8fd1\u4e00\u6279\u65b0\u8bfe\u7a0b\u5408\u5e76\u5728\u4e00\u8d77\uff0c\u65b9\u4fbf\u4f60\u4e00\u6b21\u6027\u8bfb\u5b8c\u518d\u51b3\u5b9a\u662f\u5426\u5173\u6ce8\u3002",
+        )
+    if delivery_mode == "digest_daily":
+        return (
+            "\u4eca\u65e5\u503c\u5f97\u5173\u6ce8\u7684\u8bfe\u7a0b\u6c47\u603b",
+            "\u8fd9\u662f\u4eca\u5929\u5c1a\u672a\u5355\u72ec\u63a8\u9001\u8fc7\u7684\u8bfe\u7a0b\u6c47\u603b\uff0c\u65b9\u4fbf\u4f60\u5728\u4e00\u5c01\u90ae\u4ef6\u4e2d\u96c6\u4e2d\u67e5\u770b\u3002",
+        )
+    return (
+        f"\u53d1\u73b0 {course_count} \u95e8\u7b26\u5408\u4f60\u504f\u597d\u7684\u65b0\u8bfe\u7a0b",
+        "\u8fd9\u4e9b\u8bfe\u7a0b\u5df2\u7ecf\u6839\u636e\u4f60\u7684\u8ba2\u9605\u504f\u597d\u8fdb\u884c\u8fc7\u6ee4\uff0c\u53ea\u4fdd\u7559\u66f4\u4e0e\u4f60\u76f8\u5173\u7684\u5185\u5bb9\u3002",
+    )
+
+
+def _build_notification_html(
+    courses: list,
+    unsubscribe_url: str = "",
+    sub_token: str = "",
+    base_url: str = "",
+    event_type: str = "new",
+    delivery_mode: str = "instant",
+    subscriber=None,
+) -> str:
+    """Build full notification email HTML."""
     cards = []
     for c in courses:
         remind_url = f"{base_url}/api/remind/{sub_token}/{c.id}" if sub_token and base_url else ""
         cards.append(_build_course_html(c, remind_url))
 
     cards_html = "\n".join(cards)
+    heading, intro = _build_notification_intro(event_type, delivery_mode, len(courses))
 
     unsub_link = ""
     if unsubscribe_url:
-        unsub_link = f' · <a href="{unsubscribe_url}" style="color:{_EMAIL_ACCENT};">退订</a>'
+        unsub_link = f' | <a href="{unsubscribe_url}" style="color:{_EMAIL_ACCENT};">\u9000\u8ba2</a>'
+
+    reason_html = ""
+    if subscriber is not None:
+        reason_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 16px; background:#f5f5f7; border:1px solid #e5e5ea; border-radius:14px;">
+<tr><td style="padding:14px 16px;">
+  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">\u4f60\u6536\u5230\u8fd9\u5c01\u90ae\u4ef6\uff0c\u56e0\u4e3a\u4f60\u7684\u8ba2\u9605\u504f\u597d\u662f\uff1a</p>
+  <p style="margin:0; font-size:14px; color:{_EMAIL_TEXT}; line-height:1.6;">{_describe_subscription_reason(subscriber)}</p>
+</td></tr></table>"""
 
     return f"""
 <!DOCTYPE html>
@@ -391,14 +467,16 @@ def _build_notification_html(courses: list, unsubscribe_url: str = "", sub_token
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
        border-radius:20px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,0.06);">
 <tr><td style="background:{_EMAIL_ACCENT}; padding:28px 24px; text-align:center;">
-  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700;">博雅课程新通知</h1>
-  <p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">发现 {len(courses)} 门符合条件的新课程</p>
+  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700;">{heading}</h1>
+  <p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">\u5171\u6709 {len(courses)} \u95e8\u8bfe\u7a0b\u503c\u5f97\u5173\u6ce8</p>
 </td></tr>
 <tr><td style="padding:24px;">
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">{intro}</p>
+{reason_html}
 {cards_html}
 </td></tr>
 <tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
-  BUAA 博雅课程推送{unsub_link}
+  BUAA \u535a\u96c5\u8bfe\u7a0b\u63a8\u9001{unsub_link}
 </td></tr>
 </table>
 </td></tr></table>
@@ -425,12 +503,13 @@ def _filter_for_subscriber(courses: list, sub) -> list:
     return result
 
 
-async def send_email_to_subscribers(courses: list, base_url: str = "", event_type: str = "new") -> int:
-    """
-    向所有活跃且已验证的订阅者发送课程通知
-    每个订阅者按自己的偏好独立过滤
-    返回成功发送数
-    """
+async def send_email_to_subscribers(
+    courses: list,
+    base_url: str = "",
+    event_type: str = "new",
+    delivery_mode: str = "instant",
+) -> int:
+    """Send course notifications to all active verified subscribers."""
     from src.models import EmailSubscriber, NotificationEvent, get_session
 
     session = get_session()
@@ -441,7 +520,7 @@ async def send_email_to_subscribers(courses: list, base_url: str = "", event_typ
             .all()
         )
         if not subs:
-            logger.info("没有活跃的邮件订阅者")
+            logger.info("\u6ca1\u6709\u6d3b\u8dc3\u7684\u90ae\u4ef6\u8ba2\u9605\u8005")
             return 0
 
         sent_count = 0
@@ -451,13 +530,22 @@ async def send_email_to_subscribers(courses: list, base_url: str = "", event_typ
                 continue
 
             unsub_url = f"{base_url}/api/unsubscribe/{sub.token}" if base_url else ""
-            html = _build_notification_html(filtered, unsub_url, sub_token=sub.token, base_url=base_url)
-            ok = _send_raw_email(sub.email, f"博雅新课程通知 ({len(filtered)} 门)", html, from_kind="notify")
+            html = _build_notification_html(
+                filtered,
+                unsub_url,
+                sub_token=sub.token,
+                base_url=base_url,
+                event_type=event_type,
+                delivery_mode=delivery_mode,
+                subscriber=sub,
+            )
+            subject = _build_notification_subject(event_type, delivery_mode, len(filtered))
+            ok = _send_raw_email(sub.email, subject, html, from_kind="notify")
             if ok:
                 sent_count += 1
-                logger.info(f"邮件推送成功: {len(filtered)} 门课程 -> {sub.email}")
+                logger.info(f"\u90ae\u4ef6\u63a8\u9001\u6210\u529f: {len(filtered)} \u95e8\u8bfe\u7a0b -> {sub.email}")
             else:
-                logger.warning(f"邮件推送失败: {sub.email}")
+                logger.warning(f"\u90ae\u4ef6\u63a8\u9001\u5931\u8d25: {sub.email}")
 
             for course in filtered:
                 event = NotificationEvent(
@@ -469,11 +557,11 @@ async def send_email_to_subscribers(courses: list, base_url: str = "", event_typ
                     event_type=event_type,
                     channel="email",
                     success=ok,
+                    message=f"delivery_mode={delivery_mode};matched={len(filtered)}",
                 )
                 session.add(event)
 
         session.commit()
-
         return sent_count
     except Exception:
         session.rollback()
@@ -482,11 +570,13 @@ async def send_email_to_subscribers(courses: list, base_url: str = "", event_typ
         session.close()
 
 
-# ========== 兼容旧接口 ==========
-
-async def send_email_notification(courses: list, event_type: str = "new") -> bool:
-    """旧接口兼容：向所有订阅者推送"""
-    count = await send_email_to_subscribers(courses, event_type=event_type)
+async def send_email_notification(
+    courses: list,
+    event_type: str = "new",
+    delivery_mode: str = "instant",
+) -> bool:
+    """Compatibility wrapper for subscriber email pushes."""
+    count = await send_email_to_subscribers(courses, event_type=event_type, delivery_mode=delivery_mode)
     return count > 0
 
 

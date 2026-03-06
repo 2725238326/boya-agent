@@ -50,12 +50,103 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 24px;
+            padding: 32px 24px;
         }
 
         .container {
             width: 100%;
-            max-width: 460px;
+            max-width: 1120px;
+        }
+
+        .page-shell {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(420px, 460px);
+            gap: 28px;
+            align-items: center;
+        }
+
+        .intro-panel {
+            padding: 18px 12px 18px 4px;
+        }
+
+        .intro-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.65);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+            font-size: 12px;
+            color: #4f5665;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .intro-title {
+            margin-top: 22px;
+            font-size: clamp(42px, 5vw, 72px);
+            line-height: 0.98;
+            letter-spacing: -0.045em;
+            font-weight: 700;
+            color: var(--text-main);
+            max-width: 560px;
+        }
+
+        .intro-copy {
+            margin-top: 18px;
+            max-width: 560px;
+            font-size: 18px;
+            line-height: 1.65;
+            color: rgba(29, 29, 31, 0.72);
+        }
+
+        .intro-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 28px;
+            max-width: 720px;
+        }
+
+        .intro-item {
+            padding: 18px 18px 16px;
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(16px) saturate(150%);
+            -webkit-backdrop-filter: blur(16px) saturate(150%);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 16px 44px rgba(16, 24, 40, 0.08);
+        }
+
+        .intro-item strong {
+            display: block;
+            font-size: 16px;
+            line-height: 1.35;
+            letter-spacing: -0.02em;
+            margin-bottom: 8px;
+        }
+
+        .intro-item span {
+            display: block;
+            font-size: 14px;
+            line-height: 1.55;
+            color: var(--text-muted);
+        }
+
+        .intro-note {
+            margin-top: 18px;
+            max-width: 620px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: rgba(29, 29, 31, 0.64);
+        }
+
+        .card-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
         }
 
         .card {
@@ -411,6 +502,14 @@
             color: #c90000;
         }
 
+        .action-hint {
+            margin-top: 14px;
+            font-size: 13px;
+            line-height: 1.65;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
         .result-card {
             text-align: center;
             padding: 60px 40px;
@@ -459,92 +558,173 @@
             color: var(--text-muted);
             line-height: 1.6;
         }
+
+        @media (max-width: 980px) {
+            body {
+                align-items: flex-start;
+            }
+
+            .page-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .intro-panel {
+                padding: 4px 0 6px;
+            }
+
+            .intro-title {
+                max-width: none;
+                font-size: clamp(34px, 10vw, 56px);
+            }
+
+            .intro-copy,
+            .intro-note {
+                max-width: none;
+            }
+
+            .intro-grid {
+                grid-template-columns: 1fr;
+                max-width: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 18px 14px;
+                align-items: flex-start;
+            }
+
+            .card-header {
+                padding: 32px 22px 14px;
+            }
+
+            .card-body {
+                padding: 12px 22px 28px;
+            }
+
+            .intro-title {
+                font-size: 34px;
+            }
+
+            .intro-copy {
+                font-size: 16px;
+            }
+        }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <!-- 订阅表单 -->
-        <div class="card" id="formCard">
-            <div class="card-header">
-                <h1>订阅博雅课程</h1>
-                <p>输入邮箱，实时接收新课程通知</p>
-            </div>
-            <div class="card-body">
-                <form id="subscribeForm" onsubmit="handleSubscribe(event)">
-                    <div class="form-group">
-                        <label>邮箱地址</label>
-                        <input type="email" class="input" id="emailInput" required placeholder="name@example.com">
-                        <div class="remember-row">
-                            <label style="text-transform:none; letter-spacing:0; margin:0; font-size:13px; font-weight:500; opacity:1;">
-                                <input type="checkbox" id="rememberEmailCheck" checked>记住邮箱
-                            </label>
-                        </div>
+        <div class="page-shell">
+            <section class="intro-panel">
+                <div class="intro-eyebrow">BUAA BOYA COURSE AGENT</div>
+                <h1 class="intro-title">&#23569;&#19968;&#27493;&#25240;&#33150;&#65292;&#26356;&#24555;&#25910;&#21040;&#36866;&#21512;&#20320;&#30340;&#21338;&#38597;&#35838;&#31243;&#12290;</h1>
+                <p class="intro-copy">
+                    &#36755;&#20837;&#37038;&#31665;&#21518;&#65292;&#20320;&#20250;&#33719;&#24471;&#19968;&#20010;&#36731;&#37327;&#38376;&#25143;&#65306;&#39564;&#35777;&#23436;&#25104;&#21363;&#21487;&#30452;&#25509;&#30331;&#24405;&#65292;&#24403;&#21069;&#35774;&#22791;&#20250;&#38271;&#26399;&#35760;&#20303;&#36523;&#20221;&#12290;
+                    &#26032;&#35838;&#31243;&#40664;&#35748;&#36208;&#25688;&#35201;&#25512;&#36865;&#65292;&#30495;&#27491;&#38656;&#35201;&#31435;&#21051;&#22788;&#29702;&#30340;&#24320;&#25250;&#35838;&#31243;&#21644;&#36864;&#35838;&#34917;&#24405;&#20250;&#20248;&#20808;&#36865;&#36798;&#12290;
+                </p>
+                <div class="intro-grid">
+                    <div class="intro-item">
+                        <strong>&#36328;&#35774;&#22791;&#39564;&#35777;</strong>
+                        <span>&#25163;&#26426;&#25110;&#30005;&#33041;&#28857;&#24320;&#37038;&#20214;&#37117;&#21487;&#20197;&#65292;&#21478;&#19968;&#21488;&#35774;&#22791;&#20250;&#33258;&#21160;&#24863;&#30693;&#24050;&#23436;&#25104;&#39564;&#35777;&#12290;</span>
                     </div>
-
-                    <div class="form-group">
-                        <label>校区偏好</label>
-                        <select class="select" id="campusSelect">
-                            <option value="">全部校区</option>
-                            <option value="沙河">沙河校区</option>
-                            <option value="学院路">学院路校区</option>
-                        </select>
+                    <div class="intro-item">
+                        <strong>&#38271;&#26399;&#20445;&#25345;&#30331;&#24405;</strong>
+                        <span>&#39564;&#35777;&#25104;&#21151;&#21518;&#65292;&#19979;&#27425;&#25171;&#24320;&#20250;&#33258;&#21160;&#36827;&#20837;&#38376;&#25143;&#65307;&#21482;&#26377;&#20320;&#20027;&#21160;&#20999;&#25442;&#37038;&#31665;&#25165;&#38656;&#35201;&#37325;&#26032;&#30331;&#24405;&#12290;</span>
                     </div>
-
-                    <div class="form-group">
-                        <label>课程类别 <span class="form-hint">未选择则默认推送全部类别</span></label>
-                        <div class="chip-row" id="categoryChips">
-                            <span class="chip" onclick="toggleChip(this)">博雅课程-安全健康</span>
-                            <span class="chip" onclick="toggleChip(this)">博雅课程-德育</span>
-                            <span class="chip" onclick="toggleChip(this)">博雅课程-美育</span>
-                            <span class="chip" onclick="toggleChip(this)">博雅课程-劳动教育</span>
-                        </div>
+                    <div class="intro-item">
+                        <strong>&#25688;&#35201;&#19982;&#20248;&#20808;&#32423;&#24182;&#34892;</strong>
+                        <span>&#20943;&#23569;&#8220;&#27599;&#38376;&#35838;&#19968;&#23553;&#37038;&#20214;&#8221;&#30340;&#25171;&#25200;&#65292;&#21516;&#26102;&#25226;&#30495;&#27491;&#32039;&#24613;&#30340;&#25552;&#37266;&#20445;&#30041;&#20026;&#21363;&#26102;&#36865;&#36798;&#12290;</span>
                     </div>
-
-                    <div class="form-group switch-row">
-                        <label>
-                            仅推送自主签到课程
-                            <span class="form-hint">过滤掉由老师或系统统一签到的常规课程</span>
-                        </label>
-                        <label class="switch">
-                            <input type="checkbox" id="selfSignCheck" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="insight-panel">
-                        <div class="insight-stats">
-                            <div class="insight-stat">
-                                <div class="insight-value" id="insightAvailableCount">-</div>
-                                <div class="insight-label">当前可选课程</div>
-                            </div>
-                            <div class="insight-stat">
-                                <div class="insight-value" id="insightActiveCount">-</div>
-                                <div class="insight-label">系统追踪课程</div>
-                            </div>
-                        </div>
-                        <div class="insight-countdown" id="insightCountdown">正在加载最近开抢课程…</div>
-                        <div class="insight-hot-list" id="insightHotList"></div>
-                    </div>
-
-                    <button type="submit" class="btn" id="submitBtn">订阅推送</button>
-                    <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">发送登录链接</button>
-                    <div class="message" id="msgBox"></div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 验证/退订结果页 -->
-        <div class="card" id="resultCard" style="display:none">
-            <div class="result-card">
-                <div class="icon-wrapper" id="resultIconWrapper">
-                    <svg id="resultIconSvg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2">
-                        <!-- Icon paths injected by JS -->
-                    </svg>
                 </div>
-                <h2 id="resultTitle">处理中...</h2>
-                <p id="resultDesc">请稍候</p>
+                <div class="intro-note">
+                    &#20320;&#20250;&#22312;&#21516;&#19968;&#20010;&#38376;&#25143;&#37324;&#26597;&#30475;&#35838;&#31243;&#12289;&#35774;&#32622;&#31579;&#36873;&#12289;&#27880;&#20876;&#36873;&#35838;&#25552;&#37266;&#12290;&#37038;&#31665;&#21482;&#25215;&#25285;&#39564;&#35777;&#21644;&#36890;&#30693;&#65292;&#19981;&#38656;&#35201;&#21333;&#29420;&#32500;&#25252;&#36134;&#21495;&#23494;&#30721;&#12290;
+                </div>
+            </section>
+
+            <div class="card-stack">
+                <div class="card" id="formCard">
+                    <div class="card-header">
+                        <h1>&#35746;&#38405;&#21338;&#38597;&#35838;&#31243;</h1>
+                        <p>&#36755;&#20837;&#37038;&#31665;&#65292;&#23454;&#26102;&#25509;&#25910;&#26032;&#35838;&#31243;&#36890;&#30693;</p>
+                    </div>
+                    <div class="card-body">
+                        <form id="subscribeForm" onsubmit="handleSubscribe(event)">
+                            <div class="form-group">
+                                <label>&#37038;&#31665;&#22320;&#22336;</label>
+                                <input type="email" class="input" id="emailInput" required placeholder="name@example.com">
+                                <div class="remember-row">
+                                    <label style="text-transform:none; letter-spacing:0; margin:0; font-size:13px; font-weight:500; opacity:1;">
+                                        <input type="checkbox" id="rememberEmailCheck" checked>&#35760;&#20303;&#37038;&#31665;
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>&#26657;&#21306;&#20559;&#22909;</label>
+                                <select class="select" id="campusSelect">
+                                    <option value="">&#20840;&#37096;&#26657;&#21306;</option>
+                                    <option value="&#27801;&#27827;">&#27801;&#27827;&#26657;&#21306;</option>
+                                    <option value="&#23398;&#38498;&#36335;">&#23398;&#38498;&#36335;&#26657;&#21306;</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>&#35838;&#31243;&#31867;&#21035; <span class="form-hint">&#26410;&#36873;&#25321;&#21017;&#40664;&#35748;&#25512;&#36865;&#20840;&#37096;&#31867;&#21035;</span></label>
+                                <div class="chip-row" id="categoryChips">
+                                    <span class="chip" onclick="toggleChip(this)">&#21338;&#38597;&#35838;&#31243;-&#23433;&#20840;&#20581;&#24247;</span>
+                                    <span class="chip" onclick="toggleChip(this)">&#21338;&#38597;&#35838;&#31243;-&#24503;&#32946;</span>
+                                    <span class="chip" onclick="toggleChip(this)">&#21338;&#38597;&#35838;&#31243;-&#32654;&#32946;</span>
+                                    <span class="chip" onclick="toggleChip(this)">&#21338;&#38597;&#35838;&#31243;-&#21171;&#21160;&#25945;&#32946;</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group switch-row">
+                                <label>
+                                    &#20165;&#25512;&#36865;&#33258;&#20027;&#31614;&#21040;&#35838;&#31243;
+                                    <span class="form-hint">&#36807;&#28388;&#25481;&#30001;&#32769;&#24072;&#25110;&#31995;&#32479;&#32479;&#19968;&#31614;&#21040;&#30340;&#24120;&#35268;&#35838;&#31243;</span>
+                                </label>
+                                <label class="switch">
+                                    <input type="checkbox" id="selfSignCheck" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+
+                            <div class="insight-panel">
+                                <div class="insight-stats">
+                                    <div class="insight-stat">
+                                        <div class="insight-value" id="insightAvailableCount">-</div>
+                                        <div class="insight-label">&#24403;&#21069;&#21487;&#36873;&#35838;&#31243;</div>
+                                    </div>
+                                    <div class="insight-stat">
+                                        <div class="insight-value" id="insightActiveCount">-</div>
+                                        <div class="insight-label">&#31995;&#32479;&#36861;&#36394;&#35838;&#31243;</div>
+                                    </div>
+                                </div>
+                                <div class="insight-countdown" id="insightCountdown">&#27491;&#22312;&#21152;&#36733;&#26368;&#36817;&#24320;&#25250;&#35838;&#31243;...</div>
+                                <div class="insight-hot-list" id="insightHotList"></div>
+                            </div>
+
+                            <button type="submit" class="btn" id="submitBtn">&#35746;&#38405;&#25512;&#36865;</button>
+                            <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#21457;&#36865;&#30331;&#24405;&#38142;&#25509;</button>
+                            <div class="message" id="msgBox"></div>
+                            <div class="action-hint">&#39564;&#35777;&#23436;&#25104;&#21518;&#65292;&#24403;&#21069;&#35774;&#22791;&#20250;&#33258;&#21160;&#20445;&#25345;&#30331;&#24405;&#65307;&#22914;&#26524;&#20320;&#22312;&#21478;&#19968;&#21488;&#35774;&#22791;&#37324;&#28857;&#20102;&#37038;&#20214;&#65292;&#36825;&#37324;&#20063;&#20250;&#20986;&#29616;&#19968;&#38190;&#30331;&#24405;&#25353;&#38062;&#12290;</div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" id="resultCard" style="display:none">
+                    <div class="result-card">
+                        <div class="icon-wrapper" id="resultIconWrapper">
+                            <svg id="resultIconSvg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" stroke-width="2">
+                                <!-- Icon paths injected by JS -->
+                            </svg>
+                        </div>
+                        <h2 id="resultTitle">&#22788;&#29702;&#20013;...</h2>
+                        <p id="resultDesc">&#35831;&#31245;&#20505;</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
