@@ -260,6 +260,13 @@
 
     <script src="/static/portal.js"></script>
     <script>
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('login') === 'ok' && typeof showPortalToast === 'function') {
+                showPortalToast('已经成功登录', 'success');
+            }
+        })();
+
         // Banner dismiss logic (localStorage persistence)
         (function () {
             if (localStorage.getItem('portal_banner_dismissed') === '1') {

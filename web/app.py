@@ -18,6 +18,7 @@ from src.models import (
     PushLog,
     EnrollLog,
     EmailSubscriber,
+    LoginBridgeTicket,
     CourseReminder,
     NotificationEvent,
     get_session,
@@ -43,6 +44,7 @@ CORS(app)
 PORTAL_SESSION_COOKIE = "portal_token"
 PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
 LOGIN_EMAIL_COOLDOWN_SECONDS = 20
+LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "900")))
 _login_email_last_sent_at = {}
 
 
@@ -105,6 +107,43 @@ def _check_login_email_cooldown(email: str) -> int:
 
 def _mark_login_email_sent(email: str):
     _login_email_last_sent_at[email] = datetime.now().timestamp()
+
+
+def _create_login_bridge_ticket(session, sub: EmailSubscriber) -> LoginBridgeTicket:
+    expires_at = datetime.now() + timedelta(seconds=LOGIN_BRIDGE_TTL_SECONDS)
+    bridge = LoginBridgeTicket(
+        subscriber_id=sub.id,
+        subscriber_email=sub.email,
+        subscriber_token=sub.token,
+        expires_at=expires_at,
+    )
+    session.add(bridge)
+    session.flush()
+    return bridge
+
+
+def _mark_bridge_verified(session, ticket: str, sub: EmailSubscriber) -> None:
+    ticket = (ticket or "").strip()
+    if not ticket:
+        return
+    now = datetime.now()
+    bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
+    if not bridge:
+        return
+    if bridge.subscriber_token != sub.token:
+        return
+    if bridge.expires_at and bridge.expires_at < now:
+        return
+    bridge.verified = True
+    bridge.verified_at = now
+
+
+def _bridge_payload(bridge: LoginBridgeTicket) -> dict:
+    expires_in = int((bridge.expires_at - datetime.now()).total_seconds())
+    return {
+        "bridge_ticket": bridge.ticket,
+        "bridge_expires_in": max(0, expires_in),
+    }
 
 
 # ========== 页面路由 ==========
@@ -517,11 +556,18 @@ def api_subscribe():
                         "error": f"请求过于频繁，请 {remain} 秒后再试",
                         "retry_after": remain,
                     }), 429
+                bridge = _create_login_bridge_ticket(session, existing)
                 base_url = _get_public_base_url()
-                login_url = f"{base_url}/api/login/{existing.token}"
+                login_url = f"{base_url}/api/login/{existing.token}?bridge={bridge.ticket}"
                 ok = send_login_email(email, login_url)
                 if ok:
+                    session.commit()
                     _mark_login_email_sent(email)
+                    return jsonify({
+                        "success": True,
+                        "message": "登录链接已发送，请查收邮箱。若你在其他设备点击邮件，本页会自动出现一键登录按钮。",
+                        **_bridge_payload(bridge),
+                    })
                     return jsonify({"success": True, "message": "该邮箱已订阅，已发送登录链接，请查收邮箱"})
                 return jsonify({"success": False, "error": "该邮箱已订阅，但登录邮件发送失败"}), 500
             # 重新激活
@@ -544,11 +590,19 @@ def api_subscribe():
             token = sub.token
 
         # 发送验证邮件
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        bridge = _create_login_bridge_ticket(session, sub)
         base_url = _get_public_base_url()
-        verify_url = f"{base_url}/api/verify/{token}"
+        verify_url = f"{base_url}/api/verify/{token}?bridge={bridge.ticket}"
         ok = send_verification_email(email, verify_url)
 
         if ok:
+            session.commit()
+            return jsonify({
+                "success": True,
+                "message": "验证邮件已发送。若你在其他设备完成验证，本页会自动解锁一键登录按钮。",
+                **_bridge_payload(bridge),
+            })
             return jsonify({"success": True, "message": "验证邮件已发送，请查收并点击验证链接"})
         else:
             return jsonify({"success": True, "message": "订阅成功，但验证邮件发送失败，请联系管理员"})
@@ -588,12 +642,19 @@ def api_login_request():
                 "retry_after": remain,
             }), 429
 
+        bridge = _create_login_bridge_ticket(session, sub)
         base_url = _get_public_base_url()
-        login_url = f"{base_url}/api/login/{sub.token}"
+        login_url = f"{base_url}/api/login/{sub.token}?bridge={bridge.ticket}"
         ok = send_login_email(email, login_url)
         if not ok:
             return jsonify({"success": False, "error": "登录邮件发送失败，请稍后重试"}), 500
+        session.commit()
         _mark_login_email_sent(email)
+        return jsonify({
+            "success": True,
+            "message": "登录链接已发送。若你在其他设备点击邮件，本页会自动出现一键登录按钮。",
+            **_bridge_payload(bridge),
+        })
         return jsonify({"success": True, "message": "登录链接已发送，请查收邮箱"})
     finally:
         session.close()
@@ -601,6 +662,7 @@ def api_login_request():
 
 @app.route("/api/login/<token>")
 def api_login(token):
+    bridge_ticket = (request.args.get("bridge") or "").strip()
     """通过邮件链接登录"""
     session = get_session()
     try:
@@ -611,14 +673,21 @@ def api_login(token):
         )
         if not sub:
             return redirect("/subscribe?result=invalid")
-        resp = make_response(redirect(f"/portal?email={sub.email}"))
+        _mark_bridge_verified(session, bridge_ticket, sub)
+        session.commit()
+        resp = make_response(redirect(f"/portal?email={sub.email}&login=ok"))
         return _set_portal_session_cookie(resp, sub.token)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"鐧诲綍澶辫触: {e}")
+        return redirect("/subscribe?result=invalid")
     finally:
         session.close()
 
 
 @app.route("/api/verify/<token>")
 def api_verify(token):
+    bridge_ticket = (request.args.get("bridge") or "").strip()
     """验证邮箱"""
     session = get_session()
     try:
@@ -627,13 +696,78 @@ def api_verify(token):
             return redirect("/subscribe?result=invalid")
         sub.verified = True
         sub.active = True
+        _mark_bridge_verified(session, bridge_ticket, sub)
         session.commit()
-        resp = make_response(redirect(f"/portal?email={sub.email}"))
+        resp = make_response(redirect(f"/portal?email={sub.email}&login=ok"))
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
         logger.error(f"验证失败: {e}")
         return redirect("/subscribe?result=invalid")
+    finally:
+        session.close()
+
+
+@app.route("/api/subscribe/bridge/<ticket>/status", methods=["GET"])
+def api_subscribe_bridge_status(ticket):
+    """Check cross-device bridge ticket status."""
+    now = datetime.now()
+    session = get_session()
+    try:
+        bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
+        if not bridge:
+            return jsonify({"success": False, "error": "bridge ticket not found"}), 404
+        expired = bool(bridge.expires_at and bridge.expires_at < now)
+        return jsonify({
+            "success": True,
+            "data": {
+                "verified": bool(bridge.verified and not expired),
+                "expired": expired,
+                "email": bridge.subscriber_email,
+                "expires_in": max(0, int((bridge.expires_at - now).total_seconds())) if bridge.expires_at else 0,
+            },
+        })
+    finally:
+        session.close()
+
+
+@app.route("/api/subscribe/bridge/<ticket>/claim", methods=["POST"])
+def api_subscribe_bridge_claim(ticket):
+    """Claim bridge login on current device after verification."""
+    now = datetime.now()
+    session = get_session()
+    try:
+        bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
+        if not bridge:
+            return jsonify({"success": False, "error": "bridge ticket not found"}), 404
+        if bridge.expires_at and bridge.expires_at < now:
+            return jsonify({"success": False, "error": "bridge ticket expired, please request a new email link"}), 410
+        if not bridge.verified:
+            return jsonify({"success": False, "error": "verification not finished"}), 409
+
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(token=bridge.subscriber_token, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return jsonify({"success": False, "error": "subscriber state invalid"}), 409
+
+        bridge.claimed_at = now
+        session.commit()
+        resp = jsonify({
+            "success": True,
+            "message": "already logged in",
+            "data": {
+                "email": sub.email,
+                "portal_url": f"/portal?email={sub.email}&login=ok",
+            },
+        })
+        return _set_portal_session_cookie(resp, sub.token)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"bridge login failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
 

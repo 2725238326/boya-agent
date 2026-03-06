@@ -233,6 +233,23 @@ class EmailSubscriber(Base):
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
         }
 
+
+class LoginBridgeTicket(Base):
+    """跨设备验证后的一次性登录桥接票据"""
+    __tablename__ = "login_bridge_tickets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket = Column(String, unique=True, default=lambda: secrets.token_urlsafe(24), nullable=False)
+    subscriber_id = Column(Integer, nullable=False)
+    subscriber_email = Column(String, nullable=False)
+    subscriber_token = Column(String, nullable=False)
+    verified = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.now)
+    expires_at = Column(DateTime, nullable=False)
+    verified_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+
+
 class CourseReminder(Base):
     """选课提醒：用户通过邮件中的“提醒我选课”按钮注册"""
     __tablename__ = "course_reminders"
