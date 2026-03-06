@@ -35,7 +35,12 @@
 
 body.portal-body {
     font-family: var(--portal-font);
-    background: var(--portal-bg);
+    background-color: var(--portal-bg);
+    background-image:
+        radial-gradient(circle at 12% 55%, rgba(142, 197, 252, 0.28) 0%, transparent 48%),
+        radial-gradient(circle at 88% 20%, rgba(224, 195, 252, 0.28) 0%, transparent 48%),
+        radial-gradient(circle at 55% 88%, rgba(252, 227, 138, 0.22) 0%, transparent 48%);
+    background-attachment: fixed;
     color: var(--portal-text);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -476,6 +481,212 @@ body.portal-body {
 .portal-notify-type.snipe {
     background: rgba(255, 59, 48, 0.1);
     color: var(--portal-danger);
+}
+
+/* delivery_mode 推送模式标签 */
+.portal-notify-mode {
+    padding: 4px 10px;
+    border-radius: 980px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.portal-notify-mode.priority {
+    background: rgba(255, 59, 48, 0.08);
+    color: var(--portal-danger);
+}
+
+.portal-notify-mode.digest_urgent {
+    background: rgba(255, 149, 0, 0.1);
+    color: #c93400;
+}
+
+.portal-notify-mode.digest_soon {
+    background: rgba(0, 113, 227, 0.07);
+    color: var(--portal-accent);
+}
+
+.portal-notify-mode.digest_daily {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--portal-text-muted);
+}
+
+/* ── Portal Highlights Strip ────────── */
+.portal-highlights {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+}
+
+.portal-highlight-card {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: var(--portal-radius);
+    padding: 18px 20px;
+    box-shadow: var(--portal-shadow-card);
+    transition: var(--portal-transition);
+}
+
+.portal-highlight-card:hover {
+    box-shadow: var(--portal-shadow-lg);
+    transform: translateY(-1px);
+}
+
+.portal-highlight-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--portal-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+}
+
+.portal-highlight-value {
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--portal-text);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.portal-highlight-sub {
+    font-size: 13px;
+    color: var(--portal-text-muted);
+    line-height: 1.4;
+}
+
+.portal-highlight-card.accent .portal-highlight-value {
+    color: var(--portal-accent);
+}
+
+.portal-highlight-card.warning .portal-highlight-value {
+    color: var(--portal-warning);
+}
+
+.portal-highlight-card.success .portal-highlight-value {
+    color: var(--portal-success);
+}
+
+/* 近期开抢倒计时列表 */
+.portal-upcoming-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.portal-upcoming-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--portal-surface);
+    border: 1px solid var(--portal-border);
+    border-radius: var(--portal-radius-sm);
+    box-shadow: var(--portal-shadow-card);
+    transition: var(--portal-transition);
+}
+
+.portal-upcoming-item:hover {
+    box-shadow: var(--portal-shadow);
+}
+
+.portal-upcoming-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.portal-upcoming-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--portal-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.portal-upcoming-meta {
+    font-size: 12px;
+    color: var(--portal-text-muted);
+    margin-top: 2px;
+}
+
+.portal-upcoming-countdown {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--portal-accent);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.portal-upcoming-countdown.urgent {
+    color: var(--portal-danger);
+}
+
+/* 推送暂停控制 */
+.portal-push-pause-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 18px;
+    background: rgba(255, 149, 0, 0.05);
+    border: 1px solid rgba(255, 149, 0, 0.15);
+    border-radius: var(--portal-radius-sm);
+    margin-top: 16px;
+}
+
+.portal-push-pause-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--portal-text);
+}
+
+.portal-push-pause-sub {
+    font-size: 12px;
+    color: var(--portal-text-muted);
+    margin-top: 2px;
+}
+
+.portal-push-pause-btn {
+    padding: 7px 16px;
+    background: rgba(255, 149, 0, 0.12);
+    color: #c93400;
+    border: none;
+    border-radius: 980px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--portal-font);
+    transition: var(--portal-transition);
+    white-space: nowrap;
+}
+
+.portal-push-pause-btn:hover {
+    background: rgba(255, 149, 0, 0.2);
+}
+
+.portal-push-pause-btn.resume {
+    background: rgba(52, 199, 89, 0.1);
+    color: #248a3d;
+}
+
+.portal-push-pause-btn.resume:hover {
+    background: rgba(52, 199, 89, 0.18);
+}
+
+.portal-push-paused-note {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #c93400;
+    font-weight: 500;
 }
 
 .portal-notify-status.success {
@@ -1167,6 +1378,19 @@ body.portal-body {
 
 /* ═══ Responsive ═══ */
 @media (max-width: 768px) {
+    .portal-highlights {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+
+    .portal-highlight-card {
+        padding: 14px 12px;
+    }
+
+    .portal-highlight-value {
+        font-size: 26px;
+    }
+
     .portal-hero-section {
         flex-direction: column;
         text-align: center;
@@ -1250,6 +1474,23 @@ body.portal-body {
 }
 
 @media (max-width: 480px) {
+    .portal-highlights {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .portal-highlights .portal-highlight-card:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .portal-highlight-value {
+        font-size: 24px;
+    }
+
+    .portal-highlight-label {
+        font-size: 11px;
+    }
+
     .portal-hero-title {
         font-size: 28px;
     }

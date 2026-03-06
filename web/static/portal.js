@@ -47,14 +47,20 @@ async function loadPortalData() {
     portalState.subscriber = sessionRes.data;
 
     // Load in parallel
-    const [coursesRes, remindersRes, categoriesRes] = await Promise.all([
+    const [coursesRes, remindersRes, categoriesRes, highlightsRes] = await Promise.all([
         portalApi('/api/courses'),
         portalApi('/api/subscriber/session/reminders'),
         portalApi('/api/categories'),
+        portalApi('/api/portal/highlights'),
     ]);
 
     document.getElementById('userEmail').textContent = portalState.subscriber.email || '已登录';
     renderSettings(portalState.subscriber, categoriesRes.success ? categoriesRes.data : []);
+
+    // Highlights
+    if (highlightsRes.success) {
+        renderPortalHighlights(highlightsRes.data);
+    }
 
     // Courses
     if (coursesRes.success) {
@@ -365,21 +371,34 @@ function renderNotifications(notifications) {
         return;
     }
 
+    const deliveryModeLabel = {
+        'priority': '即时提醒',
+        'digest_urgent': '近期摘要',
+        'digest_soon': '新课摘要',
+        'digest_daily': '每日汇总',
+    };
+
     container.innerHTML = notifications.map(item => {
         const typeClass = item.event_type === 'snipe' ? 'snipe' : 'new';
         const typeText = item.event_type === 'snipe' ? '退课补录' : '新发';
         const statusText = item.success ? '已送达' : '发送失败';
         const statusClass = item.success ? 'success' : 'failed';
+        const dm = item.delivery_mode || '';
+        const modeLabel = item.event_type === 'snipe' ? '' : (deliveryModeLabel[dm] || '');
+        const modeBadge = modeLabel
+            ? `<span class="portal-notify-mode ${escapeHtml(dm)}">${modeLabel}</span>`
+            : '';
         return `
         <div class="portal-notify-item">
             <div class="portal-notify-main">
                 <div class="portal-notify-title">${escapeHtml(item.course_name || '未知课程')}</div>
                 <div class="portal-notify-meta">
-                    ${escapeHtml(item.course_category || '未分类')} · ${escapeHtml(item.channel || 'email')} · ${escapeHtml(item.sent_at || '')}
+                    ${escapeHtml(item.course_category || '未分类')} · ${escapeHtml(item.sent_at || '')}
                 </div>
             </div>
             <div class="portal-notify-badges">
                 <span class="portal-notify-type ${typeClass}">${typeText}</span>
+                ${modeBadge}
                 <span class="portal-notify-status ${statusClass}">${statusText}</span>
             </div>
         </div>`;
@@ -447,6 +466,137 @@ function exportNotificationsCsv() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+}
+
+// ══════ Portal Highlights ══════
+let _upcomingTimer = null;
+let _upcomingData = [];
+
+function renderPortalHighlights(data) {
+    const upcoming = data.upcoming_courses || [];
+    const todayNew = data.today_new_count ?? 0;
+    const pendingReminders = data.pending_reminders ?? 0;
+    const pausedUntil = data.push_paused_until || null;
+
+    // 更新三个统计卡片
+    const upcomingEl = document.getElementById('hlUpcomingCount');
+    const subEl = document.getElementById('hlUpcomingSub');
+    const todayEl = document.getElementById('hlTodayNew');
+    const remindersEl = document.getElementById('hlPendingReminders');
+    if (upcomingEl) upcomingEl.textContent = upcoming.length;
+    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 小时内无开抢课程' : `${upcoming.length} 门课程即将开始`;
+    if (todayEl) todayEl.textContent = todayNew;
+    if (remindersEl) remindersEl.textContent = pendingReminders;
+
+    // 渲染近期开抢列表
+    const section = document.getElementById('upcomingCoursesSection');
+    const list = document.getElementById('upcomingCoursesList');
+    if (section && list) {
+        if (upcoming.length > 0) {
+            _upcomingData = upcoming;
+            section.style.display = 'block';
+            _renderUpcomingItems();
+            _startUpcomingTimer();
+        } else {
+            section.style.display = 'none';
+        }
+    }
+
+    // 推送暂停状态
+    _updatePausePushUI(pausedUntil);
+}
+
+function _renderUpcomingItems() {
+    const list = document.getElementById('upcomingCoursesList');
+    if (!list) return;
+    const now = Date.now() / 1000;
+    list.innerHTML = _upcomingData.map(c => {
+        const secsLeft = Math.max(0, c.seconds_left - Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt));
+        const isUrgent = secsLeft < 3600;
+        return `
+        <div class="portal-upcoming-item">
+            <div class="portal-upcoming-info">
+                <div class="portal-upcoming-name">${escapeHtml(c.name)}</div>
+                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} · ${escapeHtml(c.category)} · 剩余 ${c.remaining} 人</div>
+            </div>
+            <div class="portal-upcoming-countdown ${isUrgent ? 'urgent' : ''}" data-secs="${secsLeft}">
+                ${_formatCountdown(secsLeft)}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+let _upcomingTimerStartedAt = Date.now() / 1000;
+
+function _startUpcomingTimer() {
+    if (_upcomingTimer) clearInterval(_upcomingTimer);
+    _upcomingTimerStartedAt = Date.now() / 1000;
+    _upcomingTimer = setInterval(() => {
+        const countdowns = document.querySelectorAll('.portal-upcoming-countdown');
+        countdowns.forEach(el => {
+            const secs = Math.max(0, parseInt(el.dataset.secs || '0') - 1);
+            el.dataset.secs = secs;
+            el.textContent = _formatCountdown(secs);
+            el.className = `portal-upcoming-countdown${secs < 3600 ? ' urgent' : ''}`;
+        });
+    }, 1000);
+}
+
+function _formatCountdown(secs) {
+    const s = Math.max(0, secs);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const x = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${x}s`;
+    return `${x}s`;
+}
+
+// ══════ Push Pause Control ══════
+function _updatePausePushUI(pausedUntil) {
+    const btn = document.getElementById('btnPausePush');
+    const desc = document.getElementById('pushPauseDesc');
+    if (!btn || !desc) return;
+    if (pausedUntil) {
+        btn.textContent = '恢复推送';
+        btn.className = 'portal-push-pause-btn resume';
+        desc.textContent = `推送已暂停，将于 ${pausedUntil} 自动恢复`;
+        desc.style.color = '#c93400';
+    } else {
+        btn.textContent = '暂停 24 小时';
+        btn.className = 'portal-push-pause-btn';
+        desc.textContent = '暂时屏蔽邮件通知，不影响设置';
+        desc.style.color = '';
+    }
+}
+
+async function togglePausePush() {
+    const btn = document.getElementById('btnPausePush');
+    const isResuming = btn && btn.classList.contains('resume');
+    if (btn) { btn.disabled = true; btn.textContent = '处理中…'; }
+
+    if (isResuming) {
+        const res = await portalApi('/api/subscriber/session/resume-push', { method: 'POST' });
+        if (res.success) {
+            _updatePausePushUI(null);
+            showPortalToast('推送已恢复', 'success');
+        } else {
+            showPortalToast('操作失败：' + (res.error || ''), 'error');
+        }
+    } else {
+        const res = await portalApi('/api/subscriber/session/pause-push', {
+            method: 'POST',
+            body: JSON.stringify({ hours: 24 }),
+        });
+        if (res.success) {
+            _updatePausePushUI(res.paused_until || '');
+            showPortalToast('推送已暂停 24 小时', 'success');
+        } else {
+            showPortalToast('操作失败：' + (res.error || ''), 'error');
+        }
+    }
+
+    if (btn) btn.disabled = false;
 }
 
 // ══════ Switch Account ══════

@@ -10,6 +10,7 @@ import ssl
 import socket
 import smtplib
 import time
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List
@@ -524,7 +525,14 @@ async def send_email_to_subscribers(
             return 0
 
         sent_count = 0
+        now = datetime.now()
         for sub in subs:
+            # 检查用户是否已暂停推送
+            paused_until = getattr(sub, "push_paused_until", None)
+            if paused_until and now < paused_until:
+                logger.info(f"推送已暂停，跳过: {sub.email} (暂停至 {paused_until.strftime('%Y-%m-%d %H:%M')})")
+                continue
+
             filtered = _filter_for_subscriber(courses, sub)
             if not filtered:
                 continue
@@ -555,9 +563,10 @@ async def send_email_to_subscribers(
                     course_name=course.name,
                     course_category=getattr(course, "category", "") or "",
                     event_type=event_type,
+                    delivery_mode=delivery_mode,
                     channel="email",
                     success=ok,
-                    message=f"delivery_mode={delivery_mode};matched={len(filtered)}",
+                    message=f"matched={len(filtered)}",
                 )
                 session.add(event)
 

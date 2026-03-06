@@ -1130,15 +1130,25 @@ def api_subscriber_notifications(token=None):
             .all()
         )
 
+        def _extract_delivery_mode(event):
+            # 优先使用专用列，回退到 message 字段兼容旧记录
+            dm = getattr(event, "delivery_mode", "") or ""
+            if not dm and event.message:
+                for part in event.message.split(";"):
+                    if part.startswith("delivery_mode="):
+                        dm = part.split("=", 1)[1].strip()
+                        break
+            return dm
+
         data = [{
             "id": e.id,
             "course_id": e.course_id,
             "course_name": e.course_name,
             "course_category": e.course_category,
             "event_type": e.event_type,
+            "delivery_mode": _extract_delivery_mode(e),
             "channel": e.channel,
             "success": e.success,
-            "message": e.message,
             "sent_at": e.sent_at.strftime("%Y-%m-%d %H:%M") if e.sent_at else "",
         } for e in events]
 
@@ -1213,6 +1223,131 @@ def api_cleanup_expired():
         session.rollback()
         logger.error(f"清理过期课程失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+# ========== 用户推送控制 ==========
+
+@app.route("/api/subscriber/session/pause-push", methods=["POST"])
+def api_pause_push():
+    """暂停推送 N 小时（默认 24 小时）"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    data = request.get_json() or {}
+    hours = max(1, min(int(data.get("hours", 24)), 168))
+
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
+        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        session.commit()
+        until_str = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
+        logger.info(f"推送已暂停 {hours} 小时: {sub.email} (至 {until_str})")
+        return jsonify({"success": True, "message": f"推送已暂停 {hours} 小时，至 {until_str}", "paused_until": until_str})
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/subscriber/session/resume-push", methods=["POST"])
+def api_resume_push():
+    """恢复推送（取消暂停）"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
+        sub.push_paused_until = None
+        session.commit()
+        logger.info(f"推送已恢复: {sub.email}")
+        return jsonify({"success": True, "message": "推送已恢复"})
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/portal/highlights")
+def api_portal_highlights():
+    """门户首页亮点数据：近期开抢倒计时、今日新发现、待提醒数量"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
+
+        # 近期开抢：选课开始时间在未来 24 小时内，且有名额
+        soon_cutoff = now + timedelta(hours=24)
+        upcoming = (
+            session.query(Course)
+            .filter(Course.expired == False)  # noqa: E712
+            .filter(Course.enroll_start != None)  # noqa: E711
+            .filter(Course.enroll_start > now)
+            .filter(Course.enroll_start <= soon_cutoff)
+            .order_by(Course.enroll_start)
+            .limit(5)
+            .all()
+        )
+        upcoming_data = [{
+            "id": c.id,
+            "name": c.name,
+            "campus": c.campus,
+            "category": c.category,
+            "remaining": c.remaining,
+            "enroll_start": c.enroll_start.strftime("%Y-%m-%d %H:%M"),
+            "seconds_left": max(0, int((c.enroll_start - now).total_seconds())),
+        } for c in upcoming]
+
+        # 今日新发现的课程数（first_seen 在今天）
+        today_new = (
+            session.query(Course)
+            .filter(Course.first_seen >= today_start)
+            .filter(Course.expired == False)  # noqa: E712
+            .count()
+        )
+
+        # 用户待发提醒数（此订阅者未发送的提醒）
+        from src.models import CourseReminder
+        pending_reminders = (
+            session.query(CourseReminder)
+            .filter_by(subscriber_id=sub.id, sent=False)
+            .count()
+        )
+
+        # 推送暂停状态
+        push_paused_until = None
+        if sub.push_paused_until and now < sub.push_paused_until:
+            push_paused_until = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "upcoming_courses": upcoming_data,
+                "upcoming_count": len(upcoming_data),
+                "today_new_count": today_new,
+                "pending_reminders": pending_reminders,
+                "push_paused_until": push_paused_until,
+            },
+        })
     finally:
         session.close()
 

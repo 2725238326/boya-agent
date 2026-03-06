@@ -212,6 +212,7 @@ class EmailSubscriber(Base):
     campus_filter = Column(String, default="")
     self_sign_only = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
+    push_paused_until = Column(DateTime, nullable=True)  # 推送暂停截止时间，None 表示不暂停
 
     @property
     def categories(self) -> list:
@@ -221,7 +222,16 @@ class EmailSubscriber(Base):
     def categories(self, value: list):
         self.categories_json = json.dumps(value, ensure_ascii=False)
 
+    @property
+    def push_is_paused(self) -> bool:
+        if not self.push_paused_until:
+            return False
+        return datetime.now() < self.push_paused_until
+
     def to_dict(self) -> dict:
+        paused_until_str = None
+        if self.push_paused_until and self.push_is_paused:
+            paused_until_str = self.push_paused_until.strftime("%Y-%m-%d %H:%M")
         return {
             "id": self.id,
             "email": self.email,
@@ -231,6 +241,8 @@ class EmailSubscriber(Base):
             "campus_filter": self.campus_filter,
             "self_sign_only": self.self_sign_only,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+            "push_paused_until": paused_until_str,
+            "push_is_paused": self.push_is_paused,
         }
 
 
@@ -272,7 +284,8 @@ class NotificationEvent(Base):
     course_id = Column(String, nullable=False)
     course_name = Column(String, default="")
     course_category = Column(String, default="")
-    event_type = Column(String, default="new")     # new / snipe
+    event_type = Column(String, default="new")          # new / snipe
+    delivery_mode = Column(String, default="")          # priority / digest_urgent / digest_soon / digest_daily
     channel = Column(String, default="email")
     sent_at = Column(DateTime, default=datetime.now)
     success = Column(Boolean, default=True)
@@ -330,4 +343,20 @@ def _migrate_schema_if_needed():
                 conn.execute(text(
                     "ALTER TABLE courses "
                     "ADD COLUMN expired BOOLEAN DEFAULT 0"
+                ))
+
+        if "notification_events" in table_names:
+            ne_columns = {col["name"] for col in inspector.get_columns("notification_events")}
+            if "delivery_mode" not in ne_columns:
+                conn.execute(text(
+                    "ALTER TABLE notification_events "
+                    "ADD COLUMN delivery_mode VARCHAR DEFAULT ''"
+                ))
+
+        if "email_subscribers" in table_names:
+            sub_columns = {col["name"] for col in inspector.get_columns("email_subscribers")}
+            if "push_paused_until" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN push_paused_until DATETIME"
                 ))

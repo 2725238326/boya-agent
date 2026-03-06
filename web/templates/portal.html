@@ -84,6 +84,33 @@
             </div>
         </section>
 
+        <!-- ═══ Highlights Strip ═══ -->
+        <div class="portal-highlights" id="portalHighlights">
+            <div class="portal-highlight-card accent">
+                <div class="portal-highlight-label">近期开抢</div>
+                <div class="portal-highlight-value" id="hlUpcomingCount">—</div>
+                <div class="portal-highlight-sub" id="hlUpcomingSub">24 小时内开始选课</div>
+            </div>
+            <div class="portal-highlight-card warning">
+                <div class="portal-highlight-label">今日新课</div>
+                <div class="portal-highlight-value" id="hlTodayNew">—</div>
+                <div class="portal-highlight-sub">今天系统新发现</div>
+            </div>
+            <div class="portal-highlight-card success">
+                <div class="portal-highlight-label">待提醒</div>
+                <div class="portal-highlight-value" id="hlPendingReminders">—</div>
+                <div class="portal-highlight-sub">选课开始前通知你</div>
+            </div>
+        </div>
+
+        <!-- 近期开抢课程列表（仅当有数据时显示） -->
+        <div id="upcomingCoursesSection" style="display:none; margin-bottom: 24px;">
+            <div style="font-size:13px; font-weight:600; color:var(--portal-text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">
+                近期开抢课程
+            </div>
+            <div class="portal-upcoming-list" id="upcomingCoursesList"></div>
+        </div>
+
         <!-- Tab Bar -->
         <div class="portal-tabs">
             <button class="portal-tab active" data-tab="courses">课程</button>
@@ -230,6 +257,17 @@
                         <button class="portal-btn-save" id="btnSaveSettings" onclick="saveSettings()">
                             保存设置
                         </button>
+
+                        <!-- 推送暂停控制 -->
+                        <div class="portal-push-pause-row" id="pushPauseRow">
+                            <div>
+                                <div class="portal-push-pause-text">推送暂停</div>
+                                <div class="portal-push-pause-sub" id="pushPauseDesc">暂时屏蔽邮件通知，不影响设置</div>
+                            </div>
+                            <button class="portal-push-pause-btn" id="btnPausePush" onclick="togglePausePush()">
+                                暂停 24 小时
+                            </button>
+                        </div>
 
                         <div class="portal-session-actions">
                             <div class="portal-session-note">
