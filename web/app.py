@@ -382,7 +382,7 @@ def atom_feed():
 @app.route("/api/subscribe", methods=["POST"])
 def api_subscribe():
     """用户提交邮件订阅"""
-    from src.push.email_push import send_verification_email
+    from src.push.email_push import send_login_email, send_verification_email
 
     data = request.get_json()
     email = (data.get("email") or "").strip().lower()
@@ -394,7 +394,12 @@ def api_subscribe():
         existing = session.query(EmailSubscriber).filter_by(email=email).first()
         if existing:
             if existing.active and existing.verified:
-                return jsonify({"success": False, "error": "该邮箱已订阅"})
+                base_url = request.host_url.rstrip("/")
+                login_url = f"{base_url}/api/login/{existing.token}"
+                ok = send_login_email(email, login_url)
+                if ok:
+                    return jsonify({"success": True, "message": "该邮箱已订阅，已发送登录链接，请查收邮箱"})
+                return jsonify({"success": False, "error": "该邮箱已订阅，但登录邮件发送失败"}), 500
             # 重新激活
             existing.active = True
             existing.verified = False
@@ -427,6 +432,54 @@ def api_subscribe():
         session.rollback()
         logger.error(f"订阅失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/login/request", methods=["POST"])
+def api_login_request():
+    """发送免密码登录链接"""
+    from src.push.email_push import send_login_email
+
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"success": False, "error": "请输入有效的邮箱地址"}), 400
+
+    session = get_session()
+    try:
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(email=email, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return jsonify({"success": False, "error": "该邮箱未订阅或未验证"})
+
+        base_url = request.host_url.rstrip("/")
+        login_url = f"{base_url}/api/login/{sub.token}"
+        ok = send_login_email(email, login_url)
+        if not ok:
+            return jsonify({"success": False, "error": "登录邮件发送失败，请稍后重试"}), 500
+        return jsonify({"success": True, "message": "登录链接已发送，请查收邮箱"})
+    finally:
+        session.close()
+
+
+@app.route("/api/login/<token>")
+def api_login(token):
+    """通过邮件链接登录"""
+    session = get_session()
+    try:
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(token=token, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return redirect("/subscribe?result=invalid")
+        resp = make_response(redirect(f"/portal?email={sub.email}"))
+        return _set_portal_session_cookie(resp, sub.token)
     finally:
         session.close()
 
@@ -634,14 +687,12 @@ def api_subscriber_lookup():
         if not sub:
             return jsonify({"success": False, "error": "该邮箱尚未订阅或未验证"})
 
-        resp = jsonify({
+        return jsonify({
             "success": True,
             "data": {
                 **sub.to_dict(),
-                "token": sub.token,
             },
         })
-        return _set_portal_session_cookie(resp, sub.token)
     finally:
         session.close()
 

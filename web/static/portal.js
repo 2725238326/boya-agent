@@ -395,6 +395,19 @@ function switchAccount() {
     });
 }
 
+async function logoutCurrentDevice() {
+    const btn = document.getElementById('btnLogoutDevice');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '退出中…';
+    }
+    try {
+        await fetch('/api/session/clear', { method: 'POST' });
+    } finally {
+        window.location.href = '/subscribe?force=1';
+    }
+}
+
 // ══════ Unsubscribe ══════
 async function unsubscribe() {
     if (!confirm('确定要退订推送吗？退订后将不再收到任何课程通知邮件。')) return;

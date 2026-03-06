@@ -129,6 +129,28 @@ def send_verification_email(to_email: str, verify_url: str) -> bool:
     return ok
 
 
+def send_login_email(to_email: str, login_url: str) -> bool:
+    """发送登录链接邮件（免密码）"""
+    body = f"""
+<p style="font-size:15px; color:{_EMAIL_TEXT}; line-height:1.6; text-align:center; margin:0 0 24px;">
+  点击下方按钮登录你的博雅课程门户
+</p>
+<table role="presentation" width="100%"><tr><td align="center">
+  <a href="{login_url}" style="display:inline-block; padding:14px 40px; background:{_EMAIL_ACCENT};
+     color:#fff; text-decoration:none; border-radius:12px; font-weight:600; font-size:16px;">
+    登录门户
+  </a>
+</td></tr></table>
+<p style="font-size:12px; color:{_EMAIL_MUTED}; text-align:center; margin:20px 0 0; word-break:break-all;">
+  如按钮无法点击，请复制链接：<br>{login_url}
+</p>"""
+    html = _email_shell("登录你的门户", body)
+    ok = _send_raw_email(to_email, "登录你的博雅课程门户", html)
+    if ok:
+        logger.info(f"登录邮件已发送: {to_email}")
+    return ok
+
+
 # ========== 课程通知 ==========
 
 

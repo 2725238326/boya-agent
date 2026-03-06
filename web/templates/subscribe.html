@@ -289,6 +289,32 @@
             box-shadow: none;
         }
 
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.75);
+            color: var(--accent);
+            border: 1px solid rgba(0, 113, 227, 0.2);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.12);
+        }
+
+        .remember-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .remember-row input {
+            margin-right: 6px;
+            accent-color: var(--accent);
+        }
+
         .message {
             text-align: center;
             padding: 16px;
@@ -388,6 +414,11 @@
                     <div class="form-group">
                         <label>邮箱地址</label>
                         <input type="email" class="input" id="emailInput" required placeholder="name@example.com">
+                        <div class="remember-row">
+                            <label style="text-transform:none; letter-spacing:0; margin:0; font-size:13px; font-weight:500; opacity:1;">
+                                <input type="checkbox" id="rememberEmailCheck" checked>记住邮箱
+                            </label>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -421,6 +452,7 @@
                     </div>
 
                     <button type="submit" class="btn" id="submitBtn">订阅推送</button>
+                    <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">发送登录链接</button>
                     <div class="message" id="msgBox"></div>
                 </form>
             </div>
@@ -466,19 +498,6 @@
             msg.style.display = 'none';
 
             try {
-                // 先查询是否已是已验证的订阅者 → 直接跳转门户
-                const lookupResp = await fetch('/api/subscriber/lookup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email }),
-                });
-                const lookupData = await lookupResp.json();
-                if (lookupData.success && lookupData.data && lookupData.data.token) {
-                    window.location.href = `/portal?email=${encodeURIComponent(email)}`;
-                    return;
-                }
-
-                // 否则走正常订阅流程
                 const resp = await fetch('/api/subscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -492,8 +511,13 @@
                 const data = await resp.json();
 
                 if (data.success) {
+                    if (document.getElementById('rememberEmailCheck').checked) {
+                        localStorage.setItem('portal_last_email', email);
+                    } else {
+                        localStorage.removeItem('portal_last_email');
+                    }
                     msg.className = 'message success';
-                    msg.textContent = data.message + ' 请查收验证邮件，验证后将自动进入课程门户。';
+                    msg.textContent = data.message;
                     msg.style.display = 'block';
                 } else {
                     msg.className = 'message error';
@@ -508,6 +532,59 @@
 
             btn.disabled = false;
             btn.textContent = '订阅推送';
+        }
+
+        async function sendLoginLink() {
+            const btn = document.getElementById('loginBtn');
+            const msg = document.getElementById('msgBox');
+            const email = document.getElementById('emailInput').value.trim();
+            if (!email || !email.includes('@')) {
+                msg.className = 'message error';
+                msg.textContent = '请先输入有效邮箱';
+                msg.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '发送中...';
+            msg.className = 'message';
+            msg.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/login/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    if (document.getElementById('rememberEmailCheck').checked) {
+                        localStorage.setItem('portal_last_email', email);
+                    } else {
+                        localStorage.removeItem('portal_last_email');
+                    }
+                    msg.className = 'message success';
+                    msg.textContent = data.message;
+                    msg.style.display = 'block';
+                } else {
+                    msg.className = 'message error';
+                    msg.textContent = data.error || '发送失败';
+                    msg.style.display = 'block';
+                }
+            } catch (err) {
+                msg.className = 'message error';
+                msg.textContent = '网络错误，请稍后重试';
+                msg.style.display = 'block';
+            }
+
+            btn.disabled = false;
+            btn.textContent = '发送登录链接';
+        }
+
+        const rememberedEmail = localStorage.getItem('portal_last_email') || '';
+        if (rememberedEmail) {
+            const emailInput = document.getElementById('emailInput');
+            if (emailInput) emailInput.value = rememberedEmail;
         }
 
         // 自动跳转：如果会话仍有效，直接进入门户
