@@ -956,8 +956,8 @@ body.portal-body {
     .portal-hero-section {
         flex-direction: column;
         text-align: center;
-        gap: 28px;
-        padding: 32px 0 28px;
+        gap: 16px;
+        padding: 28px 0 20px;
     }
 
     .portal-hero-title {
@@ -969,12 +969,30 @@ body.portal-body {
     }
 
     .portal-quick-links {
-        width: 100%;
+        width: auto;
         flex-direction: row;
+        justify-content: center;
     }
 
     .portal-quick-card {
-        flex: 1;
+        padding: 10px 16px;
+        gap: 10px;
+        border-radius: 980px;
+    }
+
+    .portal-quick-icon {
+        width: 30px;
+        height: 30px;
+        font-size: 18px;
+        border-radius: 8px;
+    }
+
+    .portal-quick-desc {
+        display: none;
+    }
+
+    .portal-quick-title {
+        font-size: 14px;
     }
 
     .portal-course-grid {
@@ -1020,6 +1038,31 @@ body.portal-body {
 @media (max-width: 480px) {
     .portal-hero-title {
         font-size: 28px;
+    }
+
+    .portal-hero-section {
+        gap: 12px;
+        padding: 24px 0 16px;
+    }
+
+    .portal-quick-card {
+        padding: 8px 14px;
+        gap: 8px;
+    }
+
+    .portal-quick-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 16px;
+        border-radius: 6px;
+    }
+
+    .portal-quick-title {
+        font-size: 13px;
+    }
+
+    .portal-quick-arrow {
+        display: none;
     }
 
     .portal-course-card {
