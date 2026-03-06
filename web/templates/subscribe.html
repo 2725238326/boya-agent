@@ -474,9 +474,7 @@
                 });
                 const lookupData = await lookupResp.json();
                 if (lookupData.success && lookupData.data && lookupData.data.token) {
-                    localStorage.setItem('portal_token', lookupData.data.token);
-                    localStorage.setItem('portal_email', email);
-                    window.location.href = `/portal?token=${lookupData.data.token}&email=${encodeURIComponent(email)}`;
+                    window.location.href = `/portal?email=${encodeURIComponent(email)}`;
                     return;
                 }
 
@@ -512,13 +510,18 @@
             btn.textContent = '订阅推送';
         }
 
-        // 自动跳转：如果用户已登录过门户，直接进入
-        const savedToken = localStorage.getItem('portal_token');
-        const savedEmail = localStorage.getItem('portal_email');
+        // 自动跳转：如果会话仍有效，直接进入门户
         const params = new URLSearchParams(window.location.search);
 
-        if (savedToken && !params.has('result') && !params.has('force')) {
-            window.location.href = `/portal?token=${savedToken}&email=${encodeURIComponent(savedEmail || '')}`;
+        if (!params.has('result') && !params.has('force')) {
+            fetch('/api/subscriber/session')
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success && data.data && data.data.email) {
+                        window.location.href = `/portal?email=${encodeURIComponent(data.data.email)}`;
+                    }
+                })
+                .catch(() => { });
         }
 
         // 处理结果回调显示

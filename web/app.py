@@ -6,7 +6,7 @@ Flask Web 控制台
 import os
 import asyncio
 import threading
-from flask import Flask, render_template, jsonify, request, Response, redirect
+from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
 from loguru import logger
 
@@ -37,6 +37,43 @@ app = Flask(
 )
 app.secret_key = os.getenv("WEB_SECRET_KEY", "boya-agent-secret-key")
 CORS(app)
+
+PORTAL_SESSION_COOKIE = "portal_token"
+PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
+
+
+def _is_https_request() -> bool:
+    proto = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    return request.is_secure or proto == "https"
+
+
+def _set_portal_session_cookie(resp, token: str):
+    resp.set_cookie(
+        PORTAL_SESSION_COOKIE,
+        token,
+        max_age=PORTAL_SESSION_MAX_AGE,
+        httponly=True,
+        secure=_is_https_request(),
+        samesite="Lax",
+    )
+    return resp
+
+
+def _clear_portal_session_cookie(resp):
+    resp.set_cookie(
+        PORTAL_SESSION_COOKIE,
+        "",
+        expires=0,
+        max_age=0,
+        httponly=True,
+        secure=_is_https_request(),
+        samesite="Lax",
+    )
+    return resp
+
+
+def _get_session_token() -> str:
+    return (request.cookies.get(PORTAL_SESSION_COOKIE) or "").strip()
 
 
 # ========== 页面路由 ==========
@@ -405,8 +442,8 @@ def api_verify(token):
         sub.verified = True
         sub.active = True
         session.commit()
-        # 验证成功后直接进入用户门户
-        return redirect(f"/portal?token={sub.token}&email={sub.email}")
+        resp = make_response(redirect(f"/portal?email={sub.email}"))
+        return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
         logger.error(f"验证失败: {e}")
@@ -425,11 +462,36 @@ def api_unsubscribe(token):
             return redirect("/subscribe?result=invalid")
         sub.active = False
         session.commit()
-        return redirect("/subscribe?result=unsubscribed")
+        resp = make_response(redirect("/subscribe?result=unsubscribed"))
+        return _clear_portal_session_cookie(resp)
     except Exception as e:
         session.rollback()
         logger.error(f"退订失败: {e}")
         return redirect("/subscribe?result=invalid")
+    finally:
+        session.close()
+
+
+@app.route("/api/unsubscribe", methods=["POST"])
+def api_unsubscribe_session():
+    """按会话退订"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
+        sub.active = False
+        session.commit()
+        resp = jsonify({"success": True, "message": "已退订"})
+        return _clear_portal_session_cookie(resp)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"按会话退订失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
 
@@ -543,6 +605,14 @@ def api_test_email():
 @app.route("/portal")
 def portal_page():
     """用户门户页面"""
+    token = (request.args.get("token") or "").strip()
+    email = (request.args.get("email") or "").strip()
+    if token:
+        target = "/portal"
+        if email:
+            target = f"/portal?email={email}"
+        resp = make_response(redirect(target))
+        return _set_portal_session_cookie(resp, token)
     return render_template("portal.html")
 
 
@@ -564,6 +634,43 @@ def api_subscriber_lookup():
         if not sub:
             return jsonify({"success": False, "error": "该邮箱尚未订阅或未验证"})
 
+        resp = jsonify({
+            "success": True,
+            "data": {
+                **sub.to_dict(),
+                "token": sub.token,
+            },
+        })
+        return _set_portal_session_cookie(resp, sub.token)
+    finally:
+        session.close()
+
+
+@app.route("/api/remind/<course_id>", methods=["POST"])
+def api_remind_session(course_id):
+    """按会话注册选课提醒"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+    return api_remind(token, course_id)
+
+
+@app.route("/api/subscriber/session", methods=["GET"])
+def api_subscriber_session():
+    """从会话 Cookie 获取当前订阅者"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    session = get_session()
+    try:
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(token=token, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
         return jsonify({
             "success": True,
             "data": {
@@ -575,9 +682,20 @@ def api_subscriber_lookup():
         session.close()
 
 
+@app.route("/api/session/clear", methods=["POST"])
+def api_session_clear():
+    """清除门户会话"""
+    resp = jsonify({"success": True, "message": "会话已清除"})
+    return _clear_portal_session_cookie(resp)
+
+
+@app.route("/api/subscriber/session", methods=["PUT"])
 @app.route("/api/subscriber/<token>", methods=["PUT"])
-def api_subscriber_update(token):
+def api_subscriber_update(token=None):
     """更新订阅者偏好设置"""
+    token = (token or _get_session_token()).strip()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
     session = get_session()
     try:
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
@@ -605,9 +723,13 @@ def api_subscriber_update(token):
         session.close()
 
 
+@app.route("/api/subscriber/session/reminders")
 @app.route("/api/subscriber/<token>/reminders")
-def api_subscriber_reminders(token):
+def api_subscriber_reminders(token=None):
     """获取订阅者的选课提醒列表（含课程详情）"""
+    token = (token or _get_session_token()).strip()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
     session = get_session()
     try:
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
@@ -641,10 +763,14 @@ def api_subscriber_reminders(token):
         session.close()
 
 
+@app.route("/api/subscriber/session/notifications")
 @app.route("/api/subscriber/<token>/notifications")
-def api_subscriber_notifications(token):
+def api_subscriber_notifications(token=None):
     """获取订阅者通知中心时间线（默认最近 24 小时）"""
     from datetime import datetime, timedelta
+    token = (token or _get_session_token()).strip()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
 
     hours_raw = request.args.get("hours", "24")
     limit_raw = request.args.get("limit", "100")

@@ -61,6 +61,11 @@
 3. 检查并安装缺失的 `requirements.txt`
 4. 通过 `systemctl` 软重启 `boya-agent.service` 使更新无缝生效
 
+### 2.1 Nginx 路由建议（避免订阅页弹出账号密码）
+- 公开路径必须关闭 Basic Auth：`/subscribe`、`/portal`、`/api/*`、`/static/*`
+- 管理后台路径才启用 Basic Auth：`/`
+- 可直接参考模板：`deploy/nginx_boya.conf`
+
 ### 3. 环境与配置要求
 生产环境依赖以下配置（位于服务器部署目录下的 `.env` 文件）：
 ```dotenv

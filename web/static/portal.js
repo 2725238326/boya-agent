@@ -4,7 +4,6 @@
 
 // ══════ State ══════
 let portalState = {
-    token: '',
     email: '',
     subscriber: null,
     reminderCourseIds: new Set(),
@@ -14,19 +13,8 @@ let portalState = {
 // ══════ Init ══════
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token') || localStorage.getItem('portal_token') || '';
-    const email = params.get('email') || localStorage.getItem('portal_email') || '';
-
-    if (!token) {
-        window.location.href = '/subscribe';
-        return;
-    }
-
-    portalState.token = token;
+    const email = params.get('email') || '';
     portalState.email = email;
-    localStorage.setItem('portal_token', token);
-    if (email) localStorage.setItem('portal_email', email);
-
     document.getElementById('userEmail').textContent = email || '加载中…';
     initTabs();
     loadPortalData();
@@ -49,26 +37,23 @@ async function portalApi(url, options = {}) {
 
 // ══════ Data Loading ══════
 async function loadPortalData() {
+    const sessionRes = await portalApi('/api/subscriber/session');
+    if (!sessionRes.success) {
+        window.location.href = '/subscribe';
+        return;
+    }
+    portalState.subscriber = sessionRes.data;
+
     // Load in parallel
     const [coursesRes, remindersRes, categoriesRes, notificationsRes] = await Promise.all([
         portalApi('/api/courses'),
-        portalApi(`/api/subscriber/${portalState.token}/reminders`),
+        portalApi('/api/subscriber/session/reminders'),
         portalApi('/api/categories'),
-        portalApi(`/api/subscriber/${portalState.token}/notifications?hours=24&limit=120`),
+        portalApi('/api/subscriber/session/notifications?hours=24&limit=120'),
     ]);
 
-    // Load subscriber info
-    if (portalState.email) {
-        const subRes = await portalApi('/api/subscriber/lookup', {
-            method: 'POST',
-            body: JSON.stringify({ email: portalState.email }),
-        });
-        if (subRes.success) {
-            portalState.subscriber = subRes.data;
-            document.getElementById('userEmail').textContent = subRes.data.email;
-            renderSettings(subRes.data, categoriesRes.success ? categoriesRes.data : []);
-        }
-    }
+    document.getElementById('userEmail').textContent = portalState.subscriber.email || '已登录';
+    renderSettings(portalState.subscriber, categoriesRes.success ? categoriesRes.data : []);
 
     // Courses
     if (coursesRes.success) {
@@ -258,11 +243,10 @@ function filterCourses() {
 
 // ══════ Register Reminder ══════
 async function registerReminder(courseId, btnEl) {
-    if (!portalState.token) return;
     btnEl.disabled = true;
     btnEl.textContent = '注册中…';
 
-    const res = await portalApi(`/api/remind/${portalState.token}/${courseId}`, {
+    const res = await portalApi(`/api/remind/${courseId}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -277,7 +261,7 @@ async function registerReminder(courseId, btnEl) {
         showPortalToast('选课提醒已注册，开始前 5 分钟通知你', 'success');
 
         // Refresh reminders
-        const remRes = await portalApi(`/api/subscriber/${portalState.token}/reminders`);
+        const remRes = await portalApi('/api/subscriber/session/reminders');
         if (remRes.success) renderReminders(remRes.data);
     } else {
         btnEl.disabled = false;
@@ -326,7 +310,7 @@ async function saveSettings() {
         categories: selectedCats,
     };
 
-    const res = await portalApi(`/api/subscriber/${portalState.token}`, {
+    const res = await portalApi('/api/subscriber/session', {
         method: 'PUT',
         body: JSON.stringify(payload),
     });
@@ -406,9 +390,9 @@ function renderNotifications(notifications) {
 
 // ══════ Switch Account ══════
 function switchAccount() {
-    localStorage.removeItem('portal_token');
-    localStorage.removeItem('portal_email');
-    window.location.href = '/subscribe?force=1';
+    fetch('/api/session/clear', { method: 'POST' }).finally(() => {
+        window.location.href = '/subscribe?force=1';
+    });
 }
 
 // ══════ Unsubscribe ══════
@@ -420,10 +404,9 @@ async function unsubscribe() {
     btn.textContent = '处理中…';
 
     try {
-        const resp = await fetch(`/api/unsubscribe/${portalState.token}`);
-        // The API redirects, but we handle it ourselves
-        localStorage.removeItem('portal_token');
-        localStorage.removeItem('portal_email');
+        const resp = await fetch('/api/unsubscribe', { method: 'POST' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || '退订失败');
         showPortalToast('已成功退订推送', 'success');
         setTimeout(() => {
             window.location.href = '/subscribe?result=unsubscribed';
