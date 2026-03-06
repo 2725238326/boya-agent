@@ -24,7 +24,76 @@ def _get_smtp_config() -> dict:
         "use_tls": os.getenv("SMTP_USE_TLS", "true").lower() == "true",
         "username": os.getenv("SMTP_USERNAME", ""),
         "password": os.getenv("SMTP_PASSWORD", ""),
+        "from_default": os.getenv("SMTP_FROM", ""),
+        "from_verify": os.getenv("SMTP_FROM_VERIFY", ""),
+        "from_login": os.getenv("SMTP_FROM_LOGIN", ""),
+        "from_notify": os.getenv("SMTP_FROM_NOTIFY", ""),
+        "from_reminder": os.getenv("SMTP_FROM_REMINDER", ""),
     }
+
+
+def _parse_bool(text: str, default: bool = True) -> bool:
+    value = (text or "").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _resolve_transport(config: dict, from_kind: str) -> dict:
+    """
+    解析发送通道：
+    - verify/login 可走 SMTP_VERIFY_*
+    - notify/reminder 可走 SMTP_NOTIFY_*
+    - 其余回退默认 SMTP_*
+    """
+    transport_group = "default"
+    if from_kind in {"verify", "login"}:
+        transport_group = "verify"
+    elif from_kind in {"notify", "reminder"}:
+        transport_group = "notify"
+
+    prefix_map = {
+        "default": "SMTP",
+        "verify": "SMTP_VERIFY",
+        "notify": "SMTP_NOTIFY",
+    }
+    prefix = prefix_map[transport_group]
+
+    server = os.getenv(f"{prefix}_SERVER", "").strip() or config["server"]
+    port_text = os.getenv(f"{prefix}_PORT", "").strip()
+    use_tls_text = os.getenv(f"{prefix}_USE_TLS", "").strip()
+    username = os.getenv(f"{prefix}_USERNAME", "").strip() or config["username"]
+    password = os.getenv(f"{prefix}_PASSWORD", "").strip() or config["password"]
+
+    port = int(port_text) if port_text else int(config["port"])
+    use_tls = _parse_bool(use_tls_text, default=bool(config["use_tls"])) if use_tls_text else bool(config["use_tls"])
+
+    return {
+        "group": transport_group,
+        "server": server,
+        "port": port,
+        "use_tls": use_tls,
+        "username": username,
+        "password": password,
+    }
+
+
+def _pick_from_email(config: dict, from_kind: str) -> str:
+    """按邮件类型选择发件人地址，未配置则回退到 SMTP_USERNAME"""
+    key_map = {
+        "verify": "from_verify",
+        "login": "from_login",
+        "notify": "from_notify",
+        "reminder": "from_reminder",
+    }
+    key = key_map.get(from_kind, "")
+    candidate = (config.get(key, "") if key else "") or config.get("from_default", "")
+    candidate = (candidate or "").strip()
+    if candidate and "@" in candidate:
+        return candidate
+    return config["username"]
 
 
 def _get_proxy_config():
@@ -76,60 +145,61 @@ def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 15):
         return None
 
 
-def _send_raw_email(to_email: str, subject: str, html: str) -> bool:
+def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
     """底层发邮件函数，自动检测并使用 HTTP 代理隧道"""
     config = _get_smtp_config()
-    if not config["username"] or not config["password"]:
-        logger.error("未配置 SMTP 账号/密码")
+    transport = _resolve_transport(config, from_kind)
+    if not transport["username"] or not transport["password"]:
+        logger.error(f"未配置 SMTP 账号/密码: group={transport['group']}, kind={from_kind}")
         return False
 
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = config["username"]
+        msg["From"] = _pick_from_email(config, from_kind)
         msg["To"] = to_email
         msg.attach(MIMEText(html, "html", "utf-8"))
 
         # 尝试通过代理建立隧道
-        proxy_sock = _create_proxy_socket(config["server"], config["port"])
+        proxy_sock = _create_proxy_socket(transport["server"], transport["port"])
 
-        if config["use_tls"]:
+        if transport["use_tls"]:
             # Gmail: STARTTLS on port 587
             if proxy_sock:
                 # 通过代理隧道连接
                 server = smtplib.SMTP()
                 server.timeout = 15
-                server._host = config["server"]
+                server._host = transport["server"]
                 server.sock = proxy_sock
                 server.file = proxy_sock.makefile('rb')
                 # 读取 SMTP banner (220 smtp.gmail.com ...)
                 server.getreply()
                 server.ehlo()
             else:
-                server = smtplib.SMTP(config["server"], config["port"], timeout=15)
+                server = smtplib.SMTP(transport["server"], transport["port"], timeout=15)
                 server.ehlo()
             server.starttls()
             server.ehlo()
-            server.login(config["username"], config["password"])
+            server.login(transport["username"], transport["password"])
             server.send_message(msg)
             server.quit()
         else:
             # SSL on port 465 (QQ etc.)
             context = ssl.create_default_context()
             if proxy_sock:
-                ssl_sock = context.wrap_socket(proxy_sock, server_hostname=config["server"])
+                ssl_sock = context.wrap_socket(proxy_sock, server_hostname=transport["server"])
                 server = smtplib.SMTP_SSL(context=context, timeout=15)
-                server._host = config["server"]
+                server._host = transport["server"]
                 server.sock = ssl_sock
                 server.file = ssl_sock.makefile('rb')
                 server.getreply()
                 server.ehlo_or_helo_if_needed()
-                server.login(config["username"], config["password"])
+                server.login(transport["username"], transport["password"])
                 server.send_message(msg)
                 server.quit()
             else:
-                with smtplib.SMTP_SSL(config["server"], config["port"], context=context, timeout=15) as server:
-                    server.login(config["username"], config["password"])
+                with smtplib.SMTP_SSL(transport["server"], transport["port"], context=context, timeout=15) as server:
+                    server.login(transport["username"], transport["password"])
                     server.send_message(msg)
 
         return True
@@ -201,7 +271,7 @@ def send_verification_email(to_email: str, verify_url: str) -> bool:
   如按钮无法点击，请复制链接：<br>{verify_url}
 </p>"""
     html = _email_shell("验证你的邮箱", body)
-    ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html)
+    ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
     if ok:
         logger.info(f"验证邮件已发送: {to_email}")
     return ok
@@ -232,14 +302,14 @@ def send_login_email(to_email: str, login_url: str) -> bool:
   如按钮无法点击，请复制链接：<br>{login_url}
 </p>"""
     html = _email_shell("登录你的门户", body)
-    ok = _send_raw_email(to_email, "登录你的博雅课程门户", html)
+    ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
     if ok:
         logger.info(f"登录邮件已发送: {to_email}")
         return True
 
     # 短暂重试 1 次，提升偶发网络波动下的成功率
     time.sleep(0.8)
-    retry_ok = _send_raw_email(to_email, "登录你的博雅课程门户", html)
+    retry_ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
     if retry_ok:
         logger.info(f"登录邮件重试成功: {to_email}")
     return retry_ok
@@ -382,7 +452,7 @@ async def send_email_to_subscribers(courses: list, base_url: str = "", event_typ
 
             unsub_url = f"{base_url}/api/unsubscribe/{sub.token}" if base_url else ""
             html = _build_notification_html(filtered, unsub_url, sub_token=sub.token, base_url=base_url)
-            ok = _send_raw_email(sub.email, f"博雅新课程通知 ({len(filtered)} 门)", html)
+            ok = _send_raw_email(sub.email, f"博雅新课程通知 ({len(filtered)} 门)", html, from_kind="notify")
             if ok:
                 sent_count += 1
                 logger.info(f"邮件推送成功: {len(filtered)} 门课程 -> {sub.email}")
@@ -444,7 +514,7 @@ async def send_enroll_result_email(course, success: bool, message: str = "") -> 
 
         sent = 0
         for sub in subs:
-            if _send_raw_email(sub.email, f"选课{status_label}: {course.name}", html):
+            if _send_raw_email(sub.email, f"选课{status_label}: {course.name}", html, from_kind="notify"):
                 sent += 1
         return sent > 0
     finally:
@@ -473,4 +543,4 @@ def send_enroll_reminder_email(to_email: str, course) -> bool:
   请提前打开博雅选课系统准备选课
 </p>"""
     html = _email_shell("选课即将开始", body)
-    return _send_raw_email(to_email, f"选课提醒：{course.name}", html)
+    return _send_raw_email(to_email, f"选课提醒：{course.name}", html, from_kind="reminder")
