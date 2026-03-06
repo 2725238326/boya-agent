@@ -408,6 +408,28 @@ body.portal-body {
     border-bottom: 0.5px solid rgba(0, 0, 0, 0.04);
 }
 
+.portal-notify-filter {
+    display: grid;
+    grid-template-columns: 145px 130px 130px 1fr 110px;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.portal-btn-mini {
+    border: none;
+    border-radius: 10px;
+    background: rgba(0, 113, 227, 0.1);
+    color: var(--portal-accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--portal-transition);
+}
+
+.portal-btn-mini:hover {
+    background: rgba(0, 113, 227, 0.18);
+}
+
 .portal-notify-item:last-child {
     border-bottom: none;
 }
@@ -1226,5 +1248,9 @@ body.portal-body {
     .portal-notify-item {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .portal-notify-filter {
+        grid-template-columns: 1fr;
     }
 }

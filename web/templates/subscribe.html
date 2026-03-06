@@ -315,6 +315,67 @@
             accent-color: var(--accent);
         }
 
+        .insight-panel {
+            margin-top: 16px;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 14px;
+        }
+
+        .insight-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .insight-stat {
+            background: rgba(255, 255, 255, 0.75);
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .insight-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .insight-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .insight-countdown {
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(0, 113, 227, 0.08);
+            color: #004d9a;
+            font-size: 13px;
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+
+        .insight-hot-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .insight-hot-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: var(--text-main);
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 9px;
+        }
+
         .message {
             text-align: center;
             padding: 16px;
@@ -451,6 +512,21 @@
                         </label>
                     </div>
 
+                    <div class="insight-panel">
+                        <div class="insight-stats">
+                            <div class="insight-stat">
+                                <div class="insight-value" id="insightAvailableCount">-</div>
+                                <div class="insight-label">当前可选课程</div>
+                            </div>
+                            <div class="insight-stat">
+                                <div class="insight-value" id="insightActiveCount">-</div>
+                                <div class="insight-label">系统追踪课程</div>
+                            </div>
+                        </div>
+                        <div class="insight-countdown" id="insightCountdown">正在加载最近开抢课程…</div>
+                        <div class="insight-hot-list" id="insightHotList"></div>
+                    </div>
+
                     <button type="submit" class="btn" id="submitBtn">订阅推送</button>
                     <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">发送登录链接</button>
                     <div class="message" id="msgBox"></div>
@@ -479,6 +555,8 @@
             error: '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />',
             info: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />'
         };
+        let insightSecondsLeft = null;
+        let insightTimer = null;
 
         function toggleChip(el) { el.classList.toggle('active'); }
 
@@ -586,6 +664,79 @@
             const emailInput = document.getElementById('emailInput');
             if (emailInput) emailInput.value = rememberedEmail;
         }
+
+        function formatSeconds(sec) {
+            const s = Math.max(0, sec);
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const x = s % 60;
+            if (d > 0) return `${d}天 ${h}小时 ${m}分`;
+            if (h > 0) return `${h}小时 ${m}分 ${x}秒`;
+            return `${m}分 ${x}秒`;
+        }
+
+        function renderCountdownText() {
+            const box = document.getElementById('insightCountdown');
+            if (!box) return;
+            if (insightSecondsLeft === null) {
+                box.textContent = '最近暂无即将开抢课程';
+                return;
+            }
+            const courseName = box.dataset.courseName || '课程';
+            box.textContent = `最近开抢：${courseName} · 倒计时 ${formatSeconds(insightSecondsLeft)}`;
+        }
+
+        function startInsightTimer() {
+            if (insightTimer) clearInterval(insightTimer);
+            insightTimer = setInterval(() => {
+                if (insightSecondsLeft === null) return;
+                insightSecondsLeft = Math.max(0, insightSecondsLeft - 1);
+                renderCountdownText();
+            }, 1000);
+        }
+
+        async function loadPublicInsights() {
+            try {
+                const resp = await fetch('/api/public/insights');
+                const data = await resp.json();
+                if (!data.success) return;
+                const d = data.data || {};
+                const availableEl = document.getElementById('insightAvailableCount');
+                const activeEl = document.getElementById('insightActiveCount');
+                if (availableEl) availableEl.textContent = String(d.available_count ?? '-');
+                if (activeEl) activeEl.textContent = String(d.active_count ?? '-');
+
+                const countdownEl = document.getElementById('insightCountdown');
+                if (d.next_enroll && countdownEl) {
+                    insightSecondsLeft = Number(d.next_enroll.seconds_left || 0);
+                    countdownEl.dataset.courseName = d.next_enroll.course_name || '课程';
+                } else {
+                    insightSecondsLeft = null;
+                    if (countdownEl) countdownEl.dataset.courseName = '';
+                }
+                renderCountdownText();
+
+                const hotListEl = document.getElementById('insightHotList');
+                const hot = Array.isArray(d.popular_courses) ? d.popular_courses : [];
+                if (hotListEl) {
+                    if (hot.length === 0) {
+                        hotListEl.innerHTML = '<div class="insight-hot-item"><span>暂无热门课程</span><span></span></div>';
+                    } else {
+                        hotListEl.innerHTML = hot.map(item => `
+                            <div class="insight-hot-item">
+                                <span>${item.name}</span>
+                                <span>剩余 ${item.remaining} · 热度 ${item.hot_score ?? '-'}</span>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (_) { }
+        }
+
+        loadPublicInsights();
+        startInsightTimer();
+        setInterval(loadPublicInsights, 30000);
 
         // 自动跳转：如果会话仍有效，直接进入门户
         const params = new URLSearchParams(window.location.search);

@@ -130,6 +130,28 @@
         <div class="portal-tab-panel" id="panel-notifications">
             <div class="portal-section-card">
                 <div class="portal-section-header">📰 通知中心（最近 24 小时）</div>
+                <div class="portal-section-body" style="padding-bottom:0;">
+                    <div class="portal-notify-filter">
+                        <select class="portal-select" id="notifyRangeFilter" onchange="reloadNotifications()">
+                            <option value="24">最近 24 小时</option>
+                            <option value="72">最近 72 小时</option>
+                            <option value="168">最近 7 天</option>
+                        </select>
+                        <select class="portal-select" id="notifyTypeFilter" onchange="applyNotificationFilters()">
+                            <option value="">全部类型</option>
+                            <option value="new">仅新发</option>
+                            <option value="snipe">仅退课补录</option>
+                        </select>
+                        <select class="portal-select" id="notifyStatusFilter" onchange="applyNotificationFilters()">
+                            <option value="">全部状态</option>
+                            <option value="success">仅已送达</option>
+                            <option value="failed">仅失败</option>
+                        </select>
+                        <input class="portal-search" id="notifyKeywordFilter" type="text" placeholder="搜索课程名称…"
+                            oninput="applyNotificationFilters()">
+                        <button class="portal-btn-mini" type="button" onclick="exportNotificationsCsv()">导出 CSV</button>
+                    </div>
+                </div>
                 <div class="portal-section-body" id="notificationTimeline">
                     <div class="portal-empty">
                         <div class="portal-empty-icon">📬</div>

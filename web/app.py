@@ -6,9 +6,11 @@ Flask Web 控制台
 import os
 import asyncio
 import threading
+from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
 from loguru import logger
+from sqlalchemy import func
 
 from src.models import (
     Course,
@@ -40,6 +42,8 @@ CORS(app)
 
 PORTAL_SESSION_COOKIE = "portal_token"
 PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
+LOGIN_EMAIL_COOLDOWN_SECONDS = 20
+_login_email_last_sent_at = {}
 
 
 def _is_https_request() -> bool:
@@ -74,6 +78,20 @@ def _clear_portal_session_cookie(resp):
 
 def _get_session_token() -> str:
     return (request.cookies.get(PORTAL_SESSION_COOKIE) or "").strip()
+
+
+def _check_login_email_cooldown(email: str) -> int:
+    """返回剩余冷却秒数；0 表示可发送"""
+    last_ts = _login_email_last_sent_at.get(email)
+    if last_ts is None:
+        return 0
+    elapsed = datetime.now().timestamp() - last_ts
+    remain = int(LOGIN_EMAIL_COOLDOWN_SECONDS - elapsed)
+    return max(0, remain)
+
+
+def _mark_login_email_sent(email: str):
+    _login_email_last_sent_at[email] = datetime.now().timestamp()
 
 
 # ========== 页面路由 ==========
@@ -125,6 +143,91 @@ def api_courses():
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/public/insights")
+def api_public_insights():
+    """订阅页公开洞察：可选课程数、热门课程、最近开抢倒计时"""
+    now = datetime.now()
+    session = get_session()
+    try:
+        active_courses = (
+            session.query(Course)
+            .filter(Course.expired == False)  # noqa: E712
+            .all()
+        )
+        available = [c for c in active_courses if c.remaining > 0]
+
+        hot_since = now - timedelta(hours=48)
+        hot_rows = (
+            session.query(
+                NotificationEvent.course_id,
+                func.count(NotificationEvent.id).label("cnt"),
+            )
+            .filter(NotificationEvent.sent_at >= hot_since)
+            .group_by(NotificationEvent.course_id)
+            .all()
+        )
+        hot_count_map = {row.course_id: int(row.cnt or 0) for row in hot_rows}
+
+        def _hot_score(c):
+            # 名额压力：剩余越少越热（0~60）
+            pressure = (1 - (c.remaining / max(c.capacity, 1))) * 60
+
+            # 开抢临近：越接近开抢越热（0~30）
+            urgency = 0.0
+            if c.enroll_start:
+                seconds_left = (c.enroll_start - now).total_seconds()
+                if seconds_left <= 0:
+                    urgency = 30
+                else:
+                    urgency = max(0.0, (1 - min(seconds_left, 48 * 3600) / (48 * 3600)) * 30)
+
+            # 近期推送热度：最近 48h 的通知次数（上限 10 分）
+            heat = min(10.0, hot_count_map.get(c.id, 0) * 1.5)
+            return round(pressure + urgency + heat, 2)
+
+        popular_sorted = sorted(available, key=lambda c: _hot_score(c), reverse=True)[:3]
+        popular_courses = [{
+            "id": c.id,
+            "name": c.name,
+            "category": c.category,
+            "campus": c.campus,
+            "remaining": c.remaining,
+            "capacity": c.capacity,
+            "hot_score": _hot_score(c),
+            "recent_push_count": hot_count_map.get(c.id, 0),
+        } for c in popular_sorted]
+
+        upcoming = [
+            c for c in available
+            if c.enroll_start and c.enroll_start > now
+        ]
+        upcoming.sort(key=lambda c: c.enroll_start)
+        next_course = upcoming[0] if upcoming else None
+
+        next_enroll = None
+        if next_course:
+            delta = next_course.enroll_start - now
+            next_enroll = {
+                "course_id": next_course.id,
+                "course_name": next_course.name,
+                "enroll_start": next_course.enroll_start.strftime("%Y-%m-%d %H:%M:%S"),
+                "seconds_left": max(0, int(delta.total_seconds())),
+            }
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "available_count": len(available),
+                "active_count": len(active_courses),
+                "popular_courses": popular_courses,
+                "next_enroll": next_enroll,
+                "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        })
     finally:
         session.close()
 
@@ -394,10 +497,18 @@ def api_subscribe():
         existing = session.query(EmailSubscriber).filter_by(email=email).first()
         if existing:
             if existing.active and existing.verified:
+                remain = _check_login_email_cooldown(email)
+                if remain > 0:
+                    return jsonify({
+                        "success": False,
+                        "error": f"请求过于频繁，请 {remain} 秒后再试",
+                        "retry_after": remain,
+                    }), 429
                 base_url = request.host_url.rstrip("/")
                 login_url = f"{base_url}/api/login/{existing.token}"
                 ok = send_login_email(email, login_url)
                 if ok:
+                    _mark_login_email_sent(email)
                     return jsonify({"success": True, "message": "该邮箱已订阅，已发送登录链接，请查收邮箱"})
                 return jsonify({"success": False, "error": "该邮箱已订阅，但登录邮件发送失败"}), 500
             # 重新激活
@@ -456,11 +567,20 @@ def api_login_request():
         if not sub:
             return jsonify({"success": False, "error": "该邮箱未订阅或未验证"})
 
+        remain = _check_login_email_cooldown(email)
+        if remain > 0:
+            return jsonify({
+                "success": False,
+                "error": f"请求过于频繁，请 {remain} 秒后再试",
+                "retry_after": remain,
+            }), 429
+
         base_url = request.host_url.rstrip("/")
         login_url = f"{base_url}/api/login/{sub.token}"
         ok = send_login_email(email, login_url)
         if not ok:
             return jsonify({"success": False, "error": "登录邮件发送失败，请稍后重试"}), 500
+        _mark_login_email_sent(email)
         return jsonify({"success": True, "message": "登录链接已发送，请查收邮箱"})
     finally:
         session.close()

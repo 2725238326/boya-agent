@@ -7,6 +7,7 @@
 import os
 import ssl
 import smtplib
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List
@@ -148,7 +149,14 @@ def send_login_email(to_email: str, login_url: str) -> bool:
     ok = _send_raw_email(to_email, "登录你的博雅课程门户", html)
     if ok:
         logger.info(f"登录邮件已发送: {to_email}")
-    return ok
+        return True
+
+    # 短暂重试 1 次，提升偶发网络波动下的成功率
+    time.sleep(0.8)
+    retry_ok = _send_raw_email(to_email, "登录你的博雅课程门户", html)
+    if retry_ok:
+        logger.info(f"登录邮件重试成功: {to_email}")
+    return retry_ok
 
 
 # ========== 课程通知 ==========

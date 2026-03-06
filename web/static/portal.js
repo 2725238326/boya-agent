@@ -8,6 +8,8 @@ let portalState = {
     subscriber: null,
     reminderCourseIds: new Set(),
     notifications: [],
+    filteredNotifications: [],
+    notificationsHours: 24,
 };
 
 // ══════ Init ══════
@@ -45,11 +47,10 @@ async function loadPortalData() {
     portalState.subscriber = sessionRes.data;
 
     // Load in parallel
-    const [coursesRes, remindersRes, categoriesRes, notificationsRes] = await Promise.all([
+    const [coursesRes, remindersRes, categoriesRes] = await Promise.all([
         portalApi('/api/courses'),
         portalApi('/api/subscriber/session/reminders'),
         portalApi('/api/categories'),
-        portalApi('/api/subscriber/session/notifications?hours=24&limit=120'),
     ]);
 
     document.getElementById('userEmail').textContent = portalState.subscriber.email || '已登录';
@@ -78,10 +79,7 @@ async function loadPortalData() {
         }
     }
 
-    if (notificationsRes.success) {
-        portalState.notifications = notificationsRes.data;
-        renderNotifications(notificationsRes.data);
-    }
+    await reloadNotifications();
 }
 
 // ══════ Tabs ══════
@@ -361,7 +359,7 @@ function renderNotifications(notifications) {
         container.innerHTML = `
             <div class="portal-empty">
                 <div class="portal-empty-icon">📭</div>
-                <div class="portal-empty-text">最近 24 小时暂无推送记录</div>
+                <div class="portal-empty-text">最近 ${portalState.notificationsHours} 小时暂无推送记录</div>
                 <div class="portal-empty-hint">系统发送通知后会在这里显示时间线</div>
             </div>`;
         return;
@@ -386,6 +384,69 @@ function renderNotifications(notifications) {
             </div>
         </div>`;
     }).join('');
+}
+
+function applyNotificationFilters() {
+    const type = document.getElementById('notifyTypeFilter')?.value || '';
+    const status = document.getElementById('notifyStatusFilter')?.value || '';
+    const keyword = (document.getElementById('notifyKeywordFilter')?.value || '').trim().toLowerCase();
+
+    const filtered = (portalState.notifications || []).filter(item => {
+        if (type && item.event_type !== type) return false;
+        if (status === 'success' && !item.success) return false;
+        if (status === 'failed' && item.success) return false;
+        if (keyword) {
+            const hay = `${item.course_name || ''} ${item.course_category || ''}`.toLowerCase();
+            if (!hay.includes(keyword)) return false;
+        }
+        return true;
+    });
+
+    portalState.filteredNotifications = filtered;
+    renderNotifications(filtered);
+}
+
+async function reloadNotifications() {
+    const hours = Number(document.getElementById('notifyRangeFilter')?.value || portalState.notificationsHours || 24);
+    portalState.notificationsHours = Math.max(1, Math.min(168, hours));
+    const res = await portalApi(`/api/subscriber/session/notifications?hours=${portalState.notificationsHours}&limit=300`);
+    if (res.success) {
+        portalState.notifications = res.data || [];
+        applyNotificationFilters();
+    }
+}
+
+function exportNotificationsCsv() {
+    const rows = portalState.filteredNotifications || [];
+    if (!rows.length) {
+        showPortalToast('没有可导出的通知记录', 'error');
+        return;
+    }
+    const header = ['sent_at', 'course_name', 'course_category', 'event_type', 'status', 'channel', 'message'];
+    const lines = [header.join(',')];
+    for (const item of rows) {
+        const cells = [
+            item.sent_at || '',
+            item.course_name || '',
+            item.course_category || '',
+            item.event_type || '',
+            item.success ? 'success' : 'failed',
+            item.channel || '',
+            item.message || '',
+        ].map(csvEscape);
+        lines.push(cells.join(','));
+    }
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `notifications-${portalState.notificationsHours}h-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
 }
 
 // ══════ Switch Account ══════
@@ -449,4 +510,9 @@ function escapeHtml(text) {
     if (!text) return '';
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
     return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+function csvEscape(text) {
+    const s = String(text ?? '');
+    return `"${s.replace(/"/g, '""')}"`;
 }
