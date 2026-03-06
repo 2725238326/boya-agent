@@ -25,20 +25,70 @@
         </div>
     </nav>
 
+    <!-- ═══ Welcome Banner ═══ -->
+    <div class="portal-banner" id="welcomeBanner">
+        <div class="portal-banner-inner">
+            <div class="portal-banner-content">
+                <div class="portal-banner-icon">👋</div>
+                <div class="portal-banner-text">
+                    <strong>欢迎使用博雅课程门户</strong>
+                    <p>在这里你可以浏览所有可选课程、设置选课提醒、管理推送订阅。系统会根据你的偏好在选课开始前自动发送邮件提醒。
+                        在课程卡片中点击「🔔 提醒我选课」即可注册提醒。</p>
+                </div>
+            </div>
+            <div class="portal-banner-actions">
+                <button class="portal-banner-btn" onclick="dismissBanner()">我知道了</button>
+                <button class="portal-banner-close" onclick="dismissBanner()" aria-label="关闭">&times;</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ Main ═══ -->
     <main class="portal-main">
 
-        <!-- Hero -->
-        <section class="portal-hero">
-            <h1 class="portal-hero-title"><span id="heroCount">—</span> 门课程可选</h1>
-            <p class="portal-hero-subtitle">当前有效的博雅课程</p>
+        <!-- Hero + Quick Links -->
+        <section class="portal-hero-section">
+            <div class="portal-hero">
+                <h1 class="portal-hero-title"><span id="heroCount">—</span> 门课程可选</h1>
+                <p class="portal-hero-subtitle">当前有效的博雅课程</p>
+            </div>
+            <div class="portal-quick-links">
+                <a class="portal-quick-card" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">
+                    <div class="portal-quick-icon">🏫</div>
+                    <div class="portal-quick-info">
+                        <div class="portal-quick-title">校园网选课</div>
+                        <div class="portal-quick-desc">校内网络直接访问</div>
+                    </div>
+                    <div class="portal-quick-arrow">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                </a>
+                <a class="portal-quick-card"
+                    href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b"
+                    target="_blank" rel="noopener">
+                    <div class="portal-quick-icon">🌐</div>
+                    <div class="portal-quick-info">
+                        <div class="portal-quick-title">VPN 选课</div>
+                        <div class="portal-quick-desc">校外通过 VPN 访问</div>
+                    </div>
+                    <div class="portal-quick-arrow">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                </a>
+            </div>
         </section>
 
         <!-- Tab Bar -->
         <div class="portal-tabs">
             <button class="portal-tab active" data-tab="courses">课程</button>
             <button class="portal-tab" data-tab="manage">
-                提醒 & 设置
+                提醒 &amp; 设置
                 <span id="reminderBadge" style="display:none; background:var(--portal-danger); color:#fff;
                     font-size:10px; padding:1px 6px; border-radius:10px; margin-left:4px; font-weight:700;"></span>
             </button>
@@ -169,6 +219,26 @@
     <div class="portal-toast-container" id="portalToastContainer"></div>
 
     <script src="/static/portal.js"></script>
+    <script>
+        // Banner dismiss logic (localStorage persistence)
+        (function () {
+            if (localStorage.getItem('portal_banner_dismissed') === '1') {
+                const banner = document.getElementById('welcomeBanner');
+                if (banner) banner.style.display = 'none';
+            }
+        })();
+
+        function dismissBanner() {
+            const banner = document.getElementById('welcomeBanner');
+            if (banner) {
+                banner.style.animation = 'bannerSlideOut 0.4s ease forwards';
+                setTimeout(() => {
+                    banner.style.display = 'none';
+                }, 400);
+            }
+            localStorage.setItem('portal_banner_dismissed', '1');
+        }
+    </script>
 </body>
 
 </html>
