@@ -559,16 +559,26 @@ async def check_course_reminders():
             # 如果剩余时间 <= 设定的提醒时间（加上 1 分钟宽限，防止刚好跳过），且尚未过期
             if 0 < minutes_left <= (reminder.remind_before_minutes + 1):
                 try:
-                    # 分别尝试发邮件和 Telegram
-                    send_enroll_reminder_email(sub.email, course)
-                    await send_reminder_telegram(course)
+                    email_sent = send_enroll_reminder_email(sub.email, course)
+                    telegram_sent = await send_reminder_telegram(course)
 
-                    reminder.sent = True
-                    logger.info(f"已发送选课提醒: {sub.email} -> {course.name}")
+                    if email_sent:
+                        reminder.sent = True
+                        logger.info(f"已发送选课提醒: {sub.email} -> {course.name}")
+                    else:
+                        logger.warning(
+                            f"选课提醒邮件发送失败，将保留待重试: {sub.email} -> {course.name}"
+                        )
+
+                    if not telegram_sent:
+                        logger.debug(f"Telegram 选课提醒未发送: {course.name}")
                 except Exception as e:
                     logger.error(f"发送选课提醒失败 {sub.email} -> {course.name}: {e}")
             elif minutes_left <= 0:
                 # 已经过了选课时间，标记为已发送
+                logger.warning(
+                    f"选课提醒已过期未送达，标记为结束: {sub.email} -> {course.name}"
+                )
                 reminder.sent = True
 
         session.commit()
