@@ -287,7 +287,38 @@ _EMAIL_TEXT = "#1d1d1f"
 _EMAIL_MUTED = "#86868b"
 
 
-def _email_shell(title: str, body_html: str, footer_html: str = "") -> str:
+def _email_primary_button(url: str, label: str) -> str:
+    return f"""
+<table role="presentation" width="100%" style="margin:0 0 18px;"><tr><td align="center">
+  <a href="{url}" style="display:inline-block; min-width:220px; padding:13px 28px; background:{_EMAIL_TEXT};
+     color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;">
+    {label}
+  </a>
+</td></tr></table>"""
+
+
+def _email_info_panel(eyebrow: str, title: str, body_html: str) -> str:
+    return f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:20px;">
+<tr><td style="padding:16px 18px;">
+  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.02em;">{eyebrow}</p>
+  <p style="margin:0 0 8px; font-size:18px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.5;">{title}</p>
+  <div style="font-size:14px; color:{_EMAIL_TEXT}; line-height:1.8;">{body_html}</div>
+</td></tr></table>"""
+
+
+def _email_link_fallback(url: str, label: str = "如按钮无法点击，请复制链接：") -> str:
+    return f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:14px 0 0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:16px;">
+<tr><td style="padding:14px 16px;">
+  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">{label}</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_TEXT}; word-break:break-all;">{url}</p>
+</td></tr></table>"""
+
+
+def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str = "BOYA COURSE") -> str:
     """统一的邮件外壳模板 — 移动端 & 桌面端双适配"""
     return f"""
 <!DOCTYPE html>
@@ -303,13 +334,14 @@ def _email_shell(title: str, body_html: str, footer_html: str = "") -> str:
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
-       border-radius:20px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,0.06);">
+       border-radius:24px; overflow:hidden; box-shadow:0 12px 40px rgba(15,23,42,0.06);">
 <!-- Header -->
-<tr><td style="background:{_EMAIL_ACCENT}; padding:28px 24px; text-align:center;">
-  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700; letter-spacing:-0.01em;">{title}</h1>
+<tr><td style="padding:28px 24px 20px; text-align:left; background:linear-gradient(180deg, #f8fbff 0%, #ffffff 100%); border-bottom:1px solid #eef2f7;">
+  <p style="margin:0 0 8px; color:{_EMAIL_ACCENT}; font-size:12px; font-weight:700; letter-spacing:0.04em;">{eyebrow}</p>
+  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:24px; font-weight:700; line-height:1.35;">{title}</h1>
 </td></tr>
 <!-- Body -->
-<tr><td style="padding:24px;">
+<tr><td style="padding:26px 24px 24px;">
 {body_html}
 </td></tr>
 <!-- Footer -->
@@ -328,19 +360,13 @@ def _email_shell(title: str, body_html: str, footer_html: str = "") -> str:
 def send_verification_email(to_email: str, verify_url: str) -> bool:
     """发送邮箱验证邮件"""
     body = f"""
-<p style="font-size:15px; color:{_EMAIL_TEXT}; line-height:1.6; text-align:center; margin:0 0 24px;">
-  点击下方按钮验证邮箱，即可开始接收博雅课程推送通知
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  完成这一步后，你就可以开始接收博雅课程通知，并在后续直接进入你的个人门户。
 </p>
-<table role="presentation" width="100%"><tr><td align="center">
-  <a href="{verify_url}" style="display:inline-block; padding:14px 40px; background:{_EMAIL_ACCENT};
-     color:#fff; text-decoration:none; border-radius:12px; font-weight:600; font-size:16px;">
-    验证邮箱
-  </a>
-</td></tr></table>
-<p style="font-size:12px; color:{_EMAIL_MUTED}; text-align:center; margin:20px 0 0; word-break:break-all;">
-  如按钮无法点击，请复制链接：<br>{verify_url}
-</p>"""
-    html = _email_shell("验证你的邮箱", body)
+{_email_info_panel("下一步", "验证你的邮箱", f"点击下方按钮完成验证。<br>验证完成后，当前设备和其他设备都可以继续登录。")}
+{_email_primary_button(verify_url, "验证邮箱")}
+{_email_link_fallback(verify_url)}"""
+    html = _email_shell("验证你的邮箱", body, eyebrow="SUBSCRIPTION VERIFY")
     ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
     if ok:
         logger.info(f"验证邮件已发送: {to_email}")
@@ -350,28 +376,13 @@ def send_verification_email(to_email: str, verify_url: str) -> bool:
 def send_login_email(to_email: str, login_url: str) -> bool:
     """发送登录链接邮件（免密码）"""
     body = f"""
-<p style="font-size:15px; color:{_EMAIL_TEXT}; line-height:1.6; text-align:center; margin:0 0 24px;">
-  点击下方按钮登录你的博雅课程门户
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  点击下方按钮即可直接进入你的博雅课程门户，不需要再次输入邮箱。
 </p>
-<table role="presentation" width="100%"><tr><td align="center">
-  <a href="{login_url}" style="display:inline-block; padding:14px 40px; background:{_EMAIL_ACCENT};
-     color:#fff; text-decoration:none; border-radius:12px; font-weight:600; font-size:16px;">
-    登录门户
-  </a>
-</td></tr></table>
-<p style="font-size:13px; color:{_EMAIL_TEXT}; text-align:center; margin:16px 0 0; line-height:1.6;">
-  若在 QQ 邮箱内无法打开，请点击右上角「在浏览器打开」后再登录
-</p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin-top:14px; background:#f5f5f7; border:1px solid #e5e5ea; border-radius:10px;">
-<tr><td style="padding:12px;">
-  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">复制链接到系统浏览器打开：</p>
-  <p style="margin:0; font-size:13px; color:{_EMAIL_TEXT}; word-break:break-all;">{login_url}</p>
-</td></tr></table>
-<p style="font-size:12px; color:{_EMAIL_MUTED}; text-align:center; margin:20px 0 0; word-break:break-all;">
-  如按钮无法点击，请复制链接：<br>{login_url}
-</p>"""
-    html = _email_shell("登录你的门户", body)
+{_email_info_panel("现在登录", "打开你的个人门户", "如果你在 QQ 邮箱内打开这封邮件，优先使用右上角“在浏览器打开”，体验会更稳定。")}
+{_email_primary_button(login_url, "登录门户")}
+{_email_link_fallback(login_url, "如在邮箱内无法打开，请复制链接到系统浏览器：")}"""
+    html = _email_shell("登录你的门户", body, eyebrow="MAGIC LOGIN")
     ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
     if ok:
         logger.info(f"登录邮件已发送: {to_email}")
@@ -388,30 +399,49 @@ def send_login_email(to_email: str, login_url: str) -> bool:
 # ========== 课程通知 ==========
 
 
-def _build_course_html(course, remind_url: str = "") -> str:
+def _build_course_html(course, remind_url: str = "", portal_url: str = "") -> str:
     """构建单条课程 HTML 卡片 — 移动端友好的单列布局"""
     check_in = getattr(course, 'check_in_method', '') or getattr(course, 'sign_method', '') or ''
     is_self_sign = "自主" in check_in
     sign_color = "#34c759" if is_self_sign else "#ff9500"
     remaining = course.remaining
     cap_color = "#34c759" if remaining > 10 else ("#ff9500" if remaining > 0 else "#ff3b30")
+    urgency_text = "建议立即查看" if (course.enroll_start and course.enroll_start <= datetime.now()) or remaining <= 10 else "可以加入关注"
+    urgency_bg = "#fff7ed" if urgency_text == "建议立即查看" else "#f3f4f6"
+    urgency_color = "#c2410c" if urgency_text == "建议立即查看" else "#6b7280"
 
     enroll_start_str = course.enroll_start.strftime('%m/%d %H:%M') if course.enroll_start else '未知'
     start_str = course.start_time.strftime('%m/%d %H:%M') if course.start_time else '未知'
 
-    remind_btn = ""
+    action_buttons = []
+    if portal_url:
+        action_buttons.append(
+            f"""<a href="{portal_url}" style="display:inline-block; padding:10px 18px; background:{_EMAIL_TEXT};
+     color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:13px;">打开门户</a>"""
+        )
     if remind_url:
-        remind_btn = f"""
+        action_buttons.append(
+            f"""<a href="{remind_url}" style="display:inline-block; padding:10px 18px; background:#ffffff;
+     color:{_EMAIL_TEXT}; text-decoration:none; border-radius:999px; font-weight:600; font-size:13px;
+     border:1px solid #d1d5db;">提醒我选课</a>"""
+        )
+    actions_html = ""
+    if action_buttons:
+        joined_buttons = "&nbsp;".join(action_buttons)
+        actions_html = f"""
 <table role="presentation" width="100%" style="margin-top:14px;"><tr><td align="center">
-  <a href="{remind_url}" style="display:inline-block; padding:10px 24px; background:#f5f5f7;
-     color:{_EMAIL_ACCENT}; text-decoration:none; border-radius:10px; font-weight:600; font-size:13px;
-     border:1px solid #e5e5ea;">提醒我选课</a>
+  {joined_buttons}
 </td></tr></table>"""
 
     return f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin:0 0 16px; border:1px solid #f0f0f0; border-radius:16px; overflow:hidden;">
+       style="margin:0 0 16px; border:1px solid #e5e7eb; border-radius:20px; overflow:hidden; background:#fbfbfd;">
 <tr><td style="padding:20px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;">
+    <tr><td style="padding:6px 10px; border-radius:999px; background:{urgency_bg}; color:{urgency_color}; font-size:12px; font-weight:600;">
+      {urgency_text}
+    </td></tr>
+  </table>
   <p style="margin:0 0 4px; font-size:17px; font-weight:600; color:{_EMAIL_TEXT}; line-height:1.4;">
     {course.name}
   </p>
@@ -420,18 +450,18 @@ def _build_course_html(course, remind_url: str = "") -> str:
   </p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px; color:{_EMAIL_TEXT};">
     <tr>
-      <td style="padding:5px 0; width:50%;"><span style="color:{_EMAIL_MUTED}">地点</span><br>{course.location}</td>
-      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">签到方式</span><br><span style="color:{sign_color}; font-weight:600;">{check_in or '直接选课'}</span></td>
+      <td style="padding:8px 0; width:50%;"><span style="color:{_EMAIL_MUTED}">地点</span><br><span style="font-weight:600;">{course.location}</span></td>
+      <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">签到方式</span><br><span style="color:{sign_color}; font-weight:700;">{check_in or '直接选课'}</span></td>
     </tr>
     <tr>
-      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">课程时间</span><br>{start_str}</td>
-      <td style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">名额</span><br><span style="color:{cap_color}; font-weight:600;">{course.enrolled}/{course.capacity} (剩余 {remaining})</span></td>
+      <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">上课时间</span><br><span style="font-weight:600;">{start_str}</span></td>
+      <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">剩余名额</span><br><span style="color:{cap_color}; font-weight:700;">剩余 {remaining} 人</span></td>
     </tr>
     <tr>
-      <td colspan="2" style="padding:5px 0;"><span style="color:{_EMAIL_MUTED}">选课开始</span><br>{enroll_start_str}</td>
+      <td colspan="2" style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">选课开始</span><br><span style="font-weight:700; color:{_EMAIL_ACCENT};">{enroll_start_str}</span></td>
     </tr>
   </table>
-  {remind_btn}
+  {actions_html}
 </td></tr>
 </table>"""
 
@@ -504,26 +534,50 @@ def _build_notification_html(
 ) -> str:
     """Build full notification email HTML."""
     cards = []
+    portal_url = f"{base_url}/portal?token={sub_token}" if sub_token and base_url else ""
     for c in courses:
         remind_url = f"{base_url}/api/remind/{sub_token}/{c.id}" if sub_token and base_url else ""
-        cards.append(_build_course_html(c, remind_url))
+        cards.append(_build_course_html(c, remind_url, portal_url))
 
     cards_html = "\n".join(cards)
     heading, intro = _build_notification_intro(event_type, delivery_mode, len(courses))
+    first_course = courses[0] if courses else None
+    next_action_html = ""
+    if first_course is not None:
+        enroll_text = first_course.enroll_start.strftime('%m/%d %H:%M') if getattr(first_course, "enroll_start", None) else "时间待定"
+        capacity_text = f"剩余 {first_course.remaining} 人"
+        next_action_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:20px;">
+<tr><td style="padding:16px 18px;">
+  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.02em;">优先处理</p>
+  <p style="margin:0 0 8px; font-size:18px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.5;">{first_course.name}</p>
+  <p style="margin:0; font-size:14px; color:{_EMAIL_TEXT}; line-height:1.8;">
+    选课开始：<span style="font-weight:700; color:{_EMAIL_ACCENT};">{enroll_text}</span><br>
+    当前状态：<span style="font-weight:700;">{capacity_text}</span> · {getattr(first_course, 'campus', '全部校区')}
+  </p>
+</td></tr></table>"""
 
     unsub_link = ""
     if unsubscribe_url:
         unsub_link = f' | <a href="{unsubscribe_url}" style="color:{_EMAIL_ACCENT};">\u9000\u8ba2</a>'
 
+    portal_button_html = ""
+    if portal_url:
+        portal_button_html = f"""
+<table role="presentation" width="100%" style="margin:0 0 18px;"><tr><td align="center">
+  <a href="{portal_url}" style="display:inline-block; min-width:220px; padding:13px 28px; background:{_EMAIL_TEXT};
+     color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;">
+    打开门户查看全部课程
+  </a>
+</td></tr></table>"""
+
     reason_html = ""
     if subscriber is not None:
         reason_html = f"""
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin:0 0 16px; background:#f5f5f7; border:1px solid #e5e5ea; border-radius:14px;">
-<tr><td style="padding:14px 16px;">
-  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">\u4f60\u6536\u5230\u8fd9\u5c01\u90ae\u4ef6\uff0c\u56e0\u4e3a\u4f60\u7684\u8ba2\u9605\u504f\u597d\u662f\uff1a</p>
-  <p style="margin:0; font-size:14px; color:{_EMAIL_TEXT}; line-height:1.6;">{_describe_subscription_reason(subscriber)}</p>
-</td></tr></table>"""
+<p style="margin:0 0 16px; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+  发送依据：{_describe_subscription_reason(subscriber)}
+</p>"""
 
     return f"""
 <!DOCTYPE html>
@@ -535,14 +589,19 @@ def _build_notification_html(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
-       border-radius:20px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,0.06);">
-<tr><td style="background:{_EMAIL_ACCENT}; padding:28px 24px; text-align:center;">
-  <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700;">{heading}</h1>
-  <p style="margin:6px 0 0; color:rgba(255,255,255,0.75); font-size:14px;">\u5171\u6709 {len(courses)} \u95e8\u8bfe\u7a0b\u503c\u5f97\u5173\u6ce8</p>
+       border-radius:24px; overflow:hidden; box-shadow:0 12px 40px rgba(15,23,42,0.06);">
+<tr><td style="padding:28px 24px 20px; text-align:left; background:linear-gradient(180deg, #f8fbff 0%, #ffffff 100%); border-bottom:1px solid #eef2f7;">
+  <p style="margin:0 0 8px; color:{_EMAIL_ACCENT}; font-size:12px; font-weight:700; letter-spacing:0.04em;">BOYA COURSE UPDATE</p>
+  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:24px; font-weight:700; line-height:1.35;">{heading}</h1>
+  <p style="margin:8px 0 0; color:{_EMAIL_MUTED}; font-size:14px;">本封邮件共整理 {len(courses)} 门课程</p>
 </td></tr>
-<tr><td style="padding:24px;">
+<tr><td style="padding:26px 24px 24px;">
+<p style="margin:0 0 8px; font-size:18px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">这封邮件想告诉你什么</p>
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">{intro}</p>
+{next_action_html}
+{portal_button_html}
 {reason_html}
+<p style="margin:0 0 14px; font-size:16px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">课程详情</p>
 {cards_html}
 </td></tr>
 <tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
@@ -695,20 +754,12 @@ def send_enroll_reminder_email(to_email: str, course) -> bool:
     """发送选课即将开始提醒"""
     enroll_str = course.enroll_start.strftime('%Y-%m-%d %H:%M') if course.enroll_start else '即将'
     body = f"""
-<p style="font-size:16px; font-weight:600; color:{_EMAIL_TEXT}; margin:0 0 8px;">
-  {course.name}
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  你订阅的课程即将开放选课，建议现在就打开门户，确认网络和登录状态。
 </p>
-<p style="font-size:14px; color:{_EMAIL_MUTED}; margin:0 0 20px;">
-  {course.category} · {course.teacher} · {course.campus}
-</p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="background:#f5f5f7; border-radius:12px; margin-bottom:20px;">
-<tr><td style="padding:16px; text-align:center;">
-  <p style="margin:0; font-size:14px; color:{_EMAIL_MUTED};">选课开始时间</p>
-  <p style="margin:4px 0 0; font-size:24px; font-weight:700; color:{_EMAIL_ACCENT};">{enroll_str}</p>
-</td></tr></table>
-<p style="font-size:14px; color:{_EMAIL_TEXT}; text-align:center; margin:0;">
-  请提前打开博雅选课系统准备选课
+{_email_info_panel("选课提醒", course.name, f"{course.category} · {course.teacher} · {course.campus}<br>选课开始：<span style='font-weight:700; color:{_EMAIL_ACCENT};'>{enroll_str}</span>")}
+<p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+  建议提前 1 到 2 分钟进入系统，避免临近开始时临时登录影响操作。
 </p>"""
-    html = _email_shell("选课即将开始", body)
+    html = _email_shell("选课即将开始", body, eyebrow="ENROLL REMINDER")
     return _send_raw_email(to_email, f"选课提醒：{course.name}", html, from_kind="reminder")
