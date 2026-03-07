@@ -98,8 +98,8 @@ def _pick_from_email(config: dict, from_kind: str) -> str:
 
 
 def _get_proxy_config():
-    """从环境变量解析代理配置，返回 (host, port) 或 None"""
-    proxy_url = os.getenv("SMTP_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or ""
+    """仅解析 SMTP_PROXY，避免误用系统级 HTTP(S) 代理影响邮件投递"""
+    proxy_url = os.getenv("SMTP_PROXY", "").strip()
     if not proxy_url:
         return None
     try:
