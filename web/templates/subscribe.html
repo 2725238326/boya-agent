@@ -568,6 +568,11 @@
                 grid-template-columns: 1fr;
             }
 
+            /* Form first on mobile */
+            .card-stack {
+                order: -1;
+            }
+
             .intro-panel {
                 padding: 4px 0 6px;
             }
@@ -582,9 +587,9 @@
                 max-width: none;
             }
 
+            /* Collapse feature grid on mobile to save vertical space */
             .intro-grid {
-                grid-template-columns: 1fr;
-                max-width: none;
+                display: none;
             }
         }
 

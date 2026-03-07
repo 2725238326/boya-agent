@@ -818,15 +818,31 @@ def api_unsubscribe_session():
 
 @app.route("/api/subscribers")
 def api_subscribers():
-    """管理端：查看所有订阅者"""
+    """管理端：查看所有订阅者（含推送暂停、通知统计）"""
+    now = datetime.now()
     session = get_session()
     try:
         subs = session.query(EmailSubscriber).order_by(EmailSubscriber.created_at.desc()).all()
-        return jsonify({
-            "success": True,
-            "data": [s.to_dict() for s in subs],
-            "total": len(subs),
-        })
+        result = []
+        for s in subs:
+            d = s.to_dict()
+            # 推送暂停信息
+            paused = bool(s.push_paused_until and now < s.push_paused_until)
+            d["push_is_paused"] = paused
+            d["push_paused_until"] = s.push_paused_until.strftime("%Y-%m-%d %H:%M") if paused else None
+            # 最近通知事件数（7天内）
+            from datetime import timedelta
+            cutoff = now - timedelta(days=7)
+            d["notifications_7d"] = (
+                session.query(NotificationEvent)
+                .filter(
+                    NotificationEvent.subscriber_id == s.id,
+                    NotificationEvent.sent_at >= cutoff,
+                )
+                .count()
+            )
+            result.append(d)
+        return jsonify({"success": True, "data": result, "total": len(result)})
     finally:
         session.close()
 
@@ -1190,6 +1206,47 @@ def api_manual_push():
             return jsonify({"success": True, "message": f"已推送: {course.name}"})
         else:
             return jsonify({"success": False, "error": "邮件发送失败"}), 500
+    finally:
+        session.close()
+
+
+# ========== 管理端：用户管理 ==========
+
+@app.route("/api/admin/subscriber/<int:sub_id>/toggle-active", methods=["POST"])
+def api_admin_toggle_subscriber(sub_id):
+    """管理端：切换订阅者激活状态"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(id=sub_id).first()
+        if not sub:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+        sub.active = not sub.active
+        session.commit()
+        status = "已激活" if sub.active else "已停用"
+        logger.info(f"管理端切换用户状态: {sub.email} -> {status}")
+        return jsonify({"success": True, "active": sub.active, "message": f"{sub.email} {status}"})
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/admin/subscriber/<int:sub_id>/clear-pause", methods=["POST"])
+def api_admin_clear_pause(sub_id):
+    """管理端：解除推送暂停"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(id=sub_id).first()
+        if not sub:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+        sub.push_paused_until = None
+        session.commit()
+        logger.info(f"管理端解除推送暂停: {sub.email}")
+        return jsonify({"success": True, "message": f"{sub.email} 推送暂停已解除"})
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
 

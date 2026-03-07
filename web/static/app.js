@@ -31,6 +31,9 @@ function switchTab(tabName) {
         loadPushLogs();
         loadEnrollLogs();
     }
+    if (tabName === 'subscribers') {
+        loadSubscribers();
+    }
 }
 
 // ========== API 工具函数 ==========
@@ -546,6 +549,112 @@ function showToast(message, type = 'info') {
         toast.style.animation = 'toastOut 0.3s ease forwards';
         setTimeout(() => toast.remove(), 300);
     }, 4000);
+}
+
+// ========== 用户管理 ==========
+let _subscribersAll = [];
+
+async function loadSubscribers() {
+    const tbody = document.getElementById('subscribersTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>';
+
+    const result = await api('/api/subscribers');
+    if (!result.success) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载失败</td></tr>';
+        return;
+    }
+
+    _subscribersAll = result.data || [];
+
+    const total = _subscribersAll.length;
+    const active = _subscribersAll.filter(s => s.active && !s.push_is_paused).length;
+    const paused = _subscribersAll.filter(s => s.push_is_paused).length;
+    const el = (id) => document.getElementById(id);
+    if (el('subStatTotal'))  el('subStatTotal').textContent  = total;
+    if (el('subStatActive')) el('subStatActive').textContent = active;
+    if (el('subStatPaused')) el('subStatPaused').textContent = paused;
+
+    filterSubscribers();
+}
+
+function filterSubscribers() {
+    const keyword = (document.getElementById('subSearchInput')?.value || '').toLowerCase();
+    const status  = document.getElementById('subStatusFilter')?.value || '';
+    let list = _subscribersAll;
+    if (keyword) list = list.filter(s => s.email.toLowerCase().includes(keyword));
+    if (status === 'active')   list = list.filter(s => s.active && !s.push_is_paused);
+    else if (status === 'inactive') list = list.filter(s => !s.active);
+    else if (status === 'paused')   list = list.filter(s => s.push_is_paused);
+    renderSubscribers(list);
+}
+
+function renderSubscribers(list) {
+    const tbody = document.getElementById('subscribersTbody');
+    if (!tbody) return;
+
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">无匹配用户</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = list.map(s => {
+        let statusBadge;
+        if (!s.active)          statusBadge = '<span class="sub-badge inactive">停用</span>';
+        else if (s.push_is_paused) statusBadge = '<span class="sub-badge paused">暂停</span>';
+        else                    statusBadge = '<span class="sub-badge active">活跃</span>';
+
+        const campus   = s.campus_filter ? escapeHtml(s.campus_filter) : '全部';
+        const catCount = Array.isArray(s.categories) && s.categories.length ? `${s.categories.length}类` : '全部';
+        const selfSign = s.self_sign_only ? '自主签到' : '全部课';
+        const pref     = `${campus} · ${catCount} · ${selfSign}`;
+
+        const pushState = s.active
+            ? '<span class="sub-badge normal">开启</span>'
+            : '<span class="sub-badge inactive">关闭</span>';
+
+        const notifyCount = s.notifications_7d != null ? s.notifications_7d : '—';
+        const regTime     = s.created_at ? escapeHtml(s.created_at.slice(0, 10)) : '—';
+
+        const pauseBtn  = s.push_is_paused
+            ? `<button class="sub-op-btn success" onclick="adminClearPause(${s.id})">恢复推送</button>`
+            : '';
+        const toggleBtn = s.active
+            ? `<button class="sub-op-btn danger"  onclick="adminToggleSubscriber(${s.id}, true)">停用</button>`
+            : `<button class="sub-op-btn success" onclick="adminToggleSubscriber(${s.id}, false)">启用</button>`;
+
+        return `<tr>
+            <td class="sub-email">${escapeHtml(s.email)}</td>
+            <td>${statusBadge}</td>
+            <td class="sub-pref">${escapeHtml(pref)}</td>
+            <td>${pushState}</td>
+            <td>${notifyCount}</td>
+            <td>${regTime}</td>
+            <td><div class="sub-op-group">${pauseBtn}${toggleBtn}</div></td>
+        </tr>`;
+    }).join('');
+}
+
+async function adminToggleSubscriber(subId, currentActive) {
+    const action = currentActive ? '停用' : '启用';
+    if (!confirm(`确认要${action}该用户吗？`)) return;
+    const result = await api(`/api/admin/subscriber/${subId}/toggle-active`, { method: 'POST' });
+    if (result.success) {
+        showToast(`✅ 已${action}`, 'success');
+        loadSubscribers();
+    } else {
+        showToast('操作失败: ' + (result.error || ''), 'error');
+    }
+}
+
+async function adminClearPause(subId) {
+    const result = await api(`/api/admin/subscriber/${subId}/clear-pause`, { method: 'POST' });
+    if (result.success) {
+        showToast('✅ 已恢复推送', 'success');
+        loadSubscribers();
+    } else {
+        showToast('操作失败: ' + (result.error || ''), 'error');
+    }
 }
 
 // ========== 工具函数 ==========

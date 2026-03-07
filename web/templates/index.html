@@ -109,6 +109,9 @@
             <button class="tab" data-tab="enroll" onclick="switchTab('enroll')">
                 🎯 自动选课
             </button>
+            <button class="tab" data-tab="subscribers" onclick="switchTab('subscribers')">
+                👥 用户管理
+            </button>
             <button class="tab" data-tab="logs" onclick="switchTab('logs')">
                 📋 日志
             </button>
@@ -356,6 +359,53 @@
             </div>
         </section>
 
+        <!-- Tab: 用户管理 -->
+        <section class="tab-content" id="tab-subscribers">
+            <div class="sub-toolbar">
+                <div class="sub-stats" id="subStats">
+                    <span class="sub-stat-item"><span id="subTotal">-</span> 总用户</span>
+                    <span class="sub-stat-item"><span id="subVerified">-</span> 已验证</span>
+                    <span class="sub-stat-item"><span id="subActive">-</span> 活跃</span>
+                    <span class="sub-stat-item"><span id="subPaused">-</span> 已暂停</span>
+                </div>
+                <div class="sub-actions">
+                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱…"
+                        oninput="filterSubscribers()" style="width:220px;">
+                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
+                        <option value="">全部状态</option>
+                        <option value="active">活跃</option>
+                        <option value="paused">推送暂停</option>
+                        <option value="inactive">已停用</option>
+                        <option value="unverified">未验证</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="loadSubscribers()">🔄 刷新</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:0;">
+                <div class="card-body" style="padding:0;">
+                    <div class="sub-table-wrap">
+                        <table class="log-table sub-table" id="subscribersTable">
+                            <thead>
+                                <tr>
+                                    <th>邮箱</th>
+                                    <th>状态</th>
+                                    <th>偏好</th>
+                                    <th>推送</th>
+                                    <th>7天通知</th>
+                                    <th>注册时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subscribersTbody">
+                                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">加载中…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Tab: 日志 -->
         <section class="tab-content" id="tab-logs">
             <div class="logs-grid">
@@ -454,6 +504,54 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Tab: 用户管理 -->
+        <section class="tab-content" id="tab-subscribers">
+            <div class="sub-toolbar">
+                <div class="sub-stats">
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatTotal">—</span>
+                        <span class="sub-stat-label">总订阅</span>
+                    </div>
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatActive">—</span>
+                        <span class="sub-stat-label">活跃</span>
+                    </div>
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatPaused">—</span>
+                        <span class="sub-stat-label">已暂停</span>
+                    </div>
+                </div>
+                <div class="sub-actions">
+                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱…" oninput="filterSubscribers()">
+                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
+                        <option value="">全部状态</option>
+                        <option value="active">仅活跃</option>
+                        <option value="inactive">仅停用</option>
+                        <option value="paused">仅暂停</option>
+                    </select>
+                    <button class="btn btn-sm btn-accent" onclick="loadSubscribers()">🔄 刷新</button>
+                </div>
+            </div>
+            <div class="sub-table-wrap">
+                <table class="log-table sub-table">
+                    <thead>
+                        <tr>
+                            <th>邮箱</th>
+                            <th>状态</th>
+                            <th>偏好</th>
+                            <th>推送</th>
+                            <th>7天通知</th>
+                            <th>注册时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subscribersTbody">
+                        <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>
+                    </tbody>
+                </table>
             </div>
         </section>
     </main>
