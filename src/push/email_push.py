@@ -81,20 +81,33 @@ def _resolve_transport(config: dict, from_kind: str) -> dict:
     }
 
 
-def _pick_from_email(config: dict, from_kind: str) -> str:
-    """按邮件类型选择发件人地址，未配置则回退到 SMTP_USERNAME"""
+def _pick_from_email(config: dict, from_kind: str, transport_group: str = "") -> str:
+    """按邮件类型和实际 transport 选择发件人地址，未配置则回退到该通道账号"""
     key_map = {
         "verify": "from_verify",
         "login": "from_login",
         "notify": "from_notify",
         "reminder": "from_reminder",
     }
+    transport_from_key = {
+        "verify": "from_verify",
+        "notify": "from_notify",
+        "default": "from_default",
+    }
     key = key_map.get(from_kind, "")
-    candidate = (config.get(key, "") if key else "") or config.get("from_default", "")
+    candidate = ""
+    if transport_group in transport_from_key:
+        candidate = config.get(transport_from_key[transport_group], "")
+    if not candidate and key:
+        candidate = config.get(key, "")
+    if not candidate:
+        candidate = config.get("from_default", "")
     candidate = (candidate or "").strip()
     if candidate and "@" in candidate:
         return candidate
-    return config["username"]
+    transport_kind = transport_group if transport_group in {"verify", "notify"} else from_kind
+    transport = _resolve_transport(config, transport_kind)
+    return transport["username"] or config["username"]
 
 
 def _get_proxy_config():
@@ -146,34 +159,21 @@ def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 15):
         return None
 
 
-def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
-    """底层发邮件函数，自动检测并使用 HTTP 代理隧道"""
-    config = _get_smtp_config()
-    transport = _resolve_transport(config, from_kind)
+def _send_with_transport(msg, transport: dict) -> bool:
+    """使用指定的 transport 发送邮件"""
     if not transport["username"] or not transport["password"]:
-        logger.error(f"未配置 SMTP 账号/密码: group={transport['group']}, kind={from_kind}")
+        logger.error(f"未配置 SMTP 账号/密码: group={transport['group']}")
         return False
 
+    proxy_sock = _create_proxy_socket(transport["server"], transport["port"])
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = _pick_from_email(config, from_kind)
-        msg["To"] = to_email
-        msg.attach(MIMEText(html, "html", "utf-8"))
-
-        # 尝试通过代理建立隧道
-        proxy_sock = _create_proxy_socket(transport["server"], transport["port"])
-
         if transport["use_tls"]:
-            # Gmail: STARTTLS on port 587
             if proxy_sock:
-                # 通过代理隧道连接
                 server = smtplib.SMTP()
                 server.timeout = 15
                 server._host = transport["server"]
                 server.sock = proxy_sock
                 server.file = proxy_sock.makefile('rb')
-                # 读取 SMTP banner (220 smtp.gmail.com ...)
                 server.getreply()
                 server.ehlo()
             else:
@@ -185,7 +185,6 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
             server.send_message(msg)
             server.quit()
         else:
-            # SSL on port 465 (QQ etc.)
             context = ssl.create_default_context()
             if proxy_sock:
                 ssl_sock = context.wrap_socket(proxy_sock, server_hostname=transport["server"])
@@ -202,11 +201,81 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
                 with smtplib.SMTP_SSL(transport["server"], transport["port"], context=context, timeout=15) as server:
                     server.login(transport["username"], transport["password"])
                     server.send_message(msg)
-
         return True
-    except Exception as e:
-        logger.error(f"邮件发送失败 [{to_email}]: {e}")
+    except Exception:
+        if proxy_sock:
+            try:
+                proxy_sock.close()
+            except Exception:
+                pass
+        raise
+
+
+def _resolve_fallback_transport(config: dict, from_kind: str, primary: dict):
+    """notify/reminder 主通道失败时，回退到 verify 通道"""
+    if from_kind not in {"notify", "reminder"}:
+        return None
+
+    fallback = _resolve_transport(config, "verify")
+    if not fallback["username"] or not fallback["password"]:
+        return None
+
+    if (
+        fallback["group"] == primary["group"]
+        and fallback["server"] == primary["server"]
+        and fallback["port"] == primary["port"]
+        and fallback["username"] == primary["username"]
+    ):
+        return None
+    return fallback
+
+
+def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
+    """底层发邮件函数，notify/reminder 失败时自动回退到 verify 通道"""
+    config = _get_smtp_config()
+    primary = _resolve_transport(config, from_kind)
+    if not primary["username"] or not primary["password"]:
+        logger.error(f"未配置 SMTP 账号/密码: group={primary['group']}, kind={from_kind}")
         return False
+
+    fallback = _resolve_fallback_transport(config, from_kind, primary)
+    attempts = [(primary, "primary")]
+    if from_kind in {"notify", "reminder"}:
+        attempts.append((primary, "retry"))
+    if fallback:
+        attempts.append((fallback, f"fallback:{fallback['group']}"))
+
+    last_error = None
+    for transport, stage in attempts:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = _pick_from_email(config, from_kind, transport["group"])
+            msg["To"] = to_email
+            msg.attach(MIMEText(html, "html", "utf-8"))
+            _send_with_transport(msg, transport)
+
+            if stage == "retry":
+                logger.warning(
+                    f"邮件主通道重试成功 [{to_email}]: kind={from_kind}, group={transport['group']}"
+                )
+            elif stage.startswith("fallback:"):
+                logger.warning(
+                    f"邮件回退通道发送成功 [{to_email}]: kind={from_kind}, group={transport['group']}"
+                )
+            return True
+        except Exception as e:
+            last_error = e
+            logger.error(
+                f"邮件发送失败 [{to_email}]: kind={from_kind}, stage={stage}, "
+                f"group={transport['group']}, server={transport['server']}:{transport['port']} - {e}"
+            )
+            if stage == "primary" and from_kind in {"notify", "reminder"}:
+                time.sleep(0.8)
+
+    if last_error:
+        logger.error(f"邮件发送最终失败 [{to_email}]: {last_error}")
+    return False
 
 
 # ========== 通用样式 ==========
