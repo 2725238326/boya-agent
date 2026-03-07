@@ -281,17 +281,19 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
 # ========== 通用样式 ==========
 
 _EMAIL_ACCENT = "#0071e3"  # Apple blue
-_EMAIL_BG = "#f5f5f7"
+_EMAIL_BG = "#f2f2f5"
 _EMAIL_CARD_BG = "#ffffff"
 _EMAIL_TEXT = "#1d1d1f"
 _EMAIL_MUTED = "#86868b"
+_EMAIL_HAIRLINE = "#e8e8ed"
 
 
 def _email_primary_button(url: str, label: str) -> str:
     return f"""
 <table role="presentation" width="100%" style="margin:0 0 18px;"><tr><td align="center">
-  <a href="{url}" style="display:inline-block; min-width:220px; padding:13px 28px; background:{_EMAIL_TEXT};
-     color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;">
+  <a href="{url}" style="display:inline-block; min-width:220px; padding:14px 30px; background:{_EMAIL_TEXT};
+     color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;
+     box-shadow:0 8px 20px rgba(29,29,31,0.14);">
     {label}
   </a>
 </td></tr></table>"""
@@ -300,10 +302,10 @@ def _email_primary_button(url: str, label: str) -> str:
 def _email_info_panel(eyebrow: str, title: str, body_html: str) -> str:
     return f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin:0 0 18px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:20px;">
+       style="margin:0 0 18px; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
 <tr><td style="padding:16px 18px;">
-  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.02em;">{eyebrow}</p>
-  <p style="margin:0 0 8px; font-size:18px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.5;">{title}</p>
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">{eyebrow}</p>
+  <p style="margin:0 0 8px; font-size:20px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.45;">{title}</p>
   <div style="font-size:14px; color:{_EMAIL_TEXT}; line-height:1.8;">{body_html}</div>
 </td></tr></table>"""
 
@@ -311,14 +313,14 @@ def _email_info_panel(eyebrow: str, title: str, body_html: str) -> str:
 def _email_link_fallback(url: str, label: str = "如按钮无法点击，请复制链接：") -> str:
     return f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin:14px 0 0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:16px;">
+       style="margin:14px 0 0; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:18px;">
 <tr><td style="padding:14px 16px;">
   <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">{label}</p>
   <p style="margin:0; font-size:13px; color:{_EMAIL_TEXT}; word-break:break-all;">{url}</p>
 </td></tr></table>"""
 
 
-def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str = "BOYA COURSE") -> str:
+def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str = "博雅课程") -> str:
     """统一的邮件外壳模板 — 移动端 & 桌面端双适配"""
     return f"""
 <!DOCTYPE html>
@@ -334,14 +336,14 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
-       border-radius:24px; overflow:hidden; box-shadow:0 12px 40px rgba(15,23,42,0.06);">
+       border-radius:28px; overflow:hidden; box-shadow:0 18px 48px rgba(15,23,42,0.07);">
 <!-- Header -->
-<tr><td style="padding:28px 24px 20px; text-align:left; background:linear-gradient(180deg, #f8fbff 0%, #ffffff 100%); border-bottom:1px solid #eef2f7;">
-  <p style="margin:0 0 8px; color:{_EMAIL_ACCENT}; font-size:12px; font-weight:700; letter-spacing:0.04em;">{eyebrow}</p>
-  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:24px; font-weight:700; line-height:1.35;">{title}</h1>
+<tr><td style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
+  <p style="margin:0 0 10px; color:{_EMAIL_MUTED}; font-size:12px; font-weight:700; letter-spacing:0.12em;">{eyebrow}</p>
+  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:28px; font-weight:700; line-height:1.28; letter-spacing:-0.02em;">{title}</h1>
 </td></tr>
 <!-- Body -->
-<tr><td style="padding:26px 24px 24px;">
+<tr><td style="padding:28px 28px 26px;">
 {body_html}
 </td></tr>
 <!-- Footer -->
@@ -366,7 +368,7 @@ def send_verification_email(to_email: str, verify_url: str) -> bool:
 {_email_info_panel("下一步", "验证你的邮箱", f"点击下方按钮完成验证。<br>验证完成后，当前设备和其他设备都可以继续登录。")}
 {_email_primary_button(verify_url, "验证邮箱")}
 {_email_link_fallback(verify_url)}"""
-    html = _email_shell("验证你的邮箱", body, eyebrow="SUBSCRIPTION VERIFY")
+    html = _email_shell("验证你的邮箱", body, eyebrow="邮箱验证")
     ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
     if ok:
         logger.info(f"验证邮件已发送: {to_email}")
@@ -379,10 +381,10 @@ def send_login_email(to_email: str, login_url: str) -> bool:
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
   点击下方按钮即可直接进入你的博雅课程门户，不需要再次输入邮箱。
 </p>
-{_email_info_panel("现在登录", "打开你的个人门户", "如果你在 QQ 邮箱内打开这封邮件，优先使用右上角“在浏览器打开”，体验会更稳定。")}
+{_email_info_panel("免密登录", "打开你的个人门户", "如果你在 QQ 邮箱内打开这封邮件，优先使用右上角“在浏览器打开”，体验会更稳定。")}
 {_email_primary_button(login_url, "登录门户")}
 {_email_link_fallback(login_url, "如在邮箱内无法打开，请复制链接到系统浏览器：")}"""
-    html = _email_shell("登录你的门户", body, eyebrow="MAGIC LOGIN")
+    html = _email_shell("登录你的门户", body, eyebrow="快速登录")
     ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
     if ok:
         logger.info(f"登录邮件已发送: {to_email}")
@@ -548,10 +550,10 @@ def _build_notification_html(
         capacity_text = f"剩余 {first_course.remaining} 人"
         next_action_html = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="margin:0 0 18px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:20px;">
+       style="margin:0 0 20px; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
 <tr><td style="padding:16px 18px;">
-  <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.02em;">优先处理</p>
-  <p style="margin:0 0 8px; font-size:18px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.5;">{first_course.name}</p>
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">优先查看</p>
+  <p style="margin:0 0 8px; font-size:20px; color:{_EMAIL_TEXT}; font-weight:700; line-height:1.45;">{first_course.name}</p>
   <p style="margin:0; font-size:14px; color:{_EMAIL_TEXT}; line-height:1.8;">
     选课开始：<span style="font-weight:700; color:{_EMAIL_ACCENT};">{enroll_text}</span><br>
     当前状态：<span style="font-weight:700;">{capacity_text}</span> · {getattr(first_course, 'campus', '全部校区')}
@@ -589,19 +591,19 @@ def _build_notification_html(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
-       border-radius:24px; overflow:hidden; box-shadow:0 12px 40px rgba(15,23,42,0.06);">
-<tr><td style="padding:28px 24px 20px; text-align:left; background:linear-gradient(180deg, #f8fbff 0%, #ffffff 100%); border-bottom:1px solid #eef2f7;">
-  <p style="margin:0 0 8px; color:{_EMAIL_ACCENT}; font-size:12px; font-weight:700; letter-spacing:0.04em;">BOYA COURSE UPDATE</p>
-  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:24px; font-weight:700; line-height:1.35;">{heading}</h1>
-  <p style="margin:8px 0 0; color:{_EMAIL_MUTED}; font-size:14px;">本封邮件共整理 {len(courses)} 门课程</p>
+       border-radius:28px; overflow:hidden; box-shadow:0 18px 48px rgba(15,23,42,0.07);">
+<tr><td style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
+  <p style="margin:0 0 10px; color:{_EMAIL_MUTED}; font-size:12px; font-weight:700; letter-spacing:0.12em;">课程更新</p>
+  <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:28px; font-weight:700; line-height:1.28; letter-spacing:-0.02em;">{heading}</h1>
+  <p style="margin:10px 0 0; color:{_EMAIL_MUTED}; font-size:14px;">本封邮件共整理 {len(courses)} 门课程</p>
 </td></tr>
-<tr><td style="padding:26px 24px 24px;">
-<p style="margin:0 0 8px; font-size:18px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">这封邮件想告诉你什么</p>
+<tr><td style="padding:28px 28px 26px;">
+<p style="margin:0 0 8px; font-size:20px; line-height:1.55; color:{_EMAIL_TEXT}; font-weight:700;">这封邮件想告诉你什么</p>
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">{intro}</p>
 {next_action_html}
 {portal_button_html}
 {reason_html}
-<p style="margin:0 0 14px; font-size:16px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">课程详情</p>
+<p style="margin:2px 0 14px; font-size:17px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">课程详情</p>
 {cards_html}
 </td></tr>
 <tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
@@ -761,5 +763,5 @@ def send_enroll_reminder_email(to_email: str, course) -> bool:
 <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
   建议提前 1 到 2 分钟进入系统，避免临近开始时临时登录影响操作。
 </p>"""
-    html = _email_shell("选课即将开始", body, eyebrow="ENROLL REMINDER")
+    html = _email_shell("选课即将开始", body, eyebrow="选课提醒")
     return _send_raw_email(to_email, f"选课提醒：{course.name}", html, from_kind="reminder")
