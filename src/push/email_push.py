@@ -293,7 +293,7 @@ _EMAIL_HAIRLINE = "#e8e8ed"
 def _email_primary_button(url: str, label: str) -> str:
     return f"""
 <table role="presentation" width="100%" style="margin:0 0 18px;"><tr><td align="center">
-  <a href="{url}" style="display:inline-block; min-width:220px; padding:14px 30px; background:{_EMAIL_TEXT};
+  <a href="{url}" class="email-primary-btn" style="display:inline-block; min-width:220px; padding:14px 30px; background:{_EMAIL_TEXT};
      color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;
      box-shadow:0 8px 20px rgba(29,29,31,0.14);">
     {label}
@@ -303,7 +303,7 @@ def _email_primary_button(url: str, label: str) -> str:
 
 def _email_info_panel(eyebrow: str, title: str, body_html: str) -> str:
     return f"""
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-info-panel"
        style="margin:0 0 18px; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
 <tr><td style="padding:16px 18px;">
   <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">{eyebrow}</p>
@@ -314,7 +314,7 @@ def _email_info_panel(eyebrow: str, title: str, body_html: str) -> str:
 
 def _email_link_fallback(url: str, label: str = "如按钮无法点击，请复制链接：") -> str:
     return f"""
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-link-fallback"
        style="margin:14px 0 0; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:18px;">
 <tr><td style="padding:14px 16px;">
   <p style="margin:0 0 6px; font-size:12px; color:{_EMAIL_MUTED};">{label}</p>
@@ -330,17 +330,56 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>{title}</title>
+<style>
+  :root {{
+    color-scheme: light dark;
+    supported-color-schemes: light dark;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    body, .email-page {{
+      background: #111214 !important;
+      color: #f5f5f7 !important;
+    }}
+    .email-card {{
+      background: #1c1d20 !important;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34) !important;
+    }}
+    .email-header {{
+      background: linear-gradient(180deg, #24262b 0%, #1c1d20 100%) !important;
+      border-bottom-color: #34363d !important;
+    }}
+    .email-footer {{
+      border-top-color: #34363d !important;
+      color: #a1a1aa !important;
+    }}
+    .email-info-panel,
+    .email-link-fallback {{
+      background: #24262b !important;
+      border-color: #34363d !important;
+    }}
+    .email-primary-btn {{
+      background: #f5f5f7 !important;
+      color: #111214 !important;
+      box-shadow: none !important;
+    }}
+    a {{
+      color: #7ab8ff !important;
+    }}
+  }}
+</style>
 </head>
 <body style="margin:0; padding:0; background:{_EMAIL_BG};
              font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,Helvetica,Arial,sans-serif;
              -webkit-font-smoothing:antialiased; color:{_EMAIL_TEXT};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-page" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-card" style="max-width:560px; background:{_EMAIL_CARD_BG};
        border-radius:28px; overflow:hidden; box-shadow:0 18px 48px rgba(15,23,42,0.07);">
 <!-- Header -->
-<tr><td style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
+<tr><td class="email-header" style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
   <p style="margin:0 0 10px; color:{_EMAIL_MUTED}; font-size:12px; font-weight:700; letter-spacing:0.12em;">{eyebrow}</p>
   <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:28px; font-weight:700; line-height:1.28; letter-spacing:-0.02em;">{title}</h1>
 </td></tr>
@@ -349,7 +388,7 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 {body_html}
 </td></tr>
 <!-- Footer -->
-<tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
+<tr><td class="email-footer" style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
   BUAA 博雅课程推送{footer_html}
 </td></tr>
 </table>
