@@ -36,7 +36,7 @@
         <div class="dashboard-inner">
             <div class="dash-stat">
                 <span class="dash-stat-icon">📊</span>
-                <div>
+                <div class="dash-stat-clickable" onclick="applyAvailableNowFilter()">
                     <span class="dash-stat-value" id="dashTotalCourses">-</span>
                     <span class="dash-stat-label">当前可选</span>
                 </div>
@@ -50,7 +50,7 @@
             </div>
             <div class="dash-stat">
                 <span class="dash-stat-icon">📤</span>
-                <div>
+                <div class="dash-stat-clickable" onclick="applyTodayDeliveredFilter()">
                     <span class="dash-stat-value" id="dashPushed">-</span>
                     <span class="dash-stat-label">今日送达</span>
                 </div>
@@ -477,6 +477,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>📬 送达日志</h3>
+                        <span class="card-hint" id="pushLogHint">显示最近送达记录</span>
                     </div>
                     <div class="card-body">
                         <div class="log-table-container">

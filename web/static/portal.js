@@ -262,10 +262,10 @@ function toggleFullCourses() {
 
 function renderCourseCard(course, isFull = false) {
     const checkIn = course.check_in_method || course.sign_method || '';
-    const isSelf = checkIn.includes('自主');
+    const isSelf = checkIn.includes('??');
     const signBadge = isSelf
-        ? '<span class="portal-badge portal-badge-self">✓ 自主签到</span>'
-        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn || '常规签到')}</span>`;
+        ? '<span class="portal-badge portal-badge-self">? ????</span>'
+        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn || '????')}</span>`;
 
     const remaining = course.remaining;
     const capacity = course.capacity || 1;
@@ -279,13 +279,14 @@ function renderCourseCard(course, isFull = false) {
     const remindBtn = !canSetReminder
         ? ''
         : isReminded
-            ? `<button class="portal-btn-remind reminded" disabled>✓ 已设提醒</button>`
-            : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">🔔 提醒我选课</button>`;
+            ? `<button class="portal-btn-remind reminded" disabled>? ????</button>`
+            : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">?? ?????</button>`;
 
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
-    const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">已满</span>' : '';
+    const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">??</span>' : '';
     const statusBadge = buildPortalCourseStatus(course);
     const timingHint = buildPortalCourseTimingHint(course);
+    const goAction = buildPortalCoursePrimaryAction(course);
 
     return `
     <div class="${cardClass}">
@@ -298,25 +299,36 @@ function renderCourseCard(course, isFull = false) {
         ${timingHint ? `<div class="portal-card-timing-hint">${timingHint}</div>` : ''}
         <div class="portal-card-meta">
             <span class="portal-badge portal-badge-category">${escapeHtml(course.category)}</span>
-            &nbsp;${escapeHtml(course.teacher)} · ${escapeHtml(course.campus)}
+            &nbsp;${escapeHtml(course.teacher)} ? ${escapeHtml(course.campus)}
         </div>
         <div class="portal-card-details">
-            <span class="portal-detail-label">📍 地点</span>
+            <span class="portal-detail-label">?? ??</span>
             <span>${escapeHtml(course.location)}</span>
-            <span class="portal-detail-label">⏰ 课程</span>
+            <span class="portal-detail-label">? ??</span>
             <span>${escapeHtml(course.start_time)} ~ ${escapeHtml(course.end_time)}</span>
-            <span class="portal-detail-label">📝 选课</span>
+            <span class="portal-detail-label">?? ??</span>
             <span>${escapeHtml(course.enroll_start)} ~ ${escapeHtml(course.enroll_end)}</span>
         </div>
         <div class="portal-capacity-bar">
             <div class="portal-capacity-fill ${fillClass}" style="width:${fillPct}%"></div>
         </div>
         <div class="portal-capacity-text">
-            <span>已选 ${course.enrolled}/${capacity}</span>
-            <span>剩余 ${remaining} 人</span>
+            <span>?? ${course.enrolled}/${capacity}</span>
+            <span>?? ${remaining} ?</span>
         </div>
-        ${remindBtn ? `<div class="portal-card-actions">${remindBtn}</div>` : ''}
+        <div class="portal-card-actions${!remindBtn ? ' single' : ''}">
+            ${goAction}
+            ${remindBtn}
+        </div>
     </div>`;
+}
+
+function buildPortalCoursePrimaryAction(course) {
+    const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
+    const canOpenNow = !course.expired && Number(course.remaining || 0) > 0 && enrollStart && !Number.isNaN(enrollStart.getTime()) && enrollStart.getTime() <= Date.now();
+    const label = canOpenNow ? '?????' : '??????';
+    const className = canOpenNow ? 'portal-btn-go primary' : 'portal-btn-go';
+    return `<a class="${className}" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">${label}</a>`;
 }
 
 function buildPortalCourseStatus(course) {

@@ -6,6 +6,7 @@
 let currentConfig = {};
 let searchTimeout = null;
 const CONSOLE_TAB_KEY = 'console_active_tab';
+let pushLogsTodayOnly = false;
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,6 +38,9 @@ function switchTab(tabName) {
     }
     if (tabName === 'subscribers') {
         loadSubscribers();
+    }
+    if (tabName !== 'logs') {
+        pushLogsTodayOnly = false;
     }
 }
 
@@ -223,6 +227,27 @@ function applyTodayNewFilter() {
     if (waitlistEl) waitlistEl.checked = false;
     switchTab('courses');
     loadCourses();
+}
+
+function applyAvailableNowFilter() {
+    const todayNewEl = document.getElementById('todayNewFilter');
+    const availableNowEl = document.getElementById('availableNowFilter');
+    const waitlistEl = document.getElementById('waitlistFilter');
+    if (todayNewEl) todayNewEl.checked = false;
+    if (availableNowEl) availableNowEl.checked = true;
+    if (waitlistEl) waitlistEl.checked = false;
+    switchTab('courses');
+    loadCourses();
+}
+
+function applyTodayDeliveredFilter() {
+    pushLogsTodayOnly = true;
+    switchTab('logs');
+    loadPushLogs();
+    const logTable = document.getElementById('pushLogTable');
+    if (logTable) {
+        logTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 function toggleConsoleQuickFilter(mode) {
