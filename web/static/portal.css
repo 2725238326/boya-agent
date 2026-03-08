@@ -818,6 +818,12 @@ body.portal-body {
     cursor: wait;
 }
 
+.portal-refresh-meta {
+    font-size: 12px;
+    color: var(--portal-text-muted);
+    white-space: nowrap;
+}
+
 /* ── Course Card Grid ──────────────── */
 .portal-course-grid {
     display: grid;

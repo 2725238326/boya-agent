@@ -134,6 +134,12 @@
                     <option value="沙河">沙河校区</option>
                     <option value="学院路">学院路校区</option>
                 </select>
+                <select class="portal-select" id="portalSort" onchange="filterCourses()">
+                    <option value="recommended">优先推荐</option>
+                    <option value="remaining_desc">剩余名额最多</option>
+                    <option value="enroll_start_asc">最早开抢</option>
+                    <option value="course_time_asc">最早上课</option>
+                </select>
                 <label class="portal-checkbox-label">
                     <input type="checkbox" id="portalSelfSign" onchange="filterCourses()">
                     仅自主签到
@@ -144,6 +150,7 @@
                 </label>
                 <button class="portal-btn-mini portal-filter-refresh" id="btnRefreshCourses" type="button"
                     onclick="refreshPortalCourses(this)">刷新课程</button>
+                <span class="portal-refresh-meta" id="portalRefreshMeta">等待刷新</span>
             </div>
 
             <!-- Course Grid -->

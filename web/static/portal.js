@@ -10,6 +10,7 @@ let portalState = {
     notifications: [],
     filteredNotifications: [],
     notificationsHours: 24,
+    lastCourseRefreshAt: null,
 };
 const PORTAL_TAB_KEY = 'portal_active_tab';
 
@@ -32,9 +33,63 @@ async function loadFilteredCourses() {
     const qs = params.toString();
     const res = await portalApi(`/api/courses${qs ? `?${qs}` : ''}`);
     if (res.success) {
-        renderCourses(res.data);
+        const sorted = sortPortalCourses(res.data);
+        renderCourses(sorted);
+        portalState.lastCourseRefreshAt = new Date();
+        renderPortalRefreshMeta();
     }
     return res;
+}
+
+function sortPortalCourses(courses) {
+    const mode = document.getElementById('portalSort')?.value || 'recommended';
+    const list = [...(courses || [])];
+    const asTime = (value) => {
+        if (!value) return Number.MAX_SAFE_INTEGER;
+        const t = new Date(String(value).replace(' ', 'T')).getTime();
+        return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+    };
+
+    if (mode === 'remaining_desc') {
+        return list.sort((a, b) => (b.remaining || 0) - (a.remaining || 0));
+    }
+    if (mode === 'enroll_start_asc') {
+        return list.sort((a, b) => asTime(a.enroll_start) - asTime(b.enroll_start));
+    }
+    if (mode === 'course_time_asc') {
+        return list.sort((a, b) => asTime(a.start_time) - asTime(b.start_time));
+    }
+
+    return list.sort((a, b) => {
+        const aExpired = a.expired ? 1 : 0;
+        const bExpired = b.expired ? 1 : 0;
+        if (aExpired !== bExpired) return aExpired - bExpired;
+        const aRemaining = a.remaining || 0;
+        const bRemaining = b.remaining || 0;
+        const aOpen = aRemaining > 0 ? 0 : 1;
+        const bOpen = bRemaining > 0 ? 0 : 1;
+        if (aOpen !== bOpen) return aOpen - bOpen;
+        if (aOpen === 0 && aRemaining !== bRemaining) return bRemaining - aRemaining;
+        return asTime(a.enroll_start) - asTime(b.enroll_start);
+    });
+}
+
+function renderPortalRefreshMeta() {
+    const el = document.getElementById('portalRefreshMeta');
+    if (!el) return;
+    if (!portalState.lastCourseRefreshAt) {
+        el.textContent = '等待刷新';
+        return;
+    }
+    const now = Date.now();
+    const diffSec = Math.max(0, Math.floor((now - portalState.lastCourseRefreshAt.getTime()) / 1000));
+    if (diffSec < 60) {
+        el.textContent = '刚刚更新';
+        return;
+    }
+    const hh = String(portalState.lastCourseRefreshAt.getHours()).padStart(2, '0');
+    const mm = String(portalState.lastCourseRefreshAt.getMinutes()).padStart(2, '0');
+    el.textContent = `${hh}:${mm} 更新`;
 }
 
 // ══════ Init ══════
@@ -47,6 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedTab = localStorage.getItem(PORTAL_TAB_KEY);
     if (savedTab) switchPortalTab(savedTab);
     loadPortalData();
+    setInterval(renderPortalRefreshMeta, 30000);
 });
 
 function toggleFeedbackFloat() {
