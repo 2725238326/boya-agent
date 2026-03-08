@@ -520,21 +520,19 @@ async function manualPush(courseId, btnEl) {
 async function triggerScrape() {
     const btn = document.getElementById('btnTrigger');
     btn.classList.add('loading');
-    btn.textContent = '⏳ 抓取中...';
+    btn.textContent = 'Running...';
 
     const result = await api('/api/trigger', { method: 'POST' });
     if (result.success) {
-        showToast('🔄 抓取任务已触发，请等待完成...', 'info');
+        showToast('Scrape completed and course list refreshed', 'success');
+        await loadStatus();
+        await loadCourses();
     } else {
-        showToast('❌ 触发失败: ' + result.error, 'error');
+        showToast('Scrape failed: ' + (result.error || ''), 'error');
     }
 
-    setTimeout(() => {
-        btn.classList.remove('loading');
-        btn.innerHTML = '<span class="btn-icon">🔄</span> 立即抓取';
-        loadStatus();
-        loadCourses();
-    }, 5000);
+    btn.classList.remove('loading');
+    btn.innerHTML = '<span class="btn-icon">Run</span> Trigger Scrape';
 }
 
 // ========== Toast 通知 ==========

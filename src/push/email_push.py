@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from typing import List
 from loguru import logger
 
@@ -250,7 +251,7 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = _pick_from_email(config, from_kind, transport["group"])
+            msg["From"] = formataddr(("言芊芊", _pick_from_email(config, from_kind, transport["group"])))
             msg["To"] = to_email
             msg.attach(MIMEText(html, "html", "utf-8"))
             _send_with_transport(msg, transport)

@@ -67,14 +67,18 @@ def parse_datetime(text: str) -> Optional[datetime]:
 
 
 def parse_capacity(text: str) -> tuple:
-    """解析人数字符串，如 '130/130' -> (130, 130)"""
-    text = text.strip()
-    if "/" in text:
-        parts = text.split("/")
-        try:
-            return int(parts[0]), int(parts[1])
-        except ValueError:
-            pass
+    """Parse capacity text from variants like 98/200 or labeled count text."""
+    text = (text or "").strip()
+    if not text:
+        return 0, 0
+
+    m = re.search(r"(\d+)\s*/\s*(\d+)", text)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    nums = re.findall(r"\d+", text)
+    if len(nums) >= 2:
+        return int(nums[0]), int(nums[1])
     return 0, 0
 
 

@@ -381,19 +381,10 @@ def api_toggle_enroll():
 
 @app.route("/api/trigger", methods=["POST"])
 def api_trigger_scrape():
-    """手动触发一次抓取（在独立线程中运行，避免 event loop 冲突）"""
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_scrape_task())
-        finally:
-            loop.close()
-
+    """Trigger one scrape synchronously and return after persistence."""
     try:
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-        return jsonify({"success": True, "message": "抓取任务已触发"})
+        asyncio.run(run_scrape_task())
+        return jsonify({"success": True, "message": "Scrape completed"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
