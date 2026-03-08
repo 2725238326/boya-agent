@@ -103,11 +103,11 @@ async function loadCourses() {
 
 function renderCourseCard(course) {
     const checkIn = course.check_in_method || course.sign_method || '';
-    const signBadge = checkIn.includes('自主')
-        ? '<span class="badge badge-self-sign">✅ 自主签到</span>'
-        : `<span class="badge badge-not-self-sign">⚠️ ${escapeHtml(checkIn || '直接选课')}</span>`;
+    const signBadge = checkIn.includes('??')
+        ? '<span class="badge badge-self-sign">? ????</span>'
+        : `<span class="badge badge-not-self-sign">?? ${escapeHtml(checkIn || '????')}</span>`;
     const expiredBadge = course.expired
-        ? '<span class="badge badge-full">⛔ 已过期</span>'
+        ? '<span class="badge badge-full">? ???</span>'
         : '';
 
     const remaining = course.remaining;
@@ -117,6 +117,9 @@ function renderCourseCard(course) {
     if (remaining <= 0) fillClass = 'red';
     else if (remaining <= 10) fillClass = 'yellow';
 
+    const statusBadge = buildConsoleCourseStatus(course);
+    const timingHint = buildConsoleCourseTimingHint(course);
+
     return `
     <div class="course-card${course.expired ? ' expired' : ''}">
         <div class="card-top">
@@ -124,32 +127,86 @@ function renderCourseCard(course) {
             ${signBadge}
             ${expiredBadge}
         </div>
+        ${statusBadge ? `<div class="course-status-row">${statusBadge}</div>` : ''}
+        ${timingHint ? `<div class="course-timing-hint">${timingHint}</div>` : ''}
         <div style="margin-bottom:8px;">
             <span class="badge badge-category">${escapeHtml(course.category)}</span>
         </div>
         <div class="course-details">
-            <span class="detail-label">👨‍🏫 教师</span>
+            <span class="detail-label">????? ??</span>
             <span>${escapeHtml(course.teacher)}</span>
-            <span class="detail-label">📍 地点</span>
+            <span class="detail-label">?? ??</span>
             <span>${escapeHtml(course.location)}</span>
-            <span class="detail-label">🏫 校区</span>
+            <span class="detail-label">?? ??</span>
             <span>${escapeHtml(course.campus)}</span>
-            <span class="detail-label">⏰ 课程</span>
+            <span class="detail-label">? ??</span>
             <span>${escapeHtml(course.start_time)} ~ ${escapeHtml(course.end_time)}</span>
-            <span class="detail-label">📝 选课</span>
+            <span class="detail-label">?? ??</span>
             <span>${escapeHtml(course.enroll_start)} ~ ${escapeHtml(course.enroll_end)}</span>
         </div>
         <div class="capacity-bar">
             <div class="capacity-fill ${fillClass}" style="width:${fillPercent}%"></div>
         </div>
         <div class="capacity-text">
-            <span>已选 ${course.enrolled}/${capacity}</span>
-            <span>剩余 ${remaining} 人</span>
+            <span>?? ${course.enrolled}/${capacity}</span>
+            <span>?? ${remaining} ?</span>
         </div>
         ${!course.expired ? `<div style="margin-top:8px;text-align:right;">
-            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">📤 推送此课程</button>
+            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">?? ?????</button>
         </div>` : ''}
     </div>`;
+}
+
+function buildConsoleCourseStatus(course) {
+    const remaining = Number(course.remaining || 0);
+    const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
+    const now = new Date();
+    const timeValue = enrollStart && !Number.isNaN(enrollStart.getTime()) ? enrollStart.getTime() : null;
+    const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
+
+    if (course.expired) {
+        return '<span class="course-status-pill muted">???</span>';
+    }
+    if (remaining <= 0) {
+        return '<span class="course-status-pill wait">?????</span>';
+    }
+    if (minutesToStart !== null && minutesToStart <= 0) {
+        return '<span class="course-status-pill hot">?????</span>';
+    }
+    if (minutesToStart !== null && minutesToStart <= 180) {
+        return '<span class="course-status-pill soon">????</span>';
+    }
+    if (remaining >= 20) {
+        return '<span class="course-status-pill easy">?????</span>';
+    }
+    if (remaining <= 5) {
+        return '<span class="course-status-pill tight">????</span>';
+    }
+    return '<span class="course-status-pill normal">?????</span>';
+}
+
+function buildConsoleCourseTimingHint(course) {
+    const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
+    if (!enrollStart || Number.isNaN(enrollStart.getTime()) || course.expired) return '';
+
+    const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
+    if (diffMinutes <= 0) {
+        const opened = Math.abs(diffMinutes);
+        if (opened < 60) return `??? ${opened} ??`;
+        const hours = Math.floor(opened / 60);
+        const mins = opened % 60;
+        return mins ? `??? ${hours} ?? ${mins} ?` : `??? ${hours} ??`;
+    }
+
+    if (diffMinutes < 60) return `${diffMinutes} ?????`;
+    if (diffMinutes < 1440) {
+        const hours = Math.floor(diffMinutes / 60);
+        const mins = diffMinutes % 60;
+        return mins ? `${hours} ?? ${mins} ????` : `${hours} ?????`;
+    }
+    const days = Math.floor(diffMinutes / 1440);
+    const hours = Math.floor((diffMinutes % 1440) / 60);
+    return hours ? `${days} ? ${hours} ?????` : `${days} ????`;
 }
 
 function debounceSearch() {
@@ -165,6 +222,22 @@ function applyTodayNewFilter() {
     if (availableNowEl) availableNowEl.checked = false;
     if (waitlistEl) waitlistEl.checked = false;
     switchTab('courses');
+    loadCourses();
+}
+
+function toggleConsoleQuickFilter(mode) {
+    const availableNowEl = document.getElementById('availableNowFilter');
+    const waitlistEl = document.getElementById('waitlistFilter');
+    if (!availableNowEl || !waitlistEl) {
+        loadCourses();
+        return;
+    }
+    if (mode === 'available' && availableNowEl.checked) {
+        waitlistEl.checked = false;
+    }
+    if (mode === 'waitlist' && waitlistEl.checked) {
+        availableNowEl.checked = false;
+    }
     loadCourses();
 }
 

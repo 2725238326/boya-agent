@@ -148,6 +148,14 @@
                     <input type="checkbox" id="portalExpired" onchange="filterCourses()">
                     含已过期
                 </label>
+                <label class="portal-checkbox-label">
+                    <input type="checkbox" id="portalAvailableNow" onchange="togglePortalQuickFilter('available')">
+                    只看可抢
+                </label>
+                <label class="portal-checkbox-label">
+                    <input type="checkbox" id="portalWaitlistOnly" onchange="togglePortalQuickFilter('waitlist')">
+                    只看蹲退选
+                </label>
                 <button class="portal-btn-mini portal-filter-refresh" id="btnRefreshCourses" type="button"
                     onclick="refreshPortalCourses(this)">刷新课程</button>
                 <span class="portal-refresh-meta" id="portalRefreshMeta">等待刷新</span>

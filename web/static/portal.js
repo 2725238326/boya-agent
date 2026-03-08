@@ -20,11 +20,15 @@ function buildPortalCourseParams() {
     const campus = document.getElementById('portalCampus')?.value || '';
     const selfSign = document.getElementById('portalSelfSign')?.checked || false;
     const showExpired = document.getElementById('portalExpired')?.checked || false;
+    const availableNow = document.getElementById('portalAvailableNow')?.checked || false;
+    const waitlistOnly = document.getElementById('portalWaitlistOnly')?.checked || false;
 
     if (keyword) params.set('keyword', keyword);
     if (campus) params.set('campus', campus);
     if (selfSign) params.set('self_sign', 'true');
     if (showExpired) params.set('include_expired', 'true');
+    if (availableNow) params.set('available_now', 'true');
+    if (waitlistOnly) params.set('waitlist_only', 'true');
     return params;
 }
 
@@ -375,6 +379,23 @@ function filterCourses() {
     courseSearchTimeout = setTimeout(async () => {
         await loadFilteredCourses();
     }, 350);
+}
+
+function togglePortalQuickFilter(mode) {
+    const availableEl = document.getElementById('portalAvailableNow');
+    const waitlistEl = document.getElementById('portalWaitlistOnly');
+    if (!availableEl || !waitlistEl) {
+        filterCourses();
+        return;
+    }
+
+    if (mode === 'available' && availableEl.checked) {
+        waitlistEl.checked = false;
+    }
+    if (mode === 'waitlist' && waitlistEl.checked) {
+        availableEl.checked = false;
+    }
+    filterCourses();
 }
 
 async function refreshPortalCourses(btnEl) {

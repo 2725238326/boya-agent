@@ -143,11 +143,11 @@
                     <span>仅今天新增</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" id="availableNowFilter" onchange="loadCourses()">
+                    <input type="checkbox" id="availableNowFilter" onchange="toggleConsoleQuickFilter('available')">
                     <span>仅当前可选</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" id="waitlistFilter" onchange="loadCourses()">
+                    <input type="checkbox" id="waitlistFilter" onchange="toggleConsoleQuickFilter('waitlist')">
                     <span>仅已满可蹲</span>
                 </label>
                 <button class="btn btn-sm btn-accent" onclick="loadCourses()">🔄 刷新列表</button>
