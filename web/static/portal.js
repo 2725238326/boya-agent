@@ -46,6 +46,12 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPortalData();
 });
 
+function toggleFeedbackFloat() {
+    const box = document.getElementById('portalFeedbackFloat');
+    if (!box) return;
+    box.classList.toggle('expanded');
+}
+
 // ══════ API Helper ══════
 async function portalApi(url, options = {}) {
     try {
