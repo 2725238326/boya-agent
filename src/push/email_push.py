@@ -598,7 +598,7 @@ def _build_notification_html(
         enroll_text = first_course.enroll_start.strftime('%m/%d %H:%M') if getattr(first_course, "enroll_start", None) else "时间待定"
         capacity_text = f"剩余 {first_course.remaining} 人"
         next_action_html = f"""
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="notify-info-panel"
        style="margin:0 0 20px; background:#fbfbfd; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
 <tr><td style="padding:16px 18px;">
   <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">优先查看</p>
@@ -617,7 +617,7 @@ def _build_notification_html(
     if portal_url:
         portal_button_html = f"""
 <table role="presentation" width="100%" style="margin:0 0 18px;"><tr><td align="center">
-  <a href="{portal_url}" style="display:inline-block; min-width:220px; padding:13px 28px; background:{_EMAIL_TEXT};
+  <a href="{portal_url}" class="notify-primary-btn" style="display:inline-block; min-width:220px; padding:13px 28px; background:{_EMAIL_TEXT};
      color:#fff; text-decoration:none; border-radius:999px; font-weight:700; font-size:15px;">
     打开门户查看全部课程
   </a>
@@ -656,7 +656,7 @@ background:rgba(255,59,48,0.08); color:#d93025; text-decoration:none; font-size:
             )
         actions_html = "&nbsp;".join(actions)
         manage_notice_html = f"""
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="notify-manage-panel"
        style="margin:0 0 18px; background:#fff8f2; border:1px solid #f5dfcf; border-radius:20px;">
 <tr><td style="padding:14px 16px;">
   <p style="margin:0 0 6px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">不想被频繁打扰？</p>
@@ -669,15 +669,54 @@ background:rgba(255,59,48,0.08); color:#d93025; text-decoration:none; font-size:
     return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+  :root {{
+    color-scheme: light dark;
+    supported-color-schemes: light dark;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    body, .notify-page {{
+      background: #111214 !important;
+      color: #f5f5f7 !important;
+    }}
+    .notify-card {{
+      background: #1c1d20 !important;
+      box-shadow: 0 18px 48px rgba(0,0,0,0.34) !important;
+    }}
+    .notify-header {{
+      background: linear-gradient(180deg, #24262b 0%, #1c1d20 100%) !important;
+      border-bottom-color: #34363d !important;
+    }}
+    .notify-footer {{
+      border-top-color: #34363d !important;
+      color: #a1a1aa !important;
+    }}
+    .notify-info-panel,
+    .notify-manage-panel {{
+      background: #24262b !important;
+      border-color: #34363d !important;
+    }}
+    .notify-primary-btn {{
+      background: #f5f5f7 !important;
+      color: #111214 !important;
+    }}
+    a {{
+      color: #7ab8ff !important;
+    }}
+  }}
+</style>
+</head>
 <body style="margin:0; padding:0; background:{_EMAIL_BG};
              font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,Helvetica,Arial,sans-serif;
              -webkit-font-smoothing:antialiased; color:{_EMAIL_TEXT};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_BG};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="notify-page" style="background:{_EMAIL_BG};">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:{_EMAIL_CARD_BG};
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="notify-card" style="max-width:560px; background:{_EMAIL_CARD_BG};
        border-radius:28px; overflow:hidden; box-shadow:0 18px 48px rgba(15,23,42,0.07);">
-<tr><td style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
+<tr><td class="notify-header" style="padding:34px 28px 22px; text-align:left; background:linear-gradient(180deg, #fafcff 0%, #ffffff 100%); border-bottom:1px solid {_EMAIL_HAIRLINE};">
   <p style="margin:0 0 10px; color:{_EMAIL_MUTED}; font-size:12px; font-weight:700; letter-spacing:0.12em;">课程更新</p>
   <h1 style="margin:0; color:{_EMAIL_TEXT}; font-size:28px; font-weight:700; line-height:1.28; letter-spacing:-0.02em;">{heading}</h1>
   <p style="margin:10px 0 0; color:{_EMAIL_MUTED}; font-size:14px;">本封邮件共整理 {len(courses)} 门课程</p>
@@ -692,7 +731,7 @@ background:rgba(255,59,48,0.08); color:#d93025; text-decoration:none; font-size:
 <p style="margin:2px 0 14px; font-size:17px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">课程详情</p>
 {cards_html}
 </td></tr>
-<tr><td style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
+<tr><td class="notify-footer" style="padding:16px 24px; border-top:1px solid #f0f0f0; text-align:center; font-size:12px; color:{_EMAIL_MUTED};">
   BUAA \u535a\u96c5\u8bfe\u7a0b\u63a8\u9001{unsub_link}
 </td></tr>
 </table>
