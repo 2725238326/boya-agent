@@ -107,11 +107,11 @@ async function loadCourses() {
 
 function renderCourseCard(course) {
     const checkIn = course.check_in_method || course.sign_method || '';
-    const signBadge = checkIn.includes('??')
-        ? '<span class="badge badge-self-sign">? ????</span>'
-        : `<span class="badge badge-not-self-sign">?? ${escapeHtml(checkIn || '????')}</span>`;
+    const signBadge = checkIn.includes('\u81ea\u4e3b')
+        ? '<span class="badge badge-self-sign">\u2705 \u81ea\u4e3b\u7b7e\u5230</span>'
+        : `<span class="badge badge-not-self-sign">\u2139\ufe0f ${escapeHtml(checkIn || '\u76f4\u63a5\u9009\u8bfe')}</span>`;
     const expiredBadge = course.expired
-        ? '<span class="badge badge-full">? ???</span>'
+        ? '<span class="badge badge-full">\u23f3 \u5df2\u8fc7\u671f</span>'
         : '';
 
     const remaining = course.remaining;
@@ -137,26 +137,26 @@ function renderCourseCard(course) {
             <span class="badge badge-category">${escapeHtml(course.category)}</span>
         </div>
         <div class="course-details">
-            <span class="detail-label">????? ??</span>
+            <span class="detail-label">\ud83d\udc68\u200d\ud83c\udfeb \u6559\u5e08</span>
             <span>${escapeHtml(course.teacher)}</span>
-            <span class="detail-label">?? ??</span>
+            <span class="detail-label">\ud83d\udccd \u5730\u70b9</span>
             <span>${escapeHtml(course.location)}</span>
-            <span class="detail-label">?? ??</span>
+            <span class="detail-label">\ud83c\udfeb \u6821\u533a</span>
             <span>${escapeHtml(course.campus)}</span>
-            <span class="detail-label">? ??</span>
+            <span class="detail-label">\u23f0 \u8bfe\u7a0b</span>
             <span>${escapeHtml(course.start_time)} ~ ${escapeHtml(course.end_time)}</span>
-            <span class="detail-label">?? ??</span>
+            <span class="detail-label">\ud83d\udcdd \u9009\u8bfe</span>
             <span>${escapeHtml(course.enroll_start)} ~ ${escapeHtml(course.enroll_end)}</span>
         </div>
         <div class="capacity-bar">
             <div class="capacity-fill ${fillClass}" style="width:${fillPercent}%"></div>
         </div>
         <div class="capacity-text">
-            <span>?? ${course.enrolled}/${capacity}</span>
-            <span>?? ${remaining} ?</span>
+            <span>\u5df2\u9009 ${course.enrolled}/${capacity}</span>
+            <span>\u5269\u4f59 ${remaining} \u4eba</span>
         </div>
         ${!course.expired ? `<div style="margin-top:8px;text-align:right;">
-            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">?? ?????</button>
+            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">\ud83d\udce4 \u63a8\u9001\u6b64\u8bfe\u7a0b</button>
         </div>` : ''}
     </div>`;
 }
@@ -169,24 +169,24 @@ function buildConsoleCourseStatus(course) {
     const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
 
     if (course.expired) {
-        return '<span class="course-status-pill muted">???</span>';
+        return '<span class="course-status-pill muted">\u5df2\u8fc7\u671f</span>';
     }
     if (remaining <= 0) {
-        return '<span class="course-status-pill wait">?????</span>';
+        return '<span class="course-status-pill wait">\u5df2\u6ee1\u8e72\u9000\u9009</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 0) {
-        return '<span class="course-status-pill hot">?????</span>';
+        return '<span class="course-status-pill hot">\u53ef\u7acb\u5373\u5c1d\u8bd5</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 180) {
-        return '<span class="course-status-pill soon">????</span>';
+        return '<span class="course-status-pill soon">\u5373\u5c06\u5f00\u62a2</span>';
     }
     if (remaining >= 20) {
-        return '<span class="course-status-pill easy">?????</span>';
+        return '<span class="course-status-pill easy">\u540d\u989d\u8f83\u5145\u8db3</span>';
     }
     if (remaining <= 5) {
-        return '<span class="course-status-pill tight">????</span>';
+        return '<span class="course-status-pill tight">\u540d\u989d\u7d27\u5f20</span>';
     }
-    return '<span class="course-status-pill normal">?????</span>';
+    return '<span class="course-status-pill normal">\u53ef\u52a0\u5165\u5173\u6ce8</span>';
 }
 
 function buildConsoleCourseTimingHint(course) {
@@ -196,21 +196,21 @@ function buildConsoleCourseTimingHint(course) {
     const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
     if (diffMinutes <= 0) {
         const opened = Math.abs(diffMinutes);
-        if (opened < 60) return `??? ${opened} ??`;
+        if (opened < 60) return `\u5df2\u5f00\u9009 ${opened} \u5206\u949f`;
         const hours = Math.floor(opened / 60);
         const mins = opened % 60;
-        return mins ? `??? ${hours} ?? ${mins} ?` : `??? ${hours} ??`;
+        return mins ? `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6 ${mins} \u5206` : `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6`;
     }
 
-    if (diffMinutes < 60) return `${diffMinutes} ?????`;
+    if (diffMinutes < 60) return `${diffMinutes} \u5206\u949f\u540e\u5f00\u62a2`;
     if (diffMinutes < 1440) {
         const hours = Math.floor(diffMinutes / 60);
         const mins = diffMinutes % 60;
-        return mins ? `${hours} ?? ${mins} ????` : `${hours} ?????`;
+        return mins ? `${hours} \u5c0f\u65f6 ${mins} \u5206\u540e\u5f00\u62a2` : `${hours} \u5c0f\u65f6\u540e\u5f00\u62a2`;
     }
     const days = Math.floor(diffMinutes / 1440);
     const hours = Math.floor((diffMinutes % 1440) / 60);
-    return hours ? `${days} ? ${hours} ?????` : `${days} ????`;
+    return hours ? `${days} \u5929 ${hours} \u5c0f\u65f6\u540e\u5f00\u62a2` : `${days} \u5929\u540e\u5f00\u62a2`;
 }
 
 function debounceSearch() {

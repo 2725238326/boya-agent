@@ -262,10 +262,10 @@ function toggleFullCourses() {
 
 function renderCourseCard(course, isFull = false) {
     const checkIn = course.check_in_method || course.sign_method || '';
-    const isSelf = checkIn.includes('??');
+    const isSelf = checkIn.includes('\u81ea\u4e3b');
     const signBadge = isSelf
-        ? '<span class="portal-badge portal-badge-self">? ????</span>'
-        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn || '????')}</span>`;
+        ? '<span class="portal-badge portal-badge-self">\u2713 \u81ea\u4e3b\u7b7e\u5230</span>'
+        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn || '\u5e38\u89c4\u7b7e\u5230')}</span>`;
 
     const remaining = course.remaining;
     const capacity = course.capacity || 1;
@@ -279,11 +279,11 @@ function renderCourseCard(course, isFull = false) {
     const remindBtn = !canSetReminder
         ? ''
         : isReminded
-            ? `<button class="portal-btn-remind reminded" disabled>? ????</button>`
-            : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">?? ?????</button>`;
+            ? `<button class="portal-btn-remind reminded" disabled>\u2713 \u5df2\u8bbe\u63d0\u9192</button>`
+            : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">\ud83d\udd14 \u63d0\u9192\u6211\u9009\u8bfe</button>`;
 
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
-    const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">??</span>' : '';
+    const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">\u5df2\u6ee1</span>' : '';
     const statusBadge = buildPortalCourseStatus(course);
     const timingHint = buildPortalCourseTimingHint(course);
     const goAction = buildPortalCoursePrimaryAction(course);
@@ -299,22 +299,22 @@ function renderCourseCard(course, isFull = false) {
         ${timingHint ? `<div class="portal-card-timing-hint">${timingHint}</div>` : ''}
         <div class="portal-card-meta">
             <span class="portal-badge portal-badge-category">${escapeHtml(course.category)}</span>
-            &nbsp;${escapeHtml(course.teacher)} ? ${escapeHtml(course.campus)}
+            &nbsp;${escapeHtml(course.teacher)} \u00b7 ${escapeHtml(course.campus)}
         </div>
         <div class="portal-card-details">
-            <span class="portal-detail-label">?? ??</span>
+            <span class="portal-detail-label">\ud83d\udccd \u5730\u70b9</span>
             <span>${escapeHtml(course.location)}</span>
-            <span class="portal-detail-label">? ??</span>
+            <span class="portal-detail-label">\u23f0 \u8bfe\u7a0b</span>
             <span>${escapeHtml(course.start_time)} ~ ${escapeHtml(course.end_time)}</span>
-            <span class="portal-detail-label">?? ??</span>
+            <span class="portal-detail-label">\ud83d\udcdd \u9009\u8bfe</span>
             <span>${escapeHtml(course.enroll_start)} ~ ${escapeHtml(course.enroll_end)}</span>
         </div>
         <div class="portal-capacity-bar">
             <div class="portal-capacity-fill ${fillClass}" style="width:${fillPct}%"></div>
         </div>
         <div class="portal-capacity-text">
-            <span>?? ${course.enrolled}/${capacity}</span>
-            <span>?? ${remaining} ?</span>
+            <span>\u5df2\u9009 ${course.enrolled}/${capacity}</span>
+            <span>\u5269\u4f59 ${remaining} \u4eba</span>
         </div>
         <div class="portal-card-actions${!remindBtn ? ' single' : ''}">
             ${goAction}
@@ -326,7 +326,7 @@ function renderCourseCard(course, isFull = false) {
 function buildPortalCoursePrimaryAction(course) {
     const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
     const canOpenNow = !course.expired && Number(course.remaining || 0) > 0 && enrollStart && !Number.isNaN(enrollStart.getTime()) && enrollStart.getTime() <= Date.now();
-    const label = canOpenNow ? '?????' : '??????';
+    const label = canOpenNow ? '\u7acb\u5373\u53bb\u9009\u8bfe' : '\u6253\u5f00\u9009\u8bfe\u95e8\u6237';
     const className = canOpenNow ? 'portal-btn-go primary' : 'portal-btn-go';
     return `<a class="${className}" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">${label}</a>`;
 }
