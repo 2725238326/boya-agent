@@ -527,7 +527,7 @@ def atom_feed():
 @app.route("/api/subscribe", methods=["POST"])
 def api_subscribe():
     """用户提交邮件订阅"""
-    from src.push.email_push import send_login_email
+    from src.push.email_push import send_verification_email
 
     data = request.get_json()
     email = (data.get("email") or "").strip().lower()
@@ -539,30 +539,18 @@ def api_subscribe():
         existing = session.query(EmailSubscriber).filter_by(email=email).first()
         if existing:
             if existing.active and existing.verified:
-                remain = _check_login_email_cooldown(email)
-                if remain > 0:
-                    return jsonify({
-                        "success": False,
-                        "error": f"请求过于频繁，请 {remain} 秒后再试",
-                        "retry_after": remain,
-                    }), 429
-                bridge = _create_login_bridge_ticket(session, existing)
-                base_url = _get_public_base_url()
-                login_url = f"{base_url}/api/login/{existing.token}?bridge={bridge.ticket}"
-                ok = send_login_email(email, login_url)
-                if ok:
-                    session.commit()
-                    _mark_login_email_sent(email)
-                    return jsonify({
-                        "success": True,
-                        "message": "登录链接已发送，请查收邮箱。若你在其他设备点击邮件，本页会自动出现一键登录按钮。",
-                        **_bridge_payload(bridge),
-                    })
-                    return jsonify({"success": True, "message": "该邮箱已订阅，已发送登录链接，请查收邮箱"})
-                return jsonify({"success": False, "error": "该邮箱已订阅，但登录邮件发送失败"}), 500
+                resp = jsonify({
+                    "success": True,
+                    "message": "该邮箱已注册，正在进入门户。",
+                    "data": {
+                        "email": existing.email,
+                        "portal_url": f"/portal?email={existing.email}&login=ok",
+                    },
+                })
+                return _set_portal_session_cookie(resp, existing.token)
             # 重新激活
             existing.active = True
-            existing.verified = True
+            existing.verified = False
             existing.campus_filter = data.get("campus_filter", "")
             existing.self_sign_only = data.get("self_sign_only", True)
             existing.categories = data.get("categories", [])
@@ -577,22 +565,22 @@ def api_subscribe():
             sub.categories = data.get("categories", [])
             session.add(sub)
             session.commit()
-            sub.verified = True
-            sub.active = True
-            session.commit()
             token = sub.token
 
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
-        session.commit()
-        resp = jsonify({
+        bridge = _create_login_bridge_ticket(session, sub)
+        base_url = _get_public_base_url()
+        verify_url = f"{base_url}/api/verify/{token}?bridge={bridge.ticket}"
+        ok = send_verification_email(email, verify_url)
+
+        if ok:
+            session.commit()
+            return jsonify({
                 "success": True,
-                "message": "订阅成功，已直接激活并登录门户。",
-                "data": {
-                    "email": sub.email,
-                    "portal_url": f"/portal?email={sub.email}&login=ok",
-                },
+                "message": "首次订阅需要点击邮箱链接完成验证，验证后即可进入门户。",
+                **_bridge_payload(bridge),
             })
-        return _set_portal_session_cookie(resp, sub.token)
+        return jsonify({"success": False, "error": "验证邮件发送失败，请稍后重试"}), 500
     except Exception as e:
         session.rollback()
         logger.error(f"订阅失败: {e}")
@@ -603,8 +591,7 @@ def api_subscribe():
 
 @app.route("/api/login/request", methods=["POST"])
 def api_login_request():
-    """发送免密码登录链接"""
-    from src.push.email_push import send_login_email
+    """已注册用户邮箱直登"""
 
     data = request.get_json() or {}
     email = (data.get("email") or "").strip().lower()
@@ -619,30 +606,17 @@ def api_login_request():
             .first()
         )
         if not sub:
-            return jsonify({"success": False, "error": "该邮箱未订阅或未验证"})
-
-        remain = _check_login_email_cooldown(email)
-        if remain > 0:
-            return jsonify({
-                "success": False,
-                "error": f"请求过于频繁，请 {remain} 秒后再试",
-                "retry_after": remain,
-            }), 429
-
-        bridge = _create_login_bridge_ticket(session, sub)
-        base_url = _get_public_base_url()
-        login_url = f"{base_url}/api/login/{sub.token}?bridge={bridge.ticket}"
-        ok = send_login_email(email, login_url)
-        if not ok:
-            return jsonify({"success": False, "error": "登录邮件发送失败，请稍后重试"}), 500
+            return jsonify({"success": False, "error": "该邮箱尚未注册，请先点击“订阅推送”完成首次验证"})
         session.commit()
-        _mark_login_email_sent(email)
-        return jsonify({
+        resp = jsonify({
             "success": True,
-            "message": "登录链接已发送。若你在其他设备点击邮件，本页会自动出现一键登录按钮。",
-            **_bridge_payload(bridge),
+            "message": "识别为已注册用户，正在进入门户。",
+            "data": {
+                "email": sub.email,
+                "portal_url": f"/portal?email={sub.email}&login=ok",
+            },
         })
-        return jsonify({"success": True, "message": "登录链接已发送，请查收邮箱"})
+        return _set_portal_session_cookie(resp, sub.token)
     finally:
         session.close()
 

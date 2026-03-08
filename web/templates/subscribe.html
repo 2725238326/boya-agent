@@ -651,7 +651,7 @@
                 <div class="card" id="formCard">
                     <div class="card-header">
                         <h1>&#35746;&#38405;&#21338;&#38597;&#35838;&#31243;</h1>
-                        <p>&#36755;&#20837;&#37038;&#31665;&#65292;&#23454;&#26102;&#25509;&#25910;&#26032;&#35838;&#31243;&#36890;&#30693;</p>
+                        <p>&#24050;&#27880;&#20876;&#29992;&#25143;&#21487;&#30452;&#25509;&#36755;&#20837;&#37038;&#31665;&#30331;&#24405;&#65292;&#39318;&#27425;&#35746;&#38405;&#38656;&#35201;&#28857;&#20987;&#37038;&#31665;&#38142;&#25509;</p>
                     </div>
                     <div class="card-body">
                         <form id="subscribeForm" onsubmit="handleSubscribe(event)">
@@ -710,10 +710,10 @@
                                 <div class="insight-hot-list" id="insightHotList"></div>
                             </div>
 
-                            <button type="submit" class="btn" id="submitBtn">&#35746;&#38405;&#25512;&#36865;</button>
-                            <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#21457;&#36865;&#30331;&#24405;&#38142;&#25509;</button>
+                            <button type="submit" class="btn" id="submitBtn">&#39318;&#27425;&#35746;&#38405;</button>
+                            <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
                             <div class="message" id="msgBox"></div>
-                            <div class="action-hint">&#39564;&#35777;&#23436;&#25104;&#21518;&#65292;&#24403;&#21069;&#35774;&#22791;&#20250;&#33258;&#21160;&#20445;&#25345;&#30331;&#24405;&#65307;&#22914;&#26524;&#20320;&#22312;&#21478;&#19968;&#21488;&#35774;&#22791;&#37324;&#28857;&#20102;&#37038;&#20214;&#65292;&#36825;&#37324;&#20063;&#20250;&#20986;&#29616;&#19968;&#38190;&#30331;&#24405;&#25353;&#38062;&#12290;</div>
+                            <div class="action-hint">&#24050;&#27880;&#20876;&#29992;&#25143;&#21482;&#38656;&#36755;&#20837;&#37038;&#31665;&#21363;&#21487;&#36827;&#20837;&#38376;&#25143;&#65307;&#39318;&#27425;&#35746;&#38405;&#20250;&#21521;&#20320;&#30340;&#37038;&#31665;&#21457;&#36865;&#39564;&#35777;&#38142;&#25509;&#12290;</div>
                         </form>
                     </div>
                 </div>
@@ -800,7 +800,7 @@
             }
 
             btn.disabled = false;
-            btn.textContent = '订阅推送';
+            btn.textContent = '首次订阅';
         }
 
         async function sendLoginLink() {
@@ -815,7 +815,7 @@
             }
 
             btn.disabled = true;
-            btn.textContent = '发送中...';
+            btn.textContent = '登录中...';
             msg.className = 'message';
             msg.style.display = 'none';
 
@@ -835,6 +835,12 @@
                     msg.className = 'message success';
                     msg.textContent = data.message;
                     msg.style.display = 'block';
+                    const portalUrl = data.data && data.data.portal_url;
+                    if (portalUrl) {
+                        setTimeout(() => {
+                            window.location.href = portalUrl;
+                        }, 400);
+                    }
                 } else {
                     msg.className = 'message error';
                     msg.textContent = data.error || '发送失败';
@@ -847,7 +853,7 @@
             }
 
             btn.disabled = false;
-            btn.textContent = '发送登录链接';
+            btn.textContent = '已注册用户邮箱登录';
         }
 
         const rememberedEmail = localStorage.getItem('portal_last_email') || '';
