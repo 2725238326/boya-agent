@@ -5,9 +5,12 @@
 // ========== 全局状态 ==========
 let currentConfig = {};
 let searchTimeout = null;
+const CONSOLE_TAB_KEY = 'console_active_tab';
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
+    const savedTab = localStorage.getItem(CONSOLE_TAB_KEY);
+    if (savedTab) switchTab(savedTab);
     loadCourses();
     loadConfig();
     loadStatus();
@@ -25,6 +28,7 @@ function switchTab(tabName) {
 
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
     document.getElementById(`tab-${tabName}`).classList.add('active');
+    localStorage.setItem(CONSOLE_TAB_KEY, tabName);
 
     if (tabName === 'logs') {
         loadStatus();
@@ -419,9 +423,9 @@ async function loadStatus() {
     if (el('statBufferSoon')) el('statBufferSoon').textContent = d.push_buffer_soon || 0;
 
     // Dashboard strip
-    if (el('dashTotalCourses')) el('dashTotalCourses').textContent = d.total_courses_in_db || 0;
-    if (el('dashNewCourses')) el('dashNewCourses').textContent = d.total_new_courses || 0;
-    if (el('dashPushed')) el('dashPushed').textContent = d.total_push_emails ?? d.total_pushed ?? 0;
+    if (el('dashTotalCourses')) el('dashTotalCourses').textContent = d.total_available_courses ?? 0;
+    if (el('dashNewCourses')) el('dashNewCourses').textContent = d.total_new_today ?? 0;
+    if (el('dashPushed')) el('dashPushed').textContent = d.total_delivered_today ?? 0;
     if (el('dashExpired')) el('dashExpired').textContent = d.total_expired_courses || 0;
     if (el('dashBrowserStatus')) el('dashBrowserStatus').textContent = d.browser_alive ? '存活' : '离线';
     if (el('dashBrowserIcon')) el('dashBrowserIcon').textContent = d.browser_alive ? '🟢' : '🔴';
@@ -592,26 +596,32 @@ function renderSubscribers(list) {
     if (!tbody) return;
 
     if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">无匹配用户</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">无匹配用户</td></tr>';
         return;
     }
 
     tbody.innerHTML = list.map(s => {
-        let statusBadge;
-        if (!s.active)          statusBadge = '<span class="sub-badge inactive">停用</span>';
-        else if (s.push_is_paused) statusBadge = '<span class="sub-badge paused">暂停</span>';
-        else                    statusBadge = '<span class="sub-badge active">活跃</span>';
+        let accountBadge;
+        if (!s.active) accountBadge = '<span class="sub-badge inactive">已停用</span>';
+        else if (s.verification_status === 'unverified') accountBadge = '<span class="sub-badge unverified">待验证</span>';
+        else accountBadge = '<span class="sub-badge active">已启用</span>';
 
         const campus   = s.campus_filter ? escapeHtml(s.campus_filter) : '全部';
         const catCount = Array.isArray(s.categories) && s.categories.length ? `${s.categories.length}类` : '全部';
         const selfSign = s.self_sign_only ? '自主签到' : '全部课';
         const pref     = `${campus} · ${catCount} · ${selfSign}`;
 
-        const pushState = s.active
-            ? '<span class="sub-badge normal">开启</span>'
-            : '<span class="sub-badge inactive">关闭</span>';
+        let pushState = '<span class="sub-badge inactive">关闭</span>';
+        if (s.active && s.push_is_paused) {
+            const until = s.push_paused_until ? `至 ${escapeHtml(s.push_paused_until.slice(5, 16))}` : '已暂停';
+            pushState = `<div><span class="sub-badge paused">已暂停</span><div class="sub-meta">${until}</div></div>`;
+        } else if (s.active) {
+            pushState = '<span class="sub-badge normal">正常发送</span>';
+        }
 
-        const notifyCount = s.notifications_7d != null ? s.notifications_7d : '—';
+        const delivered7d = s.deliveries_7d != null ? s.deliveries_7d : '—';
+        const lastDelivered = s.last_delivered_at ? escapeHtml(s.last_delivered_at.slice(5, 16)) : '—';
+        const portalSeen  = s.last_portal_seen_at ? escapeHtml(s.last_portal_seen_at.slice(5, 16)) : '—';
         const regTime     = s.created_at ? escapeHtml(s.created_at.slice(0, 10)) : '—';
 
         const pauseBtn  = s.push_is_paused
@@ -623,11 +633,13 @@ function renderSubscribers(list) {
 
         return `<tr>
             <td class="sub-email">${escapeHtml(s.email)}</td>
-            <td>${statusBadge}</td>
-            <td class="sub-pref">${escapeHtml(pref)}</td>
+            <td>${accountBadge}</td>
             <td>${pushState}</td>
-            <td>${notifyCount}</td>
-            <td>${regTime}</td>
+            <td class="sub-pref">${escapeHtml(pref)}</td>
+            <td>${delivered7d}</td>
+            <td class="sub-time">${lastDelivered}</td>
+            <td class="sub-time">${portalSeen}</td>
+            <td class="sub-time">${regTime}</td>
             <td><div class="sub-op-group">${pauseBtn}${toggleBtn}</div></td>
         </tr>`;
     }).join('');

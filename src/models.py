@@ -213,6 +213,7 @@ class EmailSubscriber(Base):
     self_sign_only = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     push_paused_until = Column(DateTime, nullable=True)  # 推送暂停截止时间，None 表示不暂停
+    last_portal_seen_at = Column(DateTime, nullable=True)
 
     @property
     def categories(self) -> list:
@@ -243,6 +244,7 @@ class EmailSubscriber(Base):
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
             "push_paused_until": paused_until_str,
             "push_is_paused": self.push_is_paused,
+            "last_portal_seen_at": self.last_portal_seen_at.strftime("%Y-%m-%d %H:%M") if self.last_portal_seen_at else None,
         }
 
 
@@ -359,4 +361,9 @@ def _migrate_schema_if_needed():
                 conn.execute(text(
                     "ALTER TABLE email_subscribers "
                     "ADD COLUMN push_paused_until DATETIME"
+                ))
+            if "last_portal_seen_at" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN last_portal_seen_at DATETIME"
                 ))

@@ -1354,6 +1354,19 @@ body {
     line-height: 1.5;
 }
 
+.sub-meta {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.sub-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
 .sub-op-btn {
     padding: 4px 10px;
     font-size: 11px;

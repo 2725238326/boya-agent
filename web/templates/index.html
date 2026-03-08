@@ -38,21 +38,21 @@
                 <span class="dash-stat-icon">📊</span>
                 <div>
                     <span class="dash-stat-value" id="dashTotalCourses">-</span>
-                    <span class="dash-stat-label">总课程</span>
+                    <span class="dash-stat-label">当前可选</span>
                 </div>
             </div>
             <div class="dash-stat">
                 <span class="dash-stat-icon">🆕</span>
                 <div>
                     <span class="dash-stat-value" id="dashNewCourses">-</span>
-                    <span class="dash-stat-label">新发现</span>
+                    <span class="dash-stat-label">今日新课</span>
                 </div>
             </div>
             <div class="dash-stat">
                 <span class="dash-stat-icon">📤</span>
                 <div>
                     <span class="dash-stat-value" id="dashPushed">-</span>
-                    <span class="dash-stat-label">已送达</span>
+                    <span class="dash-stat-label">今日送达</span>
                 </div>
             </div>
             <div class="dash-stat">
@@ -430,7 +430,7 @@
                                 <span class="stat-value" id="statTotalRuns">-</span>
                             </div>
                             <div class="stat-item">
-                                <span class="stat-label">新课程发现</span>
+                                <span class="stat-label">累计新课发现</span>
                                 <span class="stat-value" id="statNewCourses">-</span>
                             </div>
                             <div class="stat-item">
@@ -540,16 +540,18 @@
                     <thead>
                         <tr>
                             <th>邮箱</th>
-                            <th>状态</th>
+                            <th>账户状态</th>
+                            <th>推送状态</th>
                             <th>偏好</th>
-                            <th>推送</th>
-                            <th>7天通知</th>
+                            <th>7天送达</th>
+                            <th>最近送达</th>
+                            <th>上次打开门户</th>
                             <th>注册时间</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="subscribersTbody">
-                        <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>
+                        <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>
                     </tbody>
                 </table>
             </div>

@@ -11,6 +11,7 @@ let portalState = {
     filteredNotifications: [],
     notificationsHours: 24,
 };
+const PORTAL_TAB_KEY = 'portal_active_tab';
 
 function buildPortalCourseParams() {
     const params = new URLSearchParams();
@@ -43,6 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
     portalState.email = email;
     document.getElementById('userEmail').textContent = email || '加载中…';
     initTabs();
+    const savedTab = localStorage.getItem(PORTAL_TAB_KEY);
+    if (savedTab) switchPortalTab(savedTab);
     loadPortalData();
 });
 
@@ -130,6 +133,7 @@ function switchPortalTab(tabName) {
     document.querySelectorAll('.portal-tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
     document.getElementById(`panel-${tabName}`).classList.add('active');
+    localStorage.setItem(PORTAL_TAB_KEY, tabName);
 }
 
 // ══════ Course Rendering ══════

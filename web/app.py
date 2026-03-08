@@ -393,10 +393,26 @@ def api_status():
     """获取系统运行状态"""
     from src.scheduler import _browser_state, _push_buffer
     status = get_run_status()
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     session = get_session()
     try:
         status["total_courses_in_db"] = session.query(Course).count()
+        status["total_available_courses"] = (
+            session.query(Course)
+            .filter(Course.expired == False)  # noqa: E712
+            .filter((Course.capacity - Course.enrolled) > 0)
+            .count()
+        )
+        status["total_new_today"] = session.query(Course).filter(Course.first_seen >= today_start).count()
+        status["total_delivered_today"] = (
+            session.query(NotificationEvent)
+            .filter(NotificationEvent.sent_at >= today_start)
+            .filter(NotificationEvent.success == True)  # noqa: E712
+            .filter(NotificationEvent.channel == "email")
+            .count()
+        )
         status["total_push_logs"] = session.query(PushLog).count()
         status["total_enroll_logs"] = session.query(EnrollLog).count()
     finally:
@@ -813,17 +829,31 @@ def api_subscribers():
             paused = bool(s.push_paused_until and now < s.push_paused_until)
             d["push_is_paused"] = paused
             d["push_paused_until"] = s.push_paused_until.strftime("%Y-%m-%d %H:%M") if paused else None
+            d["account_status"] = "active" if s.active else "inactive"
+            d["verification_status"] = "verified" if s.verified else "unverified"
             # 最近通知事件数（7天内）
             from datetime import timedelta
             cutoff = now - timedelta(days=7)
-            d["notifications_7d"] = (
+            d["deliveries_7d"] = (
                 session.query(NotificationEvent)
                 .filter(
                     NotificationEvent.subscriber_id == s.id,
                     NotificationEvent.sent_at >= cutoff,
+                    NotificationEvent.success == True,  # noqa: E712
                 )
                 .count()
             )
+            last_event = (
+                session.query(NotificationEvent)
+                .filter(
+                    NotificationEvent.subscriber_id == s.id,
+                    NotificationEvent.success == True,  # noqa: E712
+                )
+                .order_by(NotificationEvent.sent_at.desc())
+                .first()
+            )
+            d["last_delivered_at"] = last_event.sent_at.strftime("%Y-%m-%d %H:%M") if last_event and last_event.sent_at else None
+            d["last_portal_seen_at"] = s.last_portal_seen_at.strftime("%Y-%m-%d %H:%M") if s.last_portal_seen_at else None
             result.append(d)
         return jsonify({"success": True, "data": result, "total": len(result)})
     finally:
@@ -934,6 +964,9 @@ def portal_page():
                 .filter_by(token=token, verified=True, active=True)
                 .first()
             )
+            if sub:
+                sub.last_portal_seen_at = datetime.now()
+                session.commit()
         finally:
             session.close()
         if not sub:
@@ -1000,6 +1033,8 @@ def api_subscriber_session():
         )
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
+        sub.last_portal_seen_at = datetime.now()
+        session.commit()
         return jsonify({
             "success": True,
             "data": {
