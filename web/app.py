@@ -1191,7 +1191,7 @@ def api_manual_push():
             return jsonify({"success": False, "error": f"推送失败: {e}"}), 500
 
         if sent_count > 0:
-            return jsonify({"success": True, "message": f"已推送: {course.name} ({sent_count} 个订阅者)"})
+            return jsonify({"success": True, "message": f"已发送: {course.name} ({sent_count} 个订阅者)"})
         else:
             return jsonify({"success": False, "error": "邮件发送失败"}), 500
     finally:

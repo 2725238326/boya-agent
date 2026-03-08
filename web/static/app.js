@@ -457,7 +457,7 @@ async function loadPushLogs() {
     const tbody = document.querySelector('#pushLogTable tbody');
     if (!tbody) return;
     if (!result.data.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无推送日志</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无送达日志</td></tr>';
         return;
     }
     tbody.innerHTML = result.data.map(log => `
@@ -466,7 +466,7 @@ async function loadPushLogs() {
             <td>${escapeHtml(log.push_type)}</td>
             <td>${escapeHtml(log.course_id)}</td>
             <td class="${log.success ? 'success-badge' : 'fail-badge'}">
-                ${log.success ? '✅ 成功' : '❌ 失败'}
+                ${log.success ? '✅ 已送达' : '❌ 发送失败'}
             </td>
         </tr>
     `).join('');
@@ -507,10 +507,10 @@ async function manualPush(courseId, btnEl) {
     });
 
     if (result.success) {
-        showToast(`推送成功: ${result.message || ''}`, 'success');
-        btnEl.textContent = '✓ 已推送';
+        showToast(`发送完成: ${result.message || ''}`, 'success');
+        btnEl.textContent = '✓ 已发送';
     } else {
-        showToast('推送失败: ' + (result.error || ''), 'error');
+        showToast('发送失败: ' + (result.error || ''), 'error');
         btnEl.disabled = false;
         btnEl.textContent = '📤 推送此课程';
     }
