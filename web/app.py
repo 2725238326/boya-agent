@@ -5,7 +5,6 @@ Flask Web 控制台
 
 import os
 import asyncio
-import threading
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
@@ -381,10 +380,10 @@ def api_toggle_enroll():
 
 @app.route("/api/trigger", methods=["POST"])
 def api_trigger_scrape():
-    """Trigger one scrape synchronously and return after persistence."""
+    """手动触发一次抓取（同步执行，返回时即完成本轮抓取与入库）。"""
     try:
         asyncio.run(run_scrape_task())
-        return jsonify({"success": True, "message": "Scrape completed"})
+        return jsonify({"success": True, "message": "抓取任务已完成"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1186,15 +1185,13 @@ def api_manual_push():
         # 发送邮件推送
         try:
             loop = asyncio.new_event_loop()
-            ok = loop.run_until_complete(send_email_notification([course]))
+            sent_count = loop.run_until_complete(send_email_notification([course]))
             loop.close()
         except Exception as e:
             return jsonify({"success": False, "error": f"推送失败: {e}"}), 500
 
-        if ok:
-            course.pushed = True
-            session.commit()
-            return jsonify({"success": True, "message": f"已推送: {course.name}"})
+        if sent_count > 0:
+            return jsonify({"success": True, "message": f"已推送: {course.name} ({sent_count} 个订阅者)"})
         else:
             return jsonify({"success": False, "error": "邮件发送失败"}), 500
     finally:

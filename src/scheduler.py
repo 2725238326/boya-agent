@@ -36,6 +36,8 @@ run_status = {
     "total_runs": 0,
     "total_new_courses": 0,
     "total_pushed": 0,
+    "total_push_emails": 0,
+    "total_push_courses": 0,
     "is_running": False,
     "last_error": None,
     "last_daily_summary": None,
@@ -61,6 +63,7 @@ _consecutive_failures = 0
 _MAX_FAILURES_BEFORE_ALERT = 3
 URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
 SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
+ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
 
 
 # ═══════════════════════════════════════════════════════
@@ -156,6 +159,56 @@ def _classify_push_urgency(course):
         return "daily"       # 🔵 >24h → 每日汇总
 
 
+def _load_active_enrollment_targets(session):
+    now = datetime.now()
+    return (
+        session.query(Course)
+        .filter(Course.expired == False)  # noqa: E712
+        .filter(Course.enroll_start != None)  # noqa: E711
+        .filter(Course.enroll_end != None)  # noqa: E711
+        .filter(Course.enroll_start <= now)
+        .filter(Course.enroll_end >= now)
+        .all()
+    )
+
+
+async def _push_active_enrollment_courses(session, config) -> int:
+    active_courses = _load_active_enrollment_targets(session)
+    candidates = [course for course in active_courses if course.remaining > 0]
+    if not candidates:
+        return 0
+
+    filtered = filter_courses(candidates, config)
+    passed_courses = [course for course, _ in filtered]
+    if not passed_courses:
+        return 0
+
+    logger.info(f"已开选课程即时推送: {len(passed_courses)} 门")
+    return await _do_push(
+        passed_courses,
+        config,
+        session,
+        event_type="new",
+        delivery_mode="priority",
+    )
+
+
+async def monitor_active_enrollment_courses():
+    if run_status["is_running"]:
+        return
+
+    session = get_session()
+    try:
+        active_courses = _load_active_enrollment_targets(session)
+        if not active_courses:
+            return
+        logger.info(f"已开选课程高频巡检: active={len(active_courses)}")
+    finally:
+        session.close()
+
+    await run_scrape_task()
+
+
 # ═══════════════════════════════════════════════════════
 #  核心抓取任务
 # ═══════════════════════════════════════════════════════
@@ -195,6 +248,8 @@ async def run_scrape_task():
         if not courses_data:
             logger.info("未抓取到任何课程")
             run_status["last_success"] = datetime.now()
+            run_status["last_error"] = None
+            _consecutive_failures = 0
             return
 
         # 3. 保存到数据库（去重）
@@ -223,12 +278,23 @@ async def run_scrape_task():
             finally:
                 session.close()
 
+        active_pushed = 0
+        session = get_session()
+        try:
+            config = load_filter_config()
+            active_pushed = await _push_active_enrollment_courses(session, config)
+            run_status["total_pushed"] += active_pushed
+        finally:
+            session.close()
+
         if not new_course_ids:
-            if reopened_pushed:
-                logger.info(f"没有新课程，但退课捡漏推送了 {reopened_pushed} 条")
+            if reopened_pushed or active_pushed:
+                logger.info(f"没有新课程，但补位/开选即时推送了 {reopened_pushed + active_pushed} 条")
             else:
                 logger.info("没有新课程，本轮无需推送")
             run_status["last_success"] = datetime.now()
+            run_status["last_error"] = None
+            _consecutive_failures = 0
             return
 
         logger.info(f"发现 {len(new_course_ids)} 门新课程")
@@ -246,6 +312,8 @@ async def run_scrape_task():
             if not passed_courses:
                 logger.info("所有新课程均被过滤，无需推送")
                 run_status["last_success"] = datetime.now()
+                run_status["last_error"] = None
+                _consecutive_failures = 0
                 return
 
             logger.info(f"{len(passed_courses)} 门课程通过过滤")
@@ -253,9 +321,6 @@ async def run_scrape_task():
             # 5. 分级推送
             immediate_courses = []
             for course in passed_courses:
-                if course.pushed:
-                    continue  # 已推送过（数据库持久化）
-
                 level = _classify_push_urgency(course)
                 logger.info(f"  课程 [{course.name}] 紧急级别: {level}")
 
@@ -289,7 +354,7 @@ async def run_scrape_task():
         run_status["last_success"] = datetime.now()
         run_status["last_error"] = None
         _consecutive_failures = 0  # 成功后重置失败计数
-        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, 退课捡漏 {reopened_pushed} 条, "
+        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, 退课捡漏 {reopened_pushed} 条, 开选即时推送 {active_pushed} 条, "
                      f"缓冲区: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}")
 
     except Exception as e:
@@ -308,19 +373,16 @@ async def run_scrape_task():
 # ═══════════════════════════════════════════════════════
 
 async def _do_push(courses, config, session, event_type: str = "new", delivery_mode: str = "instant"):
-    """执行推送并标记已推送（仅邮件，Telegram 已转为管理员告警专用）"""
+    """执行推送（仅邮件，Telegram 已转为管理员告警专用）"""
     pushed_count = 0
 
     if config.email_enabled:
-        ok = await send_email_notification(courses, event_type=event_type, delivery_mode=delivery_mode)
-        if ok:
-            pushed_count += len(courses)
+        sent_count = await send_email_notification(courses, event_type=event_type, delivery_mode=delivery_mode)
+        if sent_count > 0:
+            pushed_count += sent_count
+            run_status["total_push_emails"] += sent_count
+            run_status["total_push_courses"] += len(courses)
             _log_push(courses, "email", len(courses))
-
-    if pushed_count > 0:
-        for course in courses:
-            course.pushed = True
-        session.commit()
 
     return pushed_count
 
@@ -355,13 +417,13 @@ async def flush_push_buffer(buffer_key: str):
     if not course_ids:
         return
 
-    # 去掉已推送过的（从数据库查）
+    # 去掉已过期的（是否还需要通知由订阅者级事件去重控制）
     session = get_session()
     try:
         course_ids_to_push = []
         for cid in course_ids:
             c = session.query(Course).filter_by(id=cid).first()
-            if c and not c.pushed and not c.expired:
+            if c and not c.expired:
                 course_ids_to_push.append(cid)
     finally:
         session.close()
@@ -414,8 +476,8 @@ async def check_urgency_escalation():
             session = get_session()
             try:
                 course = session.query(Course).filter_by(id=cid).first()
-                if not course or course.expired or course.pushed:
-                    continue  # 已推送/已过期，跳过
+                if not course or course.expired:
+                    continue  # 已过期，跳过
                 if course.enroll_start:
                     hours_left = (course.enroll_start - now).total_seconds() / 3600
                     if hours_left <= 1:
@@ -462,7 +524,6 @@ async def run_daily_summary_task():
 
         pending_courses = (
             session.query(Course)
-            .filter(Course.pushed == False)  # noqa: E712
             .filter(Course.expired == False)  # noqa: E712
             .order_by(Course.first_seen.desc())
             .limit(500)
@@ -492,8 +553,6 @@ async def run_daily_summary_task():
                 _log_push(passed_courses, "daily_email", len(passed_courses))
 
         if pushed_count > 0:
-            for course in passed_courses:
-                course.pushed = True
             session.commit()
             run_status["total_pushed"] += pushed_count
             run_status["last_daily_summary"] = datetime.now()
@@ -616,6 +675,13 @@ def start_scheduler(interval_minutes: int = 3):
         id="urgency_escalation_task",
         replace_existing=True,
     )
+    scheduler.add_job(
+        monitor_active_enrollment_courses,
+        trigger=IntervalTrigger(seconds=ACTIVE_ENROLL_SCRAPE_SECONDS),
+        id="active_enrollment_watch_task",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     # 🟡 近期缓冲区 flush（每 3 小时）
     scheduler.add_job(
@@ -644,7 +710,8 @@ def start_scheduler(interval_minutes: int = 3):
     _configure_daily_summary_job()
     scheduler.start()
     logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
-                f"近期汇总=每{URGENT_DIGEST_MINUTES}分钟, 新课摘要=每{SOON_DIGEST_MINUTES}分钟")
+                f"近期汇总=每{URGENT_DIGEST_MINUTES}分钟, 新课摘要=每{SOON_DIGEST_MINUTES}分钟, "
+                f"开选巡检=每{ACTIVE_ENROLL_SCRAPE_SECONDS}秒")
 
 
 def update_scheduler_interval(interval_minutes: int):
@@ -780,6 +847,8 @@ def get_run_status() -> dict:
         "total_runs": run_status["total_runs"],
         "total_new_courses": run_status["total_new_courses"],
         "total_pushed": run_status["total_pushed"],
+        "total_push_emails": run_status["total_push_emails"],
+        "total_push_courses": run_status["total_push_courses"],
         "is_running": run_status["is_running"],
         "last_error": run_status["last_error"],
         "last_daily_summary": run_status["last_daily_summary"].strftime("%Y-%m-%d %H:%M:%S") if run_status["last_daily_summary"] else None,

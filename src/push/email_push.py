@@ -10,7 +10,7 @@ import ssl
 import socket
 import smtplib
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
@@ -251,7 +251,7 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = formataddr(("言芊芊", _pick_from_email(config, from_kind, transport["group"])))
+            msg["From"] = formataddr(("\u8a00\u828a\u828a", _pick_from_email(config, from_kind, transport["group"])))
             msg["To"] = to_email
             msg.attach(MIMEText(html, "html", "utf-8"))
             _send_with_transport(msg, transport)
@@ -635,6 +635,39 @@ def _filter_for_subscriber(courses: list, sub) -> list:
     return result
 
 
+def _dedupe_cutoff(event_type: str, delivery_mode: str):
+    if event_type == "snipe":
+        return datetime.now() - timedelta(minutes=30)
+    if delivery_mode == "priority":
+        return datetime.now() - timedelta(hours=2)
+    return None
+
+
+def _filter_unsent_for_subscriber(session, courses: list, sub, event_type: str, delivery_mode: str) -> list:
+    from src.models import NotificationEvent
+
+    if not courses:
+        return []
+
+    course_map = {course.id: course for course in courses}
+    query = (
+        session.query(NotificationEvent.course_id)
+        .filter(NotificationEvent.subscriber_id == sub.id)
+        .filter(NotificationEvent.channel == "email")
+        .filter(NotificationEvent.success == True)  # noqa: E712
+        .filter(NotificationEvent.course_id.in_(list(course_map.keys())))
+    )
+
+    cutoff = _dedupe_cutoff(event_type, delivery_mode)
+    if cutoff is not None:
+        query = query.filter(NotificationEvent.sent_at >= cutoff)
+    else:
+        query = query.filter(NotificationEvent.event_type == event_type)
+
+    sent_ids = {row[0] for row in query.all()}
+    return [course for course in courses if course.id not in sent_ids]
+
+
 async def send_email_to_subscribers(
     courses: list,
     base_url: str = "",
@@ -665,6 +698,7 @@ async def send_email_to_subscribers(
                 continue
 
             filtered = _filter_for_subscriber(courses, sub)
+            filtered = _filter_unsent_for_subscriber(session, filtered, sub, event_type, delivery_mode)
             if not filtered:
                 continue
 
@@ -714,10 +748,9 @@ async def send_email_notification(
     courses: list,
     event_type: str = "new",
     delivery_mode: str = "instant",
-) -> bool:
+) -> int:
     """Compatibility wrapper for subscriber email pushes."""
-    count = await send_email_to_subscribers(courses, event_type=event_type, delivery_mode=delivery_mode)
-    return count > 0
+    return await send_email_to_subscribers(courses, event_type=event_type, delivery_mode=delivery_mode)
 
 
 async def send_enroll_result_email(course, success: bool, message: str = "") -> bool:

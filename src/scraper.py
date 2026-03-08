@@ -98,6 +98,52 @@ def _extract_datetime_tokens(text: str) -> List[str]:
     return re.findall(pattern, text)
 
 
+def _normalize_table_label(text: str) -> str:
+    return re.sub(r"[\s:：]+", "", (text or "").strip())
+
+
+def _match_column_key(header_text: str) -> Optional[str]:
+    normalized = _normalize_table_label(header_text)
+    alias_map = {
+        "status": ["状态"],
+        "name": ["课程名称", "课程名"],
+        "category": ["课程类别", "类别"],
+        "info": ["课程信息", "信息"],
+        "time": ["课程时间", "上课时间", "时间"],
+        "group": ["开放群体", "开放对象"],
+        "enroll": ["选课时间", "报名时间", "选课信息"],
+        "homework": ["课程作业", "作业"],
+        "capacity": ["课程人数", "人数"],
+        "action": ["操作"],
+    }
+    for key, aliases in alias_map.items():
+        if any(alias in normalized for alias in aliases):
+            return key
+    return None
+
+
+async def _build_table_column_map(page: Page) -> dict:
+    column_map = {}
+    headers = await page.query_selector_all("table thead tr th")
+    if not headers:
+        headers = await page.query_selector_all("table tr th")
+
+    for idx, header in enumerate(headers):
+        try:
+            key = _match_column_key(await header.inner_text())
+            if key and key not in column_map:
+                column_map[key] = idx
+        except Exception:
+            continue
+
+    return column_map
+
+
+def _get_cell_text(cell_texts: List[str], column_map: dict, key: str, fallback_idx: int) -> str:
+    idx = column_map.get(key, fallback_idx)
+    return cell_texts[idx] if idx < len(cell_texts) else ""
+
+
 def _minutes_diff(left: Optional[datetime], right: Optional[datetime]) -> Optional[int]:
     if not left or not right:
         return None
@@ -453,6 +499,7 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
 async def _parse_course_table(page: Page) -> List[dict]:
     """解析当前页面的课程表格"""
     courses = []
+    column_map = await _build_table_column_map(page)
 
     # 获取所有课程行（跳过表头）
     rows = await page.query_selector_all("table tbody tr")
@@ -469,14 +516,13 @@ async def _parse_course_table(page: Page) -> List[dict]:
                 text = await cell.inner_text()
                 cell_texts.append(text.strip())
 
-            # 根据截图中的列顺序解析
-            # 状态 | 课程名称 | 课程类别 | 课程信息 | 课程时间 | 开放群体 | 选课时间 | 课程作业 | 课程人数 | 操作
-            status_text = cell_texts[0] if len(cell_texts) > 0 else ""
-            name = cell_texts[1] if len(cell_texts) > 1 else ""
-            category = cell_texts[2] if len(cell_texts) > 2 else ""
+            # 优先根据表头识别列，识别失败时再回退到旧索引。
+            status_text = _get_cell_text(cell_texts, column_map, "status", 0)
+            name = _get_cell_text(cell_texts, column_map, "name", 1)
+            category = _get_cell_text(cell_texts, column_map, "category", 2)
 
             # 课程信息列：包含地点、教师、学院等（多行）
-            course_info = cell_texts[3] if len(cell_texts) > 3 else ""
+            course_info = _get_cell_text(cell_texts, column_map, "info", 3)
             location = ""
             teacher = ""
             college = ""
@@ -491,7 +537,7 @@ async def _parse_course_table(page: Page) -> List[dict]:
 
             # 课程时间列：开始和结束
             # 格式如 "开始：2026-03-04 19:00\n结束：2026-03-04 21:00"
-            time_info = cell_texts[4] if len(cell_texts) > 4 else ""
+            time_info = _get_cell_text(cell_texts, column_map, "time", 4)
             start_time_str = ""
             end_time_str = ""
             for line in time_info.split("\n"):
@@ -501,9 +547,15 @@ async def _parse_course_table(page: Page) -> List[dict]:
                     start_time_str = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip() if ":" in line else line
                 elif "结束" in line:
                     end_time_str = line.split("：", 1)[-1].strip() if "：" in line else line.split(":", 1)[-1].strip() if ":" in line else line
+            if not start_time_str or not end_time_str:
+                dt_tokens = _extract_datetime_tokens(time_info)
+                if dt_tokens:
+                    start_time_str = start_time_str or dt_tokens[0]
+                    if len(dt_tokens) > 1:
+                        end_time_str = end_time_str or dt_tokens[1]
 
             # 开放群体列：校区、学院、年级等
-            group_info = cell_texts[5] if len(cell_texts) > 5 else ""
+            group_info = _get_cell_text(cell_texts, column_map, "group", 5)
             campus = ""
             open_college = ""
             open_grade = ""
@@ -521,7 +573,7 @@ async def _parse_course_table(page: Page) -> List[dict]:
 
             # 选课时间列
             # 格式如 "选课方式：直接选课\n选课开始：2026-03-03 18:00\n选课截止：2026-03-04 18:00\n退选截止：2026-03-04 18:00"
-            enroll_info = cell_texts[6] if len(cell_texts) > 6 else ""
+            enroll_info = _get_cell_text(cell_texts, column_map, "enroll", 6)
             sign_method = ""
             enroll_start_str = ""
             enroll_end_str = ""
@@ -552,12 +604,18 @@ async def _parse_course_table(page: Page) -> List[dict]:
                         if len(dt_tokens) > 1:
                             enroll_end_str = dt_tokens[1]
                     continue
+            if not enroll_start_str or not enroll_end_str:
+                dt_tokens = _extract_datetime_tokens(enroll_info)
+                if dt_tokens:
+                    enroll_start_str = enroll_start_str or dt_tokens[0]
+                    if len(dt_tokens) > 1:
+                        enroll_end_str = enroll_end_str or dt_tokens[1]
 
             # 课程作业
-            has_homework = cell_texts[7] if len(cell_texts) > 7 else ""
+            has_homework = _get_cell_text(cell_texts, column_map, "homework", 7)
 
             # 课程人数
-            capacity_text = cell_texts[8] if len(cell_texts) > 8 else ""
+            capacity_text = _get_cell_text(cell_texts, column_map, "capacity", 8)
             enrolled, capacity = parse_capacity(capacity_text)
 
             course_id = generate_course_id(name, start_time_str, enroll_start_str, teacher)

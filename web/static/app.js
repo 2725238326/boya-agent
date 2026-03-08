@@ -411,7 +411,7 @@ async function loadStatus() {
     if (el('statRunning')) el('statRunning').textContent = d.is_running ? '运行中...' : '空闲';
     if (el('statTotalRuns')) el('statTotalRuns').textContent = d.total_runs;
     if (el('statNewCourses')) el('statNewCourses').textContent = d.total_new_courses;
-    if (el('statPushed')) el('statPushed').textContent = d.total_pushed;
+    if (el('statPushed')) el('statPushed').textContent = d.total_push_emails ?? d.total_pushed;
     if (el('statDbCourses')) el('statDbCourses').textContent = d.total_courses_in_db || 0;
     if (el('statExpiredCourses')) el('statExpiredCourses').textContent = d.total_expired_courses || 0;
     if (el('statBrowserAlive')) el('statBrowserAlive').textContent = d.browser_alive ? '🟢 存活' : '🔴 离线';
@@ -421,7 +421,7 @@ async function loadStatus() {
     // Dashboard strip
     if (el('dashTotalCourses')) el('dashTotalCourses').textContent = d.total_courses_in_db || 0;
     if (el('dashNewCourses')) el('dashNewCourses').textContent = d.total_new_courses || 0;
-    if (el('dashPushed')) el('dashPushed').textContent = d.total_pushed || 0;
+    if (el('dashPushed')) el('dashPushed').textContent = d.total_push_emails ?? d.total_pushed ?? 0;
     if (el('dashExpired')) el('dashExpired').textContent = d.total_expired_courses || 0;
     if (el('dashBrowserStatus')) el('dashBrowserStatus').textContent = d.browser_alive ? '存活' : '离线';
     if (el('dashBrowserIcon')) el('dashBrowserIcon').textContent = d.browser_alive ? '🟢' : '🔴';
@@ -520,19 +520,19 @@ async function manualPush(courseId, btnEl) {
 async function triggerScrape() {
     const btn = document.getElementById('btnTrigger');
     btn.classList.add('loading');
-    btn.textContent = 'Running...';
+    btn.textContent = '\u6293\u53d6\u4e2d...';
 
     const result = await api('/api/trigger', { method: 'POST' });
     if (result.success) {
-        showToast('Scrape completed and course list refreshed', 'success');
+        showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
         await loadStatus();
         await loadCourses();
     } else {
-        showToast('Scrape failed: ' + (result.error || ''), 'error');
+        showToast('\u6293\u53d6\u5931\u8d25: ' + (result.error || ''), 'error');
     }
 
     btn.classList.remove('loading');
-    btn.innerHTML = '<span class="btn-icon">Run</span> Trigger Scrape';
+    btn.innerHTML = '<span class="btn-icon">\u{1F504}</span> \u7acb\u5373\u6293\u53d6';
 }
 
 // ========== Toast 通知 ==========
