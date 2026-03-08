@@ -391,6 +391,59 @@ body {
     border: 1px solid var(--border-color);
 }
 
+.feedback-card {
+    margin-bottom: 20px;
+}
+
+.feedback-card-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.feedback-copy {
+    color: var(--text-secondary);
+    max-width: 680px;
+    font-size: 14px;
+}
+
+.feedback-grid {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.feedback-item {
+    min-width: 220px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.feedback-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.feedback-value {
+    color: var(--accent-light);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.feedback-value:hover {
+    color: #fff;
+}
+
 .input,
 .select {
     padding: 8px 14px;

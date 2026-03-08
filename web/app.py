@@ -527,7 +527,7 @@ def atom_feed():
 @app.route("/api/subscribe", methods=["POST"])
 def api_subscribe():
     """用户提交邮件订阅"""
-    from src.push.email_push import send_login_email, send_verification_email
+    from src.push.email_push import send_login_email
 
     data = request.get_json()
     email = (data.get("email") or "").strip().lower()
@@ -562,7 +562,7 @@ def api_subscribe():
                 return jsonify({"success": False, "error": "该邮箱已订阅，但登录邮件发送失败"}), 500
             # 重新激活
             existing.active = True
-            existing.verified = False
+            existing.verified = True
             existing.campus_filter = data.get("campus_filter", "")
             existing.self_sign_only = data.get("self_sign_only", True)
             existing.categories = data.get("categories", [])
@@ -577,25 +577,22 @@ def api_subscribe():
             sub.categories = data.get("categories", [])
             session.add(sub)
             session.commit()
+            sub.verified = True
+            sub.active = True
+            session.commit()
             token = sub.token
 
-        # 发送验证邮件
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
-        bridge = _create_login_bridge_ticket(session, sub)
-        base_url = _get_public_base_url()
-        verify_url = f"{base_url}/api/verify/{token}?bridge={bridge.ticket}"
-        ok = send_verification_email(email, verify_url)
-
-        if ok:
-            session.commit()
-            return jsonify({
+        session.commit()
+        resp = jsonify({
                 "success": True,
-                "message": "验证邮件已发送。若你在其他设备完成验证，本页会自动解锁一键登录按钮。",
-                **_bridge_payload(bridge),
+                "message": "订阅成功，已直接激活并登录门户。",
+                "data": {
+                    "email": sub.email,
+                    "portal_url": f"/portal?email={sub.email}&login=ok",
+                },
             })
-            return jsonify({"success": True, "message": "验证邮件已发送，请查收并点击验证链接"})
-        else:
-            return jsonify({"success": True, "message": "订阅成功，但验证邮件发送失败，请联系管理员"})
+        return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
         logger.error(f"订阅失败: {e}")

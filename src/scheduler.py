@@ -64,6 +64,8 @@ _MAX_FAILURES_BEFORE_ALERT = 3
 URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
 SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
+ACTIVE_ENROLL_JUST_STARTED_MINUTES = max(5, int(os.getenv("ACTIVE_ENROLL_JUST_STARTED_MINUTES", "15")))
+ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_MIN_REMAINING", "8")))
 
 
 # ═══════════════════════════════════════════════════════
@@ -172,9 +174,23 @@ def _load_active_enrollment_targets(session):
     )
 
 
+def _should_push_active_enrollment(course, now: datetime) -> bool:
+    if course.remaining <= 0:
+        return False
+    if not course.enroll_start:
+        return course.remaining >= ACTIVE_ENROLL_NOTIFY_MIN_REMAINING
+
+    started_minutes = max(0, (now - course.enroll_start).total_seconds() / 60)
+    if started_minutes <= ACTIVE_ENROLL_JUST_STARTED_MINUTES:
+        return True
+
+    return course.remaining >= ACTIVE_ENROLL_NOTIFY_MIN_REMAINING
+
+
 async def _push_active_enrollment_courses(session, config) -> int:
     active_courses = _load_active_enrollment_targets(session)
-    candidates = [course for course in active_courses if course.remaining > 0]
+    now = datetime.now()
+    candidates = [course for course in active_courses if _should_push_active_enrollment(course, now)]
     if not candidates:
         return 0
 
@@ -183,13 +199,16 @@ async def _push_active_enrollment_courses(session, config) -> int:
     if not passed_courses:
         return 0
 
-    logger.info(f"已开选课程即时推送: {len(passed_courses)} 门")
+    logger.info(
+        f"已开选课程巡检推送: {len(passed_courses)} 门 "
+        f"(刚开选{ACTIVE_ENROLL_JUST_STARTED_MINUTES}分钟内或剩余名额>={ACTIVE_ENROLL_NOTIFY_MIN_REMAINING})"
+    )
     return await _do_push(
         passed_courses,
         config,
         session,
         event_type="new",
-        delivery_mode="priority",
+        delivery_mode="active_watch",
     )
 
 

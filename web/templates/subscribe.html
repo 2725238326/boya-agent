@@ -782,6 +782,12 @@
                     msg.className = 'message success';
                     msg.textContent = data.message;
                     msg.style.display = 'block';
+                    const portalUrl = data.data && data.data.portal_url;
+                    if (portalUrl) {
+                        setTimeout(() => {
+                            window.location.href = portalUrl;
+                        }, 800);
+                    }
                 } else {
                     msg.className = 'message error';
                     msg.textContent = data.error || '订阅失败';

@@ -10,6 +10,7 @@ import ssl
 import socket
 import smtplib
 import time
+import re
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -482,6 +483,8 @@ def _build_notification_subject(event_type: str, delivery_mode: str, course_coun
     """Build notification email subject."""
     if event_type == "snipe":
         return f"\u535a\u96c5\u8bfe\u7a0b\u9000\u8bfe\u8865\u5f55\u63d0\u9192 ({course_count} \u95e8)"
+    if delivery_mode == "active_watch":
+        return f"\u535a\u96c5\u8bfe\u7a0b\u5f00\u9009\u76d1\u63a7\u63d0\u9192 ({course_count} \u95e8)"
     if delivery_mode == "priority":
         return f"\u535a\u96c5\u8bfe\u7a0b\u5373\u65f6\u63d0\u9192 ({course_count} \u95e8)"
     if delivery_mode == "digest_urgent":
@@ -499,6 +502,11 @@ def _build_notification_intro(event_type: str, delivery_mode: str, course_count:
         return (
             "\u4f60\u5173\u6ce8\u7684\u8bfe\u7a0b\u51fa\u73b0\u7a7a\u51fa\u540d\u989d",
             "\u8fd9\u7c7b\u901a\u77e5\u4f1a\u4f18\u5148\u53d1\u9001\uff0c\u5e2e\u4f60\u66f4\u5feb\u53d1\u73b0\u53ef\u4ee5\u7acb\u5373\u5c1d\u8bd5\u7684\u9000\u8bfe\u8865\u5f55\u8bfe\u7a0b\u3002",
+        )
+    if delivery_mode == "active_watch":
+        return (
+            "\u5df2\u5f00\u9009\u8bfe\u7a0b\u51fa\u73b0\u4e86\u503c\u5f97\u518d\u770b\u4e00\u773c\u7684\u53d8\u5316",
+            "\u8fd9\u4e9b\u8bfe\u7a0b\u5df2\u7ecf\u5728\u9009\u8bfe\u7a97\u53e3\u5185\uff0c\u7cfb\u7edf\u53ea\u5728\u521a\u5f00\u9009\u6216\u540d\u989d\u8f83\u5145\u88d5\u65f6\u518d\u63d0\u9192\uff0c\u907f\u514d\u5bf9\u540c\u4e00\u95e8\u8bfe\u8fc7\u4e8e\u9891\u7e41\u5730\u91cd\u590d\u53d1\u9001\u3002",
         )
     if delivery_mode == "priority":
         return (
@@ -636,11 +644,87 @@ def _filter_for_subscriber(courses: list, sub) -> list:
 
 
 def _dedupe_cutoff(event_type: str, delivery_mode: str):
+    now = datetime.now()
     if event_type == "snipe":
-        return datetime.now() - timedelta(minutes=30)
+        minutes = max(15, int(os.getenv("SNIPE_DEDUPE_MINUTES", "60")))
+        return now - timedelta(minutes=minutes)
+    if delivery_mode == "active_watch":
+        minutes = max(60, int(os.getenv("ACTIVE_ENROLL_DEDUPE_MINUTES", "480")))
+        return now - timedelta(minutes=minutes)
     if delivery_mode == "priority":
-        return datetime.now() - timedelta(hours=2)
+        return now - timedelta(hours=2)
     return None
+
+
+def _extract_remaining_from_message(message: str) -> int | None:
+    if not message:
+        return None
+    m = re.search(r"remaining=(\d+)", message)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _filter_by_recent_signal(session, courses: list, sub, event_type: str, delivery_mode: str) -> list:
+    from src.models import NotificationEvent
+
+    if not courses:
+        return []
+
+    course_map = {course.id: course for course in courses}
+    latest_events = (
+        session.query(NotificationEvent)
+        .filter(NotificationEvent.subscriber_id == sub.id)
+        .filter(NotificationEvent.channel == "email")
+        .filter(NotificationEvent.success == True)  # noqa: E712
+        .filter(NotificationEvent.course_id.in_(list(course_map.keys())))
+        .order_by(NotificationEvent.sent_at.desc())
+        .all()
+    )
+
+    latest_by_course = {}
+    for event in latest_events:
+        latest_by_course.setdefault(event.course_id, event)
+
+    now = datetime.now()
+    snipe_delta = max(1, int(os.getenv("SNIPE_RESEND_DELTA", "2")))
+    active_delta = max(2, int(os.getenv("ACTIVE_ENROLL_RESEND_DELTA", "3")))
+    active_cooldown = max(60, int(os.getenv("ACTIVE_ENROLL_DEDUPE_MINUTES", "480")))
+    snipe_cooldown = max(15, int(os.getenv("SNIPE_DEDUPE_MINUTES", "60")))
+    result = []
+
+    for course in courses:
+        latest = latest_by_course.get(course.id)
+        if latest is None:
+            result.append(course)
+            continue
+
+        elapsed_minutes = max(0, int((now - latest.sent_at).total_seconds() / 60)) if latest.sent_at else 10**9
+        last_remaining = _extract_remaining_from_message(latest.message)
+        current_remaining = max(0, int(getattr(course, "remaining", 0) or 0))
+
+        if event_type == "snipe":
+            if elapsed_minutes >= snipe_cooldown:
+                result.append(course)
+                continue
+            if last_remaining is not None and current_remaining >= last_remaining + snipe_delta:
+                result.append(course)
+            continue
+
+        if delivery_mode == "active_watch":
+            if elapsed_minutes >= active_cooldown:
+                result.append(course)
+                continue
+            if last_remaining is not None and current_remaining >= last_remaining + active_delta:
+                result.append(course)
+            continue
+
+        result.append(course)
+
+    return result
 
 
 def _filter_unsent_for_subscriber(session, courses: list, sub, event_type: str, delivery_mode: str) -> list:
@@ -665,7 +749,22 @@ def _filter_unsent_for_subscriber(session, courses: list, sub, event_type: str, 
         query = query.filter(NotificationEvent.event_type == event_type)
 
     sent_ids = {row[0] for row in query.all()}
-    return [course for course in courses if course.id not in sent_ids]
+    pending = [course for course in courses if course.id not in sent_ids]
+
+    # 对“退选补位”和“已开选监控”启用更细粒度的名额变化策略，
+    # 允许在名额明显回升时突破冷却窗口，但避免稳定小波动反复打扰。
+    if event_type == "snipe" or delivery_mode == "active_watch":
+        blocked = [course for course in courses if course.id in sent_ids]
+        pending.extend(_filter_by_recent_signal(session, blocked, sub, event_type, delivery_mode))
+
+    seen = set()
+    result = []
+    for course in pending:
+        if course.id in seen:
+            continue
+        seen.add(course.id)
+        result.append(course)
+    return result
 
 
 async def send_email_to_subscribers(
@@ -731,7 +830,7 @@ async def send_email_to_subscribers(
                     delivery_mode=delivery_mode,
                     channel="email",
                     success=ok,
-                    message=f"matched={len(filtered)}",
+                    message=f"matched={len(filtered)};remaining={getattr(course, 'remaining', '')}",
                 )
                 session.add(event)
 

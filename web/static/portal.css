@@ -799,6 +799,25 @@ body.portal-body {
     height: 16px;
 }
 
+.portal-filter-refresh {
+    border-radius: 999px;
+    padding: 10px 16px;
+    background: rgba(0, 113, 227, 0.08);
+    border: 1px solid rgba(0, 113, 227, 0.16);
+    color: var(--portal-accent);
+    font-weight: 600;
+}
+
+.portal-filter-refresh:hover {
+    background: rgba(0, 113, 227, 0.14);
+    color: var(--portal-accent-hover);
+}
+
+.portal-filter-refresh:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 /* ── Course Card Grid ──────────────── */
 .portal-course-grid {
     display: grid;

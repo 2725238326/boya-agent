@@ -12,6 +12,30 @@ let portalState = {
     notificationsHours: 24,
 };
 
+function buildPortalCourseParams() {
+    const params = new URLSearchParams();
+    const keyword = document.getElementById('portalSearch')?.value || '';
+    const campus = document.getElementById('portalCampus')?.value || '';
+    const selfSign = document.getElementById('portalSelfSign')?.checked || false;
+    const showExpired = document.getElementById('portalExpired')?.checked || false;
+
+    if (keyword) params.set('keyword', keyword);
+    if (campus) params.set('campus', campus);
+    if (selfSign) params.set('self_sign', 'true');
+    if (showExpired) params.set('include_expired', 'true');
+    return params;
+}
+
+async function loadFilteredCourses() {
+    const params = buildPortalCourseParams();
+    const qs = params.toString();
+    const res = await portalApi(`/api/courses${qs ? `?${qs}` : ''}`);
+    if (res.success) {
+        renderCourses(res.data);
+    }
+    return res;
+}
+
 // ══════ Init ══════
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
@@ -67,7 +91,7 @@ async function loadPortalData() {
         const activeCourses = coursesRes.data.filter(c => !c.expired);
         const availableCourses = activeCourses.filter(c => c.remaining > 0);
         document.getElementById('heroCount').textContent = availableCourses.length;
-        renderCourses(coursesRes.data);
+        await loadFilteredCourses();
     }
 
     // Reminders
@@ -227,22 +251,26 @@ let courseSearchTimeout = null;
 function filterCourses() {
     clearTimeout(courseSearchTimeout);
     courseSearchTimeout = setTimeout(async () => {
-        const params = new URLSearchParams();
-        const keyword = document.getElementById('portalSearch').value;
-        const campus = document.getElementById('portalCampus').value;
-        const selfSign = document.getElementById('portalSelfSign').checked;
-        const showExpired = document.getElementById('portalExpired').checked;
-
-        if (keyword) params.set('keyword', keyword);
-        if (campus) params.set('campus', campus);
-        if (selfSign) params.set('self_sign', 'true');
-        if (showExpired) params.set('include_expired', 'true');
-
-        const res = await portalApi(`/api/courses?${params.toString()}`);
-        if (res.success) {
-            renderCourses(res.data);
-        }
+        await loadFilteredCourses();
     }, 350);
+}
+
+async function refreshPortalCourses(btnEl) {
+    if (!btnEl) return;
+    btnEl.disabled = true;
+    const originalText = btnEl.textContent;
+    btnEl.textContent = '刷新中…';
+
+    const result = await portalApi('/api/trigger', { method: 'POST' });
+    if (result.success) {
+        await loadPortalData();
+        showPortalToast('课程已刷新', 'success');
+    } else {
+        showPortalToast(result.error || '刷新失败', 'error');
+    }
+
+    btnEl.disabled = false;
+    btnEl.textContent = originalText;
 }
 
 // ══════ Register Reminder ══════
