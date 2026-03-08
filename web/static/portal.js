@@ -281,6 +281,7 @@ function renderCourseCard(course, isFull = false) {
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
     const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">已满</span>' : '';
     const statusBadge = buildPortalCourseStatus(course);
+    const timingHint = buildPortalCourseTimingHint(course);
 
     return `
     <div class="${cardClass}">
@@ -290,6 +291,7 @@ function renderCourseCard(course, isFull = false) {
             ${signBadge}
         </div>
         ${statusBadge ? `<div class="portal-card-status-row">${statusBadge}</div>` : ''}
+        ${timingHint ? `<div class="portal-card-timing-hint">${timingHint}</div>` : ''}
         <div class="portal-card-meta">
             <span class="portal-badge portal-badge-category">${escapeHtml(course.category)}</span>
             &nbsp;${escapeHtml(course.teacher)} · ${escapeHtml(course.campus)}
@@ -339,6 +341,30 @@ function buildPortalCourseStatus(course) {
         return '<span class="portal-status-pill tight">名额紧张</span>';
     }
     return '<span class="portal-status-pill normal">可加入关注</span>';
+}
+
+function buildPortalCourseTimingHint(course) {
+    const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
+    if (!enrollStart || Number.isNaN(enrollStart.getTime()) || course.expired) return '';
+
+    const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
+    if (diffMinutes <= 0) {
+        const opened = Math.abs(diffMinutes);
+        if (opened < 60) return `已开选 ${opened} 分钟`;
+        const hours = Math.floor(opened / 60);
+        const mins = opened % 60;
+        return mins ? `已开选 ${hours} 小时 ${mins} 分` : `已开选 ${hours} 小时`;
+    }
+
+    if (diffMinutes < 60) return `${diffMinutes} 分钟后开抢`;
+    if (diffMinutes < 1440) {
+        const hours = Math.floor(diffMinutes / 60);
+        const mins = diffMinutes % 60;
+        return mins ? `${hours} 小时 ${mins} 分后开抢` : `${hours} 小时后开抢`;
+    }
+    const days = Math.floor(diffMinutes / 1440);
+    const hours = Math.floor((diffMinutes % 1440) / 60);
+    return hours ? `${days} 天 ${hours} 小时后开抢` : `${days} 天后开抢`;
 }
 
 // ══════ Course Filtering ══════

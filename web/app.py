@@ -174,6 +174,8 @@ def api_courses():
         keyword = request.args.get("keyword")
         include_expired = request.args.get("include_expired", "false").lower() == "true"
         today_new = request.args.get("today_new", "false").lower() == "true"
+        available_now = request.args.get("available_now", "false").lower() == "true"
+        waitlist_only = request.args.get("waitlist_only", "false").lower() == "true"
         if today_new:
             today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             query = query.filter(Course.first_seen >= today_start)
@@ -189,6 +191,10 @@ def api_courses():
             query = query.filter(Course.check_in_method.contains("自主"))
         if keyword:
             query = query.filter(Course.name.contains(keyword))
+        if available_now:
+            query = query.filter((Course.capacity - Course.enrolled) > 0)
+        if waitlist_only:
+            query = query.filter(Course.expired == False).filter((Course.capacity - Course.enrolled) <= 0)  # noqa: E712
 
         courses = query.limit(200).all()
         return jsonify({

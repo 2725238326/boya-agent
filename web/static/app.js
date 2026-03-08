@@ -79,6 +79,8 @@ async function loadCourses() {
     const selfSign = document.getElementById('selfSignFilter').checked;
     const showExpired = document.getElementById('showExpiredFilter').checked;
     const todayNew = document.getElementById('todayNewFilter')?.checked;
+    const availableNow = document.getElementById('availableNowFilter')?.checked;
+    const waitlistOnly = document.getElementById('waitlistFilter')?.checked;
 
     if (keyword) params.set('keyword', keyword);
     if (category) params.set('category', category);
@@ -86,6 +88,8 @@ async function loadCourses() {
     if (selfSign) params.set('self_sign', 'true');
     if (showExpired) params.set('include_expired', 'true');
     if (todayNew) params.set('today_new', 'true');
+    if (availableNow) params.set('available_now', 'true');
+    if (waitlistOnly) params.set('waitlist_only', 'true');
 
     const result = await api(`/api/courses?${params.toString()}`);
 
@@ -156,6 +160,10 @@ function debounceSearch() {
 function applyTodayNewFilter() {
     const todayNewEl = document.getElementById('todayNewFilter');
     if (todayNewEl) todayNewEl.checked = true;
+    const availableNowEl = document.getElementById('availableNowFilter');
+    const waitlistEl = document.getElementById('waitlistFilter');
+    if (availableNowEl) availableNowEl.checked = false;
+    if (waitlistEl) waitlistEl.checked = false;
     switchTab('courses');
     loadCourses();
 }
