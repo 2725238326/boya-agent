@@ -895,6 +895,47 @@ body.portal-body {
     margin-bottom: 16px;
 }
 
+.portal-card-status-row {
+    margin: 0 0 10px;
+}
+
+.portal-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.portal-status-pill.hot {
+    background: rgba(255, 59, 48, 0.12);
+    color: #c81e1e;
+}
+
+.portal-status-pill.soon {
+    background: rgba(255, 149, 0, 0.12);
+    color: #a05800;
+}
+
+.portal-status-pill.easy {
+    background: rgba(52, 199, 89, 0.12);
+    color: #248a3d;
+}
+
+.portal-status-pill.tight {
+    background: rgba(0, 113, 227, 0.10);
+    color: #0058b0;
+}
+
+.portal-status-pill.wait,
+.portal-status-pill.muted,
+.portal-status-pill.normal {
+    background: rgba(110, 110, 115, 0.10);
+    color: var(--portal-text-secondary);
+}
+
 .portal-card-details {
     display: grid;
     grid-template-columns: auto 1fr;

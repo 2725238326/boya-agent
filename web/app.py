@@ -173,6 +173,10 @@ def api_courses():
         self_sign = request.args.get("self_sign")
         keyword = request.args.get("keyword")
         include_expired = request.args.get("include_expired", "false").lower() == "true"
+        today_new = request.args.get("today_new", "false").lower() == "true"
+        if today_new:
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(Course.first_seen >= today_start)
 
         if not include_expired:
             query = query.filter(Course.expired == False)  # noqa: E712

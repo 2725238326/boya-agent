@@ -280,6 +280,7 @@ function renderCourseCard(course, isFull = false) {
 
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
     const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">已满</span>' : '';
+    const statusBadge = buildPortalCourseStatus(course);
 
     return `
     <div class="${cardClass}">
@@ -288,6 +289,7 @@ function renderCourseCard(course, isFull = false) {
             ${fullBadge}
             ${signBadge}
         </div>
+        ${statusBadge ? `<div class="portal-card-status-row">${statusBadge}</div>` : ''}
         <div class="portal-card-meta">
             <span class="portal-badge portal-badge-category">${escapeHtml(course.category)}</span>
             &nbsp;${escapeHtml(course.teacher)} · ${escapeHtml(course.campus)}
@@ -309,6 +311,34 @@ function renderCourseCard(course, isFull = false) {
         </div>
         ${remindBtn ? `<div class="portal-card-actions">${remindBtn}</div>` : ''}
     </div>`;
+}
+
+function buildPortalCourseStatus(course) {
+    const remaining = Number(course.remaining || 0);
+    const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
+    const now = new Date();
+    const timeValue = enrollStart && !Number.isNaN(enrollStart.getTime()) ? enrollStart.getTime() : null;
+    const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
+
+    if (course.expired) {
+        return '<span class="portal-status-pill muted">已过期</span>';
+    }
+    if (remaining <= 0) {
+        return '<span class="portal-status-pill wait">已满蹲退选</span>';
+    }
+    if (minutesToStart !== null && minutesToStart <= 0) {
+        return '<span class="portal-status-pill hot">可立即尝试</span>';
+    }
+    if (minutesToStart !== null && minutesToStart <= 180) {
+        return '<span class="portal-status-pill soon">即将开抢</span>';
+    }
+    if (remaining >= 20) {
+        return '<span class="portal-status-pill easy">名额较充足</span>';
+    }
+    if (remaining <= 5) {
+        return '<span class="portal-status-pill tight">名额紧张</span>';
+    }
+    return '<span class="portal-status-pill normal">可加入关注</span>';
 }
 
 // ══════ Course Filtering ══════

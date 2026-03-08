@@ -78,12 +78,14 @@ async function loadCourses() {
     const campus = document.getElementById('campusFilter').value;
     const selfSign = document.getElementById('selfSignFilter').checked;
     const showExpired = document.getElementById('showExpiredFilter').checked;
+    const todayNew = document.getElementById('todayNewFilter')?.checked;
 
     if (keyword) params.set('keyword', keyword);
     if (category) params.set('category', category);
     if (campus) params.set('campus', campus);
     if (selfSign) params.set('self_sign', 'true');
     if (showExpired) params.set('include_expired', 'true');
+    if (todayNew) params.set('today_new', 'true');
 
     const result = await api(`/api/courses?${params.toString()}`);
 
@@ -149,6 +151,13 @@ function renderCourseCard(course) {
 function debounceSearch() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(loadCourses, 400);
+}
+
+function applyTodayNewFilter() {
+    const todayNewEl = document.getElementById('todayNewFilter');
+    if (todayNewEl) todayNewEl.checked = true;
+    switchTab('courses');
+    loadCourses();
 }
 
 // ========== 类别 ==========

@@ -43,7 +43,7 @@
             </div>
             <div class="dash-stat">
                 <span class="dash-stat-icon">🆕</span>
-                <div>
+                <div class="dash-stat-clickable" onclick="applyTodayNewFilter()">
                     <span class="dash-stat-value" id="dashNewCourses">-</span>
                     <span class="dash-stat-label">今日新课</span>
                 </div>
@@ -137,6 +137,10 @@
                 <label class="checkbox-label">
                     <input type="checkbox" id="showExpiredFilter" onchange="loadCourses()">
                     <span>显示已过期</span>
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="todayNewFilter" onchange="loadCourses()">
+                    <span>仅今天新增</span>
                 </label>
                 <button class="btn btn-sm btn-accent" onclick="loadCourses()">🔄 刷新列表</button>
             </div>
