@@ -43,10 +43,12 @@ async def create_browser_context() -> tuple:
 
 
 def generate_course_id(name: str, start_time: str, enroll_start: str = "", teacher: str = "") -> str:
-    """根据课程名 + 开始时间(+选课时间兜底) 生成唯一 ID，防止不同课程 ID 碰撞"""
-    # 优先用课程时间，再用选课开始时间作为区分不同场次的兜底
-    time_key = start_time.strip() or enroll_start.strip() or teacher.strip()
-    raw = f"{name}_{time_key}"
+    """Generate a stable course ID from course name and time fields."""
+    def _norm(v: str) -> str:
+        return re.sub(r"\s+", " ", (v or "").strip()).lower()
+
+    time_key = (start_time or "").strip() or (enroll_start or "").strip() or (teacher or "").strip()
+    raw = f"{_norm(name)}_{_norm(time_key)}_{_norm(teacher)}"
     return hashlib.md5(raw.encode()).hexdigest()[:16]
 
 
@@ -90,6 +92,103 @@ def _extract_datetime_tokens(text: str) -> List[str]:
     """从文本中提取日期时间字符串"""
     pattern = r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?"
     return re.findall(pattern, text)
+
+
+def _minutes_diff(left: Optional[datetime], right: Optional[datetime]) -> Optional[int]:
+    if not left or not right:
+        return None
+    return abs(int((left - right).total_seconds() // 60))
+
+
+def _find_similar_active_course(session, data: dict, now: datetime) -> Optional[Course]:
+    """Fallback dedupe when the same course drifts by ~1 hour in scraped time fields."""
+    name = (data.get("name") or "").strip()
+    if not name:
+        return None
+
+    teacher = (data.get("teacher") or "").strip()
+    location = (data.get("location") or "").strip()
+    campus = (data.get("campus") or "").strip()
+
+    candidates = (
+        session.query(Course)
+        .filter(Course.name == name)
+        .filter(Course.expired == False)  # noqa: E712
+        .order_by(Course.last_seen.desc())
+        .limit(20)
+        .all()
+    )
+
+    new_start = parse_datetime(data.get("start_time", ""))
+    new_enroll_start = parse_datetime(data.get("enroll_start", ""))
+    new_enroll_end = parse_datetime(data.get("enroll_end", ""))
+
+    for c in candidates:
+        if teacher and c.teacher and c.teacher.strip() != teacher:
+            continue
+        if location and c.location and c.location.strip() != location:
+            continue
+        if campus and c.campus and c.campus.strip() != campus:
+            continue
+
+        if c.last_seen and (now - c.last_seen).total_seconds() > 48 * 3600:
+            continue
+
+        start_gap = _minutes_diff(c.start_time, new_start)
+        enroll_start_gap = _minutes_diff(c.enroll_start, new_enroll_start)
+        enroll_end_gap = _minutes_diff(c.enroll_end, new_enroll_end)
+
+        if start_gap in (0, 60) and enroll_start_gap in (0, 60) and enroll_end_gap in (0, 60):
+            return c
+
+    return None
+
+
+def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
+    """Merge near-duplicate active courses (typically 1-hour drift records)."""
+    candidates = (
+        session.query(Course)
+        .filter(Course.expired == False)  # noqa: E712
+        .order_by(Course.last_seen.desc())
+        .all()
+    )
+
+    seen = set()
+    for i, base in enumerate(candidates):
+        if base.id in seen:
+            continue
+        for other in candidates[i + 1:]:
+            if other.id in seen:
+                continue
+            if (base.name or "").strip() != (other.name or "").strip():
+                continue
+            if (base.teacher or "").strip() != (other.teacher or "").strip():
+                continue
+            if (base.location or "").strip() != (other.location or "").strip():
+                continue
+            if (base.campus or "").strip() != (other.campus or "").strip():
+                continue
+
+            start_gap = _minutes_diff(base.start_time, other.start_time)
+            enroll_start_gap = _minutes_diff(base.enroll_start, other.enroll_start)
+            enroll_end_gap = _minutes_diff(base.enroll_end, other.enroll_end)
+
+            if not (start_gap in (0, 60) and enroll_start_gap in (0, 60) and enroll_end_gap in (0, 60)):
+                continue
+
+            keep, drop = (base, other) if (base.last_seen or now) >= (other.last_seen or now) else (other, base)
+            keep.category = keep.category or drop.category
+            keep.sign_method = keep.sign_method or drop.sign_method
+            keep.check_in_method = keep.check_in_method or drop.check_in_method
+            keep.description = keep.description or drop.description
+            keep.organizer = keep.organizer or drop.organizer
+            keep.capacity = max(keep.capacity or 0, drop.capacity or 0)
+            keep.enrolled = max(keep.enrolled or 0, drop.enrolled or 0)
+            keep.last_seen = max(keep.last_seen or now, drop.last_seen or now)
+
+            session.delete(drop)
+            seen.add(drop.id)
+            logger.info(f"Merged near-duplicate course: keep={keep.id}, drop={drop.id}, name={keep.name}")
 
 
 async def _check_and_recover_session(page: Page) -> bool:
@@ -528,9 +627,12 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     _reopened_course_ids = []
 
     try:
+        now = datetime.now()
         for data in courses_data:
             existing = session.query(Course).filter_by(id=data["id"]).first()
             now = datetime.now()
+            if not existing:
+                existing = _find_similar_active_course(session, data, now)
             enroll_end_dt = parse_datetime(data.get("enroll_end", ""))
             is_expired = bool(enroll_end_dt and enroll_end_dt < now)
 
@@ -542,7 +644,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 new_remaining = max(0, new_capacity - new_enrolled)
 
                 if old_remaining == 0 and new_remaining > 0 and not is_expired:
-                    _reopened_course_ids.append(data["id"])
+                    _reopened_course_ids.append(existing.id)
                     logger.info(f"🔥 退课捡漏: [{existing.name}] 新增 {new_remaining} 个名额!")
 
                 # 更新已有课程信息
@@ -602,6 +704,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 session.add(course)
                 new_course_ids.append(data["id"])
 
+        _cleanup_near_duplicate_courses(session, now)
         session.commit()
         extra = f", {len(_reopened_course_ids)} 门退课捡漏" if _reopened_course_ids else ""
         logger.info(f"数据库更新完成: {len(new_course_ids)} 条新课程, "
