@@ -1401,13 +1401,46 @@ body.portal-body {
 }
 
 /* ── Footer ────────────────────────── */
-.portal-footer {
-    text-align: center;
-    padding: 32px 22px 40px;
+.portal-feedback-bar {
+    max-width: 980px;
+    margin: 8px auto 0;
+    padding: 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     font-size: 12px;
     color: var(--portal-text-muted);
-    border-top: 0.5px solid rgba(0, 0, 0, 0.05);
-    margin-top: 20px;
+}
+
+.portal-feedback-text {
+    opacity: 0.9;
+}
+
+.portal-feedback-links {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.portal-feedback-links a,
+.portal-feedback-links span {
+    color: var(--portal-text-secondary);
+    text-decoration: none;
+}
+
+.portal-feedback-links a:hover {
+    color: var(--portal-accent);
+}
+
+.portal-footer {
+    text-align: center;
+    padding: 18px 22px 40px;
+    font-size: 12px;
+    color: var(--portal-text-muted);
+    margin-top: 8px;
 }
 
 .portal-footer a {
@@ -1428,6 +1461,15 @@ body.portal-body {
 
     .portal-highlight-card {
         padding: 14px 12px;
+    }
+
+    .portal-feedback-bar {
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .portal-feedback-links {
+        gap: 8px 12px;
     }
 
     .portal-highlight-value {
