@@ -537,6 +537,7 @@ def _build_notification_intro(event_type: str, delivery_mode: str, course_count:
 def _build_notification_html(
     courses: list,
     unsubscribe_url: str = "",
+    pause_url: str = "",
     sub_token: str = "",
     base_url: str = "",
     event_type: str = "new",
@@ -591,13 +592,20 @@ def _build_notification_html(
 </p>"""
 
     manage_notice_html = ""
-    if unsubscribe_url or portal_url:
+    if unsubscribe_url or portal_url or pause_url:
         actions = []
         if portal_url:
             actions.append(
                 f"""<a href="{portal_url}" style="display:inline-block; padding:9px 14px; border-radius:999px;
 background:rgba(0,113,227,0.08); color:{_EMAIL_ACCENT}; text-decoration:none; font-size:13px; font-weight:700;">
 去门户调整提醒
+</a>"""
+            )
+        if pause_url:
+            actions.append(
+                f"""<a href="{pause_url}" style="display:inline-block; padding:9px 14px; border-radius:999px;
+background:rgba(255,149,0,0.10); color:#b45309; text-decoration:none; font-size:13px; font-weight:700;">
+暂停 24 小时
 </a>"""
             )
         if unsubscribe_url:
@@ -614,7 +622,7 @@ background:rgba(255,59,48,0.08); color:#d93025; text-decoration:none; font-size:
 <tr><td style="padding:14px 16px;">
   <p style="margin:0 0 6px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">不想被频繁打扰？</p>
   <p style="margin:0 0 12px; font-size:13px; line-height:1.7; color:{_EMAIL_MUTED};">
-    你可以去门户关闭提醒或暂停推送；如果不再需要，也可以直接一键退订邮件通知。
+    你可以直接暂停 24 小时、去门户调整提醒，或者一键退订邮件通知。
   </p>
   <div>{actions_html}</div>
 </td></tr></table>"""
@@ -832,9 +840,11 @@ async def send_email_to_subscribers(
                 continue
 
             unsub_url = f"{base_url}/api/unsubscribe/{sub.token}" if base_url else ""
+            pause_url = f"{base_url}/api/pause/{sub.token}?hours=24" if base_url else ""
             html = _build_notification_html(
                 filtered,
                 unsub_url,
+                pause_url,
                 sub_token=sub.token,
                 base_url=base_url,
                 event_type=event_type,

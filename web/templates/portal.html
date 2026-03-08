@@ -326,6 +326,10 @@
             if (params.get('login') === 'ok' && typeof showPortalToast === 'function') {
                 showPortalToast('已成功登录，下次打开会自动进入门户', 'success');
             }
+            if (params.get('push') === 'paused' && typeof showPortalToast === 'function') {
+                const hours = params.get('hours') || '24';
+                showPortalToast(`邮件推送已暂停 ${hours} 小时`, 'success');
+            }
         })();
 
         // Banner dismiss logic (localStorage persistence)

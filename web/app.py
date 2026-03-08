@@ -779,6 +779,28 @@ def api_unsubscribe(token):
         session.close()
 
 
+@app.route("/api/pause/<token>")
+def api_pause_by_token(token):
+    """邮件直达：暂停推送 24 小时"""
+    hours = max(1, min(int(request.args.get("hours", 24)), 168))
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        if not sub:
+            return redirect("/subscribe?result=invalid")
+        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        session.commit()
+        target = f"/portal?email={sub.email}&push=paused&hours={hours}"
+        resp = make_response(redirect(target))
+        return _set_portal_session_cookie(resp, sub.token)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"邮件暂停推送失败: {e}")
+        return redirect("/subscribe?result=invalid")
+    finally:
+        session.close()
+
+
 @app.route("/api/unsubscribe", methods=["POST"])
 def api_unsubscribe_session():
     """按会话退订"""
