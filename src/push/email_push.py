@@ -590,6 +590,35 @@ def _build_notification_html(
   发送依据：{_describe_subscription_reason(subscriber)}
 </p>"""
 
+    manage_notice_html = ""
+    if unsubscribe_url or portal_url:
+        actions = []
+        if portal_url:
+            actions.append(
+                f"""<a href="{portal_url}" style="display:inline-block; padding:9px 14px; border-radius:999px;
+background:rgba(0,113,227,0.08); color:{_EMAIL_ACCENT}; text-decoration:none; font-size:13px; font-weight:700;">
+去门户调整提醒
+</a>"""
+            )
+        if unsubscribe_url:
+            actions.append(
+                f"""<a href="{unsubscribe_url}" style="display:inline-block; padding:9px 14px; border-radius:999px;
+background:rgba(255,59,48,0.08); color:#d93025; text-decoration:none; font-size:13px; font-weight:700;">
+一键退订邮件
+</a>"""
+            )
+        actions_html = "&nbsp;".join(actions)
+        manage_notice_html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#fff8f2; border:1px solid #f5dfcf; border-radius:20px;">
+<tr><td style="padding:14px 16px;">
+  <p style="margin:0 0 6px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">不想被频繁打扰？</p>
+  <p style="margin:0 0 12px; font-size:13px; line-height:1.7; color:{_EMAIL_MUTED};">
+    你可以去门户关闭提醒或暂停推送；如果不再需要，也可以直接一键退订邮件通知。
+  </p>
+  <div>{actions_html}</div>
+</td></tr></table>"""
+
     return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -612,6 +641,7 @@ def _build_notification_html(
 {next_action_html}
 {portal_button_html}
 {reason_html}
+{manage_notice_html}
 <p style="margin:2px 0 14px; font-size:17px; line-height:1.6; color:{_EMAIL_TEXT}; font-weight:700;">课程详情</p>
 {cards_html}
 </td></tr>
