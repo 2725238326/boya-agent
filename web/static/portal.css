@@ -298,6 +298,10 @@ body.portal-body {
     line-height: 1.4;
 }
 
+.portal-mobile-help {
+    display: none;
+}
+
 .portal-quick-links {
     display: flex;
     flex-direction: row;
@@ -1826,6 +1830,22 @@ body.portal-body {
         font-size: 13px;
     }
 
+    .portal-mobile-help {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 36px;
+        padding: 0 14px;
+        border: 1px solid rgba(0, 113, 227, 0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--portal-accent);
+        box-shadow: var(--portal-shadow-card);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: var(--portal-font);
+    }
+
     .portal-course-grid {
         grid-template-columns: 1fr;
     }
@@ -1943,6 +1963,14 @@ body.portal-body {
 
     .portal-banner-actions {
         align-self: flex-end;
+    }
+
+    .portal-banner {
+        display: none;
+    }
+
+    .portal-banner.mobile-open {
+        display: block;
     }
 }
 

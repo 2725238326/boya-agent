@@ -115,6 +115,12 @@ function toggleFeedbackFloat() {
     box.classList.toggle('expanded');
 }
 
+function toggleWelcomeBanner() {
+    const banner = document.getElementById('welcomeBanner');
+    if (!banner) return;
+    banner.classList.toggle('mobile-open');
+}
+
 // ══════ API Helper ══════
 async function portalApi(url, options = {}) {
     try {
