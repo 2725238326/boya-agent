@@ -54,6 +54,7 @@ _browser_state = {
 }
 
 _runtime_loop = None
+_active_scrape_task = None
 BROWSER_MAX_SCRAPE_RUNS = max(5, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "25")))
 
 # ── 推送缓冲区 ──────────────────────────────────────────
@@ -260,13 +261,9 @@ async def monitor_active_enrollment_courses():
 #  核心抓取任务
 # ═══════════════════════════════════════════════════════
 
-async def run_scrape_task():
+async def _run_scrape_task_impl():
     """Run one scrape cycle and return a structured result."""
     global _consecutive_failures
-
-    if run_status["is_running"]:
-        logger.warning("previous scrape is still running")
-        return _scrape_result(False, "previous scrape is still running")
 
     run_status["is_running"] = True
     run_status["last_run"] = datetime.now()
@@ -428,6 +425,24 @@ async def run_scrape_task():
         return _scrape_result(False, str(e), scraped_count=scraped_count, new_courses=len(new_course_ids))
     finally:
         run_status["is_running"] = False
+
+
+async def run_scrape_task():
+    """Reuse the in-flight scrape task instead of failing concurrent callers."""
+    global _active_scrape_task
+
+    task = _active_scrape_task
+    if task and not task.done():
+        logger.info("scrape already in progress, joining existing task")
+        return await task
+
+    task = asyncio.create_task(_run_scrape_task_impl())
+    _active_scrape_task = task
+    try:
+        return await task
+    finally:
+        if _active_scrape_task is task:
+            _active_scrape_task = None
 
 
 # ═══════════════════════════════════════════════════════
