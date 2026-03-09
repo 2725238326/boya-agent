@@ -50,44 +50,49 @@
         <section class="portal-hero-section">
             <div class="portal-hero">
                 <h1 class="portal-hero-title">
-                    <span id="heroCount" class="portal-hero-count">—</span>
-                    <span class="portal-hero-title-label">门课程可选</span>
+                    <span id="heroCount" class="portal-hero-count">?</span>
+                    <span class="portal-hero-title-label">?????</span>
                 </h1>
-                <p class="portal-hero-subtitle">当前有效的博雅课程</p>
+                <p class="portal-hero-subtitle">?????????</p>
             </div>
-            <div class="portal-quick-links">
-                <a class="portal-quick-card" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">
-                    <div class="portal-quick-icon">🏫</div>
-                    <div class="portal-quick-info">
-                        <div class="portal-quick-title">校园网选课</div>
-                        <div class="portal-quick-desc">校内网络直接访问</div>
-                    </div>
-                    <div class="portal-quick-arrow">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
-                                stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                    </div>
-                </a>
-                <a class="portal-quick-card"
-                    href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b"
-                    target="_blank" rel="noopener">
-                    <div class="portal-quick-icon">🌐</div>
-                    <div class="portal-quick-info">
-                        <div class="portal-quick-title">VPN 选课</div>
-                        <div class="portal-quick-desc">校外通过 VPN 访问</div>
-                    </div>
-                    <div class="portal-quick-arrow">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
-                                stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                    </div>
-                </a>
-            </div>
-            <button class="portal-mobile-help" type="button" onclick="toggleWelcomeBanner()">
-                使用说明
+            <button class="portal-mobile-tools-toggle" type="button" onclick="toggleMobileTools()">
+                工具入口
             </button>
+            <div class="portal-mobile-tools" id="portalMobileTools">
+                <div class="portal-quick-links">
+                    <a class="portal-quick-card" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">
+                        <div class="portal-quick-icon">🏫</div>
+                        <div class="portal-quick-info">
+                            <div class="portal-quick-title">?????</div>
+                            <div class="portal-quick-desc">????????</div>
+                        </div>
+                        <div class="portal-quick-arrow">
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                    </a>
+                    <a class="portal-quick-card"
+                        href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b"
+                        target="_blank" rel="noopener">
+                        <div class="portal-quick-icon">🌐</div>
+                        <div class="portal-quick-info">
+                            <div class="portal-quick-title">VPN ??</div>
+                            <div class="portal-quick-desc">???? VPN ??</div>
+                        </div>
+                        <div class="portal-quick-arrow">
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M4.5 2.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.5"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                    </a>
+                </div>
+                <button class="portal-mobile-help" type="button" onclick="toggleWelcomeBanner()">
+                    使用说明
+                </button>
+            </div>
         </section>
 
         <!-- ═══ Highlights Strip ═══ -->
