@@ -121,17 +121,6 @@ function toggleWelcomeBanner() {
     banner.classList.toggle('mobile-open');
 }
 
-function toggleMobileTools(forceOpen = null) {
-    const panel = document.getElementById('portalMobileTools');
-    const toggle = document.querySelector('.portal-mobile-tools-toggle');
-    if (!panel || !toggle) return;
-
-    const shouldOpen = forceOpen == null ? panel.classList.contains('is-collapsed') : forceOpen;
-    panel.classList.toggle('is-collapsed', !shouldOpen);
-    toggle.textContent = shouldOpen ? '????' : '????';
-    toggle.classList.toggle('active', shouldOpen);
-}
-
 function toggleMobileFilters(forceOpen = null) {
     const extra = document.getElementById('portalFilterExtra');
     const toggle = document.getElementById('portalFilterToggle');
@@ -139,11 +128,11 @@ function toggleMobileFilters(forceOpen = null) {
 
     const shouldOpen = forceOpen == null ? extra.classList.contains('is-collapsed') : forceOpen;
     extra.classList.toggle('is-collapsed', !shouldOpen);
-    toggle.textContent = shouldOpen ? '????' : '????';
+    toggle.textContent = shouldOpen ? '收起筛选' : '更多筛选';
     toggle.classList.toggle('active', shouldOpen);
 }
 
-// ?????? API Helper ??????
+// API Helper
 async function portalApi(url, options = {}) {
     try {
         const resp = await fetch(url, {
