@@ -36,7 +36,7 @@ logger.add(
 )
 
 from src.models import init_db
-from src.scheduler import start_scheduler, run_scrape_task
+from src.scheduler import start_scheduler, run_scrape_task, set_runtime_loop
 from web.app import app
 
 
@@ -73,6 +73,7 @@ async def main():
     flask_thread.start()
 
     # 启动调度器
+    set_runtime_loop(asyncio.get_running_loop())
     start_scheduler(interval_minutes=interval)
 
     # 首次立即运行一次

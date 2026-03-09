@@ -398,6 +398,7 @@ async def scrape_courses(page: Page) -> List[dict]:
             await page.screenshot(path="logs/scrape_error.png", full_page=True)
         except Exception:
             pass
+        raise
 
     logger.info(f"共抓取到 {len(courses)} 条课程")
     return courses

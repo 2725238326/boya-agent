@@ -11,6 +11,7 @@
 
 import asyncio
 import os
+from typing import Any, Dict
 from datetime import datetime, timedelta
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -49,7 +50,11 @@ _browser_state = {
     "browser": None,
     "context": None,
     "page": None,
+    "scrape_runs": 0,
 }
+
+_runtime_loop = None
+BROWSER_MAX_SCRAPE_RUNS = max(5, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "25")))
 
 # ── 推送缓冲区 ──────────────────────────────────────────
 # 按紧急级别缓冲课程 ID
@@ -72,60 +77,83 @@ ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_
 #  浏览器生命周期管理
 # ═══════════════════════════════════════════════════════
 
+def set_runtime_loop(loop) -> None:
+    global _runtime_loop
+    _runtime_loop = loop
+
+
+def submit_coroutine(coro):
+    if _runtime_loop is None:
+        raise RuntimeError("scheduler runtime loop is not ready")
+    return asyncio.run_coroutine_threadsafe(coro, _runtime_loop)
+
+
 async def _close_browser_local(pw, browser):
-    """局部关闭浏览器（不依赖全局状态）"""
+    """Close a browser pair without touching global state."""
     try:
         if browser:
             await browser.close()
         if pw:
             await pw.stop()
     except Exception as e:
-        logger.warning(f"关闭浏览器时出错: {e}")
+        logger.warning(f"close browser failed: {e}")
 
 
-async def _ensure_browser():
-    """
-    确保全局浏览器可用。
-    如果浏览器不存在或已崩溃 → 创建新的
-    如果会话过期 → 重新登录
-    返回 page 或 None（失败时）
-    """
+async def close_browser():
+    global _browser_state
+    await _close_browser_local(_browser_state.get("pw"), _browser_state.get("browser"))
+    _browser_state = {"pw": None, "browser": None, "context": None, "page": None, "scrape_runs": 0}
+
+
+async def _ensure_browser(force_recreate: bool = False):
+    """Ensure a healthy Playwright page bound to the main runtime loop."""
     global _browser_state
 
     page = _browser_state.get("page")
-
-    # 检查浏览器是否仍然存活
-    if page:
+    page_invalid = False
+    if page and not force_recreate:
         try:
-            # 简单探测：如果页面已关闭，这里会抛异常
             _ = page.url
-            return page
+            if _browser_state.get("scrape_runs", 0) < BROWSER_MAX_SCRAPE_RUNS:
+                return page
+            logger.info(f"browser recycled after {_browser_state['scrape_runs']} runs")
         except Exception:
-            logger.warning("浏览器页面已失效，重建浏览器...")
-            await _close_browser_local(_browser_state.get("pw"), _browser_state.get("browser"))
-            _browser_state = {"pw": None, "browser": None, "context": None, "page": None}
+            page_invalid = True
+            logger.warning("browser page became invalid, recreating")
 
-    # 创建全新浏览器
-    logger.info("创建新浏览器实例...")
+    if force_recreate or page_invalid or page:
+        await close_browser()
+
+    logger.info("creating browser instance...")
     try:
         pw, browser, context, page = await create_browser_context()
         _browser_state["pw"] = pw
         _browser_state["browser"] = browser
         _browser_state["context"] = context
         _browser_state["page"] = page
+        _browser_state["scrape_runs"] = 0
 
-        # 登录
         logged_in = await ensure_logged_in(page)
         if not logged_in:
-            logger.error("登录失败")
-            await _close_browser_local(pw, browser)
-            _browser_state = {"pw": None, "browser": None, "context": None, "page": None}
+            logger.error("login failed")
+            await close_browser()
             return None
 
         return page
     except Exception as e:
-        logger.error(f"创建浏览器失败: {e}")
+        logger.error(f"create browser failed: {e}")
+        await close_browser()
         return None
+
+
+def _mark_browser_used() -> None:
+    _browser_state["scrape_runs"] = int(_browser_state.get("scrape_runs", 0)) + 1
+
+
+def _scrape_result(success: bool, message: str, **extra: Any) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"success": success, "message": message}
+    payload.update(extra)
+    return payload
 
 
 # ═══════════════════════════════════════════════════════
@@ -233,59 +261,73 @@ async def monitor_active_enrollment_courses():
 # ═══════════════════════════════════════════════════════
 
 async def run_scrape_task():
-    """
-    核心任务：复用浏览器 → 刷新抓取 → 入库 → 过滤 → 分级推送
-    """
+    """Run one scrape cycle and return a structured result."""
     global _consecutive_failures
 
     if run_status["is_running"]:
-        logger.warning("上一轮任务仍在运行，跳过本次")
-        return
+        logger.warning("previous scrape is still running")
+        return _scrape_result(False, "previous scrape is still running")
 
     run_status["is_running"] = True
     run_status["last_run"] = datetime.now()
     run_status["total_runs"] += 1
 
+    pushed_count = 0
+    reopened_pushed = 0
+    active_pushed = 0
+    scraped_count = 0
+    new_course_ids = []
+
     try:
         logger.info("=" * 50)
-        logger.info(f"开始第 {run_status['total_runs']} 轮抓取任务")
+        logger.info(f"start scrape round {run_status['total_runs']}")
 
-        # 1. 确保浏览器可用（复用或重建）
-        page = await _ensure_browser()
-        if not page:
-            run_status["last_error"] = "浏览器/登录失败"
-            logger.error("浏览器不可用，跳过本轮任务")
+        courses_data = None
+        last_scrape_error = None
+        for attempt in range(2):
+            if attempt > 0:
+                logger.warning("scrape failed, recreate browser and retry once")
+            page = await _ensure_browser(force_recreate=attempt > 0)
+            if not page:
+                last_scrape_error = "browser/login unavailable"
+                continue
+
+            _sync_course_lifecycle()
+            try:
+                courses_data = await scrape_courses(page)
+                _mark_browser_used()
+                break
+            except Exception as e:
+                last_scrape_error = str(e)
+                logger.error(f"scrape attempt {attempt + 1}/2 failed: {e}")
+                await close_browser()
+
+        if courses_data is None:
+            run_status["last_error"] = last_scrape_error or "scrape failed"
             _consecutive_failures += 1
             await _check_and_alert_failures()
-            return
+            return _scrape_result(False, run_status["last_error"], scraped_count=0, new_courses=0)
 
-        # 同步课程生命周期
-        _sync_course_lifecycle()
-
-        # 2. 抓取课程（复用已有页面）
-        courses_data = await scrape_courses(page)
+        scraped_count = len(courses_data)
         if not courses_data:
-            logger.info("未抓取到任何课程")
+            logger.info("no courses scraped")
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return
+            return _scrape_result(True, "scrape succeeded but returned no courses", scraped_count=0, new_courses=0)
 
-        # 3. 保存到数据库（去重）
         new_course_ids = save_courses_to_db(courses_data)
         _sync_course_lifecycle()
         run_status["total_new_courses"] += len(new_course_ids)
 
-        # 3.5 退课捡漏：有人退课空出名额 → 立即推送
         from src.scraper import _reopened_course_ids
-        reopened_pushed = 0
         if _reopened_course_ids:
             session = get_session()
             try:
                 reopened = session.query(Course).filter(Course.id.in_(_reopened_course_ids)).all()
                 config = load_filter_config()
                 if reopened:
-                    logger.info(f"🔥 {len(reopened)} 门课程退课捡漏，立即推送!")
+                    logger.info(f"found {len(reopened)} reopened courses, push now")
                     reopened_pushed = await _do_push(
                         reopened,
                         config,
@@ -297,7 +339,6 @@ async def run_scrape_task():
             finally:
                 session.close()
 
-        active_pushed = 0
         session = get_session()
         try:
             config = load_filter_config()
@@ -308,51 +349,44 @@ async def run_scrape_task():
 
         if not new_course_ids:
             if reopened_pushed or active_pushed:
-                logger.info(f"没有新课程，但补位/开选即时推送了 {reopened_pushed + active_pushed} 条")
+                msg = f"no new courses, but sent {reopened_pushed + active_pushed} active/reopen alerts"
+                logger.info(msg)
             else:
-                logger.info("没有新课程，本轮无需推送")
+                msg = "no new courses, nothing to push"
+                logger.info(msg)
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return
+            return _scrape_result(True, msg, scraped_count=scraped_count, new_courses=0, pushed=reopened_pushed + active_pushed)
 
-        logger.info(f"发现 {len(new_course_ids)} 门新课程")
+        logger.info(f"found {len(new_course_ids)} new courses")
 
-        # 从数据库查询新课程
         session = get_session()
         try:
             db_courses = session.query(Course).filter(Course.id.in_(new_course_ids)).all()
-
-            # 4. 过滤
             config = load_filter_config()
             filtered = filter_courses(db_courses, config)
             passed_courses = [c for c, _ in filtered]
 
             if not passed_courses:
-                logger.info("所有新课程均被过滤，无需推送")
+                logger.info("new courses found but all were filtered out")
                 run_status["last_success"] = datetime.now()
                 run_status["last_error"] = None
                 _consecutive_failures = 0
-                return
+                return _scrape_result(True, "scrape succeeded, new courses found, but all were filtered out", scraped_count=scraped_count, new_courses=len(new_course_ids), passed_courses=0)
 
-            logger.info(f"{len(passed_courses)} 门课程通过过滤")
-
-            # 5. 分级推送
+            logger.info(f"{len(passed_courses)} courses passed filters")
             immediate_courses = []
             for course in passed_courses:
                 level = _classify_push_urgency(course)
-                logger.info(f"  课程 [{course.name}] 紧急级别: {level}")
-
+                logger.info(f"  course [{course.name}] urgency: {level}")
                 if level == "immediate":
                     immediate_courses.append(course)
                 elif level == "urgent":
                     _push_buffer["urgent"].append(course.id)
                 elif level == "soon":
                     _push_buffer["soon"].append(course.id)
-                # "daily" → 不入缓冲区，等 run_daily_summary_task 处理
 
-            # 立即推送 🔴 级别
-            pushed_count = 0
             if immediate_courses:
                 pushed_count = await _do_push(
                     immediate_courses,
@@ -363,28 +397,37 @@ async def run_scrape_task():
                 )
 
             run_status["total_pushed"] += pushed_count
-
-            # 6. 自动选课（如果开启）
             await auto_enroll_if_enabled(page, passed_courses)
-
         finally:
             session.close()
 
         run_status["last_success"] = datetime.now()
         run_status["last_error"] = None
-        _consecutive_failures = 0  # 成功后重置失败计数
-        logger.info(f"本轮任务完成: 即时推送 {pushed_count} 条, 退课捡漏 {reopened_pushed} 条, 开选即时推送 {active_pushed} 条, "
-                     f"缓冲区: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}")
+        _consecutive_failures = 0
+        logger.info(
+            f"??????: ???? {pushed_count} ?, ???? {reopened_pushed} ?, ?????? {active_pushed} ?, "
+            f"???: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}"
+        )
+        return _scrape_result(
+            True,
+            "scrape completed",
+            scraped_count=scraped_count,
+            new_courses=len(new_course_ids),
+            immediate_pushed=pushed_count,
+            reopened_pushed=reopened_pushed,
+            active_pushed=active_pushed,
+            urgent_buffer=len(_push_buffer['urgent']),
+            soon_buffer=len(_push_buffer['soon']),
+        )
 
     except Exception as e:
         run_status["last_error"] = str(e)
-        logger.error(f"抓取任务出错: {e}")
+        logger.error(f"scrape task failed: {e}")
         _consecutive_failures += 1
         await _check_and_alert_failures()
-        # 如果出错可能是浏览器崩了，下次会自动重建
+        return _scrape_result(False, str(e), scraped_count=scraped_count, new_courses=len(new_course_ids))
     finally:
         run_status["is_running"] = False
-        # 注意：不再关闭浏览器！保持复用
 
 
 # ═══════════════════════════════════════════════════════
@@ -704,18 +747,22 @@ def start_scheduler(interval_minutes: int = 3):
 
     # 🟡 近期缓冲区 flush（每 3 小时）
     scheduler.add_job(
-        lambda: asyncio.ensure_future(flush_push_buffer("urgent")),
+        flush_push_buffer,
+        args=["urgent"],
         trigger=IntervalTrigger(minutes=URGENT_DIGEST_MINUTES),
         id="flush_urgent_buffer",
         replace_existing=True,
+        max_instances=1,
     )
 
     # 🟢 从容缓冲区 flush（每 12 小时）
     scheduler.add_job(
-        lambda: asyncio.ensure_future(flush_push_buffer("soon")),
+        flush_push_buffer,
+        args=["soon"],
         trigger=IntervalTrigger(minutes=SOON_DIGEST_MINUTES),
         id="flush_soon_buffer",
         replace_existing=True,
+        max_instances=1,
     )
 
     # 🧹 每日清理过期 30 天以上的课程

@@ -27,6 +27,7 @@ from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
     get_run_status,
     run_scrape_task,
+    submit_coroutine,
     update_scheduler_interval,
     update_daily_summary_schedule,
 )
@@ -390,11 +391,15 @@ def api_toggle_enroll():
 
 @app.route("/api/trigger", methods=["POST"])
 def api_trigger_scrape():
-    """手动触发一次抓取（同步执行，返回时即完成本轮抓取与入库）。"""
+    """Run one scrape via the main runtime loop and return the real result."""
     try:
-        asyncio.run(run_scrape_task())
-        return jsonify({"success": True, "message": "抓取任务已完成"})
+        future = submit_coroutine(run_scrape_task())
+        result = future.result(timeout=180)
+        if result.get("success"):
+            return jsonify(result)
+        return jsonify(result), 500
     except Exception as e:
+        logger.error(f"manual scrape trigger failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
