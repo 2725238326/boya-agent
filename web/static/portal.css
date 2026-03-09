@@ -1772,7 +1772,7 @@ body.portal-body {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
-        margin: 0 0 10px;
+        margin: 0 0 8px;
         padding: 0;
     }
 
@@ -1783,19 +1783,19 @@ body.portal-body {
     .portal-highlight-card {
         min-width: 0;
         min-height: 0;
-        padding: 10px;
+        padding: 8px 10px;
         grid-template-columns: 1fr;
         grid-template-areas:
             "label"
-            "value"
-            "sub";
-        row-gap: 4px;
+            "value";
+        row-gap: 3px;
         align-items: start;
     }
 
     .portal-highlight-label {
         font-size: 11px;
         letter-spacing: 0;
+        text-transform: none;
     }
 
     .portal-highlight-value {
@@ -1804,16 +1804,15 @@ body.portal-body {
     }
 
     .portal-highlight-sub {
-        font-size: 11px;
-        line-height: 1.35;
+        display: none;
     }
 
     .portal-hero-section {
         flex-direction: column;
         align-items: flex-start;
         text-align: left;
-        gap: 8px;
-        padding: 10px 0 6px;
+        gap: 6px;
+        padding: 8px 0 4px;
     }
 
     .portal-hero {
@@ -1835,7 +1834,7 @@ body.portal-body {
         width: 100%;
         font-size: 12px;
         line-height: 1.4;
-        margin-top: 2px;
+        margin-top: 0;
     }
 
     .portal-quick-links {
@@ -1848,8 +1847,8 @@ body.portal-body {
 
     .portal-quick-card {
         width: 100%;
-        min-height: 52px;
-        padding: 10px 12px;
+        min-height: 48px;
+        padding: 8px 10px;
         gap: 8px;
         border-radius: 16px;
         justify-content: flex-start;
@@ -1874,9 +1873,9 @@ body.portal-body {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 32px;
-        padding: 0 12px;
-        border: 1px solid rgba(0, 113, 227, 0.12);
+        min-height: 28px;
+        padding: 0 10px;
+        border: none;
         border-radius: 999px;
         background: transparent;
         color: var(--portal-accent);
@@ -1902,7 +1901,7 @@ body.portal-body {
 
     .portal-tabs {
         max-width: 100%;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         gap: 2px;
         padding: 2px;
     }
@@ -1956,9 +1955,9 @@ body.portal-body {
     .portal-filter-actions {
         grid-column: 1 / -1;
         display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        align-items: center;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        align-items: stretch;
     }
 
     .portal-filter-extra {
@@ -2001,8 +2000,9 @@ body.portal-body {
         display: inline-flex;
         align-items: center;
         justify-content: flex-end;
-        min-height: 40px;
-        width: auto;
+        min-height: 0;
+        width: 100%;
+        grid-column: 1 / -1;
         text-align: right;
         font-size: 12px;
         white-space: nowrap;
@@ -2014,7 +2014,7 @@ body.portal-body {
     }
 
     .portal-main {
-        padding: 0 16px 132px;
+        padding: 0 16px 140px;
     }
 
     .portal-logo {
@@ -2054,15 +2054,24 @@ body.portal-body {
 }
 
 @media (max-width: 480px) {
-    .portal-highlights {
-        grid-template-columns: repeat(3, minmax(92px, 1fr));
-        overflow-x: auto;
-        padding-bottom: 2px;
-        scrollbar-width: none;
+    .portal-toast-container {
+        top: 74px;
+        left: 12px;
+        right: 12px;
+        align-items: stretch;
     }
 
-    .portal-highlights::-webkit-scrollbar {
-        display: none;
+    .portal-toast {
+        max-width: none;
+        width: 100%;
+        padding: 12px 14px;
+        font-size: 13px;
+    }
+
+    .portal-highlights {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow: visible;
+        padding-bottom: 0;
     }
 
     .portal-highlight-value {
@@ -2075,7 +2084,7 @@ body.portal-body {
 
     .portal-highlight-card {
         min-height: 0;
-        padding: 9px 10px;
+        padding: 8px 9px;
     }
 
     .portal-tab {
@@ -2088,7 +2097,8 @@ body.portal-body {
     }
 
     .portal-filter-actions {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
     }
 
     .portal-filter-extra {
@@ -2102,11 +2112,11 @@ body.portal-body {
 
     .portal-feedback-float {
         right: 12px;
-        bottom: 118px;
+        bottom: 90px;
     }
 
     .portal-feedback-tab {
-        padding: 7px 10px;
+        padding: 6px 10px;
         font-size: 12px;
         opacity: 0.94;
     }
@@ -2128,12 +2138,27 @@ body.portal-body {
     }
 
     .portal-hero-section {
-        gap: 8px;
-        padding: 10px 0 6px;
+        gap: 6px;
+        padding: 8px 0 4px;
     }
 
     .portal-quick-links {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .portal-quick-card {
+        min-height: 44px;
+        padding: 8px 10px;
+    }
+
+    .portal-quick-title {
+        font-size: 12px;
+    }
+
+    .portal-mobile-help {
+        padding: 0;
+        min-height: 24px;
+        font-size: 12px;
     }
 
     .portal-upcoming-item {
