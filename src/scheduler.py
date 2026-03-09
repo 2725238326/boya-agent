@@ -434,7 +434,12 @@ async def run_scrape_task():
     task = _active_scrape_task
     if task and not task.done():
         logger.info("scrape already in progress, joining existing task")
-        return await task
+        result = await task
+        if isinstance(result, dict):
+            joined = dict(result)
+            joined["joined_existing"] = True
+            return joined
+        return result
 
     task = asyncio.create_task(_run_scrape_task_impl())
     _active_scrape_task = task

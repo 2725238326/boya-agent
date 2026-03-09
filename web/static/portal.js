@@ -436,7 +436,11 @@ async function refreshPortalCourses(btnEl) {
     const result = await portalApi('/api/trigger', { method: 'POST' });
     if (result.success) {
         await loadPortalData();
-        showPortalToast('课程已刷新', 'success');
+        if (result.joined_existing) {
+            showPortalToast('已复用后台刷新，本页已同步最新结果', 'success');
+        } else {
+            showPortalToast('课程已刷新', 'success');
+        }
     } else {
         showPortalToast(result.error || '刷新失败', 'error');
     }
