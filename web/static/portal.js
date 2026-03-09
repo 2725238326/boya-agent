@@ -654,6 +654,8 @@ function exportNotificationsCsv() {
 // ══════ Portal Highlights ══════
 let _upcomingTimer = null;
 let _upcomingData = [];
+let _upcomingExpanded = false;
+let _upcomingTimerStartedAt = Date.now() / 1000;
 
 function renderPortalHighlights(data) {
     const upcoming = data.upcoming_courses || [];
@@ -661,46 +663,88 @@ function renderPortalHighlights(data) {
     const pendingReminders = data.pending_reminders ?? 0;
     const pausedUntil = data.push_paused_until || null;
 
-    // 更新三个统计卡片
     const upcomingEl = document.getElementById('hlUpcomingCount');
     const subEl = document.getElementById('hlUpcomingSub');
     const todayEl = document.getElementById('hlTodayNew');
     const remindersEl = document.getElementById('hlPendingReminders');
     if (upcomingEl) upcomingEl.textContent = upcoming.length;
-    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 小时内无开抢课程' : `${upcoming.length} 门课程即将开始`;
+    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 ????????' : `${upcoming.length} ???????`;
     if (todayEl) todayEl.textContent = todayNew;
     if (remindersEl) remindersEl.textContent = pendingReminders;
 
-    // 渲染近期开抢列表
     const section = document.getElementById('upcomingCoursesSection');
     const list = document.getElementById('upcomingCoursesList');
     if (section && list) {
         if (upcoming.length > 0) {
             _upcomingData = upcoming;
+            _upcomingExpanded = false;
             section.style.display = 'block';
+            _renderUpcomingSummary();
             _renderUpcomingItems();
             _startUpcomingTimer();
         } else {
+            _upcomingData = [];
+            _upcomingExpanded = false;
             section.style.display = 'none';
+            list.innerHTML = '';
+            if (_upcomingTimer) {
+                clearInterval(_upcomingTimer);
+                _upcomingTimer = null;
+            }
         }
     }
 
-    // 推送暂停状态
     _updatePausePushUI(pausedUntil);
+}
+
+function _renderUpcomingSummary() {
+    const summaryTextEl = document.getElementById('upcomingCoursesSummaryText');
+    const countEl = document.getElementById('upcomingCoursesSummaryCount');
+    const toggleEl = document.getElementById('upcomingCoursesToggle');
+    const summaryEl = document.getElementById('upcomingCoursesSummary');
+    if (!summaryTextEl || !countEl || !toggleEl || !summaryEl) return;
+
+    const count = _upcomingData.length;
+    countEl.textContent = String(count);
+    toggleEl.textContent = _upcomingExpanded ? '??' : '??';
+    summaryEl.classList.toggle('expanded', _upcomingExpanded);
+
+    if (!count) {
+        summaryTextEl.textContent = '24 ?????????';
+        return;
+    }
+
+    const first = _upcomingData[0];
+    const elapsed = Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt);
+    const secsLeft = Math.max(0, Number(first.seconds_left || 0) - elapsed);
+    const pieces = [first.name || '??????'];
+    if (secsLeft > 0) {
+        pieces.push(`${_formatCountdown(secsLeft)} ???`);
+    }
+    if (count > 1) {
+        pieces.push(`?? ${count - 1} ?`);
+    }
+    summaryTextEl.textContent = pieces.join(' ? ');
 }
 
 function _renderUpcomingItems() {
     const list = document.getElementById('upcomingCoursesList');
     if (!list) return;
-    const now = Date.now() / 1000;
-    list.innerHTML = _upcomingData.map(c => {
-        const secsLeft = Math.max(0, c.seconds_left - Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt));
+
+    list.classList.toggle('collapsed', !_upcomingExpanded);
+    if (!_upcomingData.length) {
+        list.innerHTML = '';
+        return;
+    }
+
+    list.innerHTML = _upcomingData.map((c) => {
+        const secsLeft = Math.max(0, Number(c.seconds_left || 0) - Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt));
         const isUrgent = secsLeft < 3600;
         return `
         <div class="portal-upcoming-item">
             <div class="portal-upcoming-info">
                 <div class="portal-upcoming-name">${escapeHtml(c.name)}</div>
-                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} · ${escapeHtml(c.category)} · 剩余 ${c.remaining} 人</div>
+                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} ? ${escapeHtml(c.category)} ? ?? ${c.remaining} ?</div>
             </div>
             <div class="portal-upcoming-countdown ${isUrgent ? 'urgent' : ''}" data-secs="${secsLeft}">
                 ${_formatCountdown(secsLeft)}
@@ -709,19 +753,24 @@ function _renderUpcomingItems() {
     }).join('');
 }
 
-let _upcomingTimerStartedAt = Date.now() / 1000;
+function toggleUpcomingCourses() {
+    _upcomingExpanded = !_upcomingExpanded;
+    _renderUpcomingSummary();
+    _renderUpcomingItems();
+}
 
 function _startUpcomingTimer() {
     if (_upcomingTimer) clearInterval(_upcomingTimer);
     _upcomingTimerStartedAt = Date.now() / 1000;
     _upcomingTimer = setInterval(() => {
         const countdowns = document.querySelectorAll('.portal-upcoming-countdown');
-        countdowns.forEach(el => {
-            const secs = Math.max(0, parseInt(el.dataset.secs || '0') - 1);
-            el.dataset.secs = secs;
+        countdowns.forEach((el) => {
+            const secs = Math.max(0, parseInt(el.dataset.secs || '0', 10) - 1);
+            el.dataset.secs = String(secs);
             el.textContent = _formatCountdown(secs);
             el.className = `portal-upcoming-countdown${secs < 3600 ? ' urgent' : ''}`;
         });
+        _renderUpcomingSummary();
     }, 1000);
 }
 
@@ -735,7 +784,6 @@ function _formatCountdown(secs) {
     return `${x}s`;
 }
 
-// ══════ Push Pause Control ══════
 function _updatePausePushUI(pausedUntil) {
     const btn = document.getElementById('btnPausePush');
     const desc = document.getElementById('pushPauseDesc');

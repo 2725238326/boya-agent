@@ -573,38 +573,109 @@ body.portal-body {
 }
 
 /* 近期开抢倒计时列表 */
-.portal-upcoming-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 0;
+.portal-upcoming-section {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: var(--portal-radius);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.18));
+    border: 1px solid rgba(255, 255, 255, 0.52);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
-.portal-upcoming-section {
-    margin: 0 0 18px;
-    padding: 12px 14px 14px;
-    border-radius: var(--portal-radius);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0.2));
-    border: 1px solid rgba(255, 255, 255, 0.55);
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+.portal-upcoming-summary {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: var(--portal-radius-sm);
+    box-shadow: var(--portal-shadow-card);
+    color: var(--portal-text);
+    cursor: pointer;
+    text-align: left;
+    transition: var(--portal-transition);
+}
+
+.portal-upcoming-summary:hover {
+    box-shadow: var(--portal-shadow);
+    transform: translateY(-1px);
+}
+
+.portal-upcoming-summary.expanded {
+    border-color: rgba(0, 113, 227, 0.16);
+}
+
+.portal-upcoming-summary-main {
+    min-width: 0;
+    flex: 1;
 }
 
 .portal-upcoming-heading {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--portal-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+}
+
+.portal-upcoming-summary-text {
+    font-size: 13px;
+    color: var(--portal-text);
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.portal-upcoming-summary-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.portal-upcoming-summary-count {
+    min-width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(0, 113, 227, 0.1);
+    color: var(--portal-accent);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.portal-upcoming-summary-toggle {
     font-size: 12px;
     font-weight: 600;
     color: var(--portal-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 10px;
+}
+
+.portal-upcoming-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.portal-upcoming-list.collapsed {
+    display: none;
 }
 
 .portal-upcoming-item {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 14px;
+    gap: 12px;
     min-height: 0;
-    padding: 14px 16px;
+    padding: 12px 14px;
     background: var(--portal-surface);
     border: 1px solid var(--portal-border);
     border-radius: var(--portal-radius-sm);
@@ -653,7 +724,6 @@ body.portal-body {
     color: var(--portal-danger);
 }
 
-/* 推送暂停控制 */
 .portal-push-pause-row {
     display: flex;
     align-items: center;
@@ -1714,6 +1784,20 @@ body.portal-body {
         padding: 12px;
     }
 
+    .portal-upcoming-summary {
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .portal-upcoming-summary-side {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .portal-upcoming-summary-text {
+        white-space: normal;
+    }
+
     .portal-upcoming-item {
         padding: 12px 14px;
     }
@@ -1778,6 +1862,11 @@ body.portal-body {
         align-items: flex-start;
         gap: 10px;
         min-height: 0;
+    }
+
+    .portal-upcoming-summary {
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .portal-upcoming-info {

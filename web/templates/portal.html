@@ -105,10 +105,18 @@
 
         <!-- 近期开抢课程列表（仅当有数据时显示） -->
         <div id="upcomingCoursesSection" class="portal-upcoming-section" style="display:none;">
-            <div class="portal-upcoming-heading">
-                近期开抢课程
-            </div>
-            <div class="portal-upcoming-list" id="upcomingCoursesList"></div>
+            <button class="portal-upcoming-summary" id="upcomingCoursesSummary" type="button"
+                onclick="toggleUpcomingCourses()">
+                <div class="portal-upcoming-summary-main">
+                    <div class="portal-upcoming-heading">??????</div>
+                    <div class="portal-upcoming-summary-text" id="upcomingCoursesSummaryText">????????...</div>
+                </div>
+                <div class="portal-upcoming-summary-side">
+                    <span class="portal-upcoming-summary-count" id="upcomingCoursesSummaryCount">0</span>
+                    <span class="portal-upcoming-summary-toggle" id="upcomingCoursesToggle">??</span>
+                </div>
+            </button>
+            <div class="portal-upcoming-list collapsed" id="upcomingCoursesList"></div>
         </div>
 
         <!-- Tab Bar -->
