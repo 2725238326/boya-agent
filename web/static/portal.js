@@ -121,6 +121,17 @@ function toggleWelcomeBanner() {
     banner.classList.toggle('mobile-open');
 }
 
+function toggleMobileFilters(forceOpen = null) {
+    const extra = document.getElementById('portalFilterExtra');
+    const toggle = document.getElementById('portalFilterToggle');
+    if (!extra || !toggle) return;
+
+    const shouldOpen = forceOpen == null ? extra.classList.contains('is-collapsed') : forceOpen;
+    extra.classList.toggle('is-collapsed', !shouldOpen);
+    toggle.textContent = shouldOpen ? '收起筛选' : '更多筛选';
+    toggle.classList.toggle('active', shouldOpen);
+}
+
 // ══════ API Helper ══════
 async function portalApi(url, options = {}) {
     try {

@@ -844,6 +844,21 @@ body.portal-body {
     margin-bottom: 14px;
 }
 
+.portal-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.portal-filter-extra {
+    display: contents;
+}
+
+.portal-filter-more {
+    display: none;
+}
+
 .portal-search {
     flex: 1;
     min-width: 200px;
@@ -1766,9 +1781,24 @@ body.portal-body {
         font-size: 26px;
     }
 
+    .portal-highlights {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        margin: 0 -4px 10px;
+        padding: 0 4px 4px;
+        scrollbar-width: none;
+    }
+
+    .portal-highlights::-webkit-scrollbar {
+        display: none;
+    }
+
     .portal-highlight-card {
-        min-height: 70px;
-        padding: 10px 12px;
+        min-width: 180px;
+        min-height: 60px;
+        padding: 9px 11px;
+        flex: 0 0 auto;
     }
 
     .portal-hero-section {
@@ -1907,6 +1937,35 @@ body.portal-body {
         min-width: 0;
     }
 
+    .portal-filter-actions {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .portal-filter-extra {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .portal-filter-extra.is-collapsed {
+        display: none;
+    }
+
+    .portal-filter-more {
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .portal-filter-more.active {
+        background: rgba(0, 113, 227, 0.12);
+        color: var(--portal-accent);
+    }
+
     .portal-checkbox-label {
         min-height: 40px;
         padding: 0 12px;
@@ -1927,6 +1986,7 @@ body.portal-body {
         justify-content: center;
         min-height: 40px;
         text-align: center;
+        width: 100%;
     }
 
     .portal-nav-inner {
@@ -1975,15 +2035,6 @@ body.portal-body {
 }
 
 @media (max-width: 480px) {
-    .portal-highlights {
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-    }
-
-    .portal-highlights .portal-highlight-card:last-child {
-        grid-column: 1 / -1;
-    }
-
     .portal-highlight-value {
         font-size: 24px;
     }
@@ -1993,8 +2044,9 @@ body.portal-body {
     }
 
     .portal-highlight-card {
-        min-height: 66px;
-        padding: 9px 11px;
+        min-width: 148px;
+        min-height: 58px;
+        padding: 8px 10px;
     }
 
     .portal-tab {
@@ -2003,6 +2055,14 @@ body.portal-body {
     }
 
     .portal-filter-bar {
+        grid-template-columns: 1fr;
+    }
+
+    .portal-filter-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .portal-filter-extra {
         grid-template-columns: 1fr;
     }
 

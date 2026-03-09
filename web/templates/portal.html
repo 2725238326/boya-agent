@@ -154,25 +154,31 @@
                     <option value="enroll_start_asc">最早开抢</option>
                     <option value="course_time_asc">最早上课</option>
                 </select>
-                <label class="portal-checkbox-label">
-                    <input type="checkbox" id="portalSelfSign" onchange="filterCourses()">
-                    仅自主签到
-                </label>
-                <label class="portal-checkbox-label">
-                    <input type="checkbox" id="portalExpired" onchange="filterCourses()">
-                    含已过期
-                </label>
-                <label class="portal-checkbox-label">
-                    <input type="checkbox" id="portalAvailableNow" onchange="togglePortalQuickFilter('available')">
-                    只看可抢
-                </label>
-                <label class="portal-checkbox-label">
-                    <input type="checkbox" id="portalWaitlistOnly" onchange="togglePortalQuickFilter('waitlist')">
-                    只看蹲退选
-                </label>
-                <button class="portal-btn-mini portal-filter-refresh" id="btnRefreshCourses" type="button"
-                    onclick="refreshPortalCourses(this)">刷新课程</button>
-                <span class="portal-refresh-meta" id="portalRefreshMeta">等待刷新</span>
+                <div class="portal-filter-actions">
+                    <button class="portal-btn-mini portal-filter-more" id="portalFilterToggle" type="button"
+                        onclick="toggleMobileFilters()">更多筛选</button>
+                    <button class="portal-btn-mini portal-filter-refresh" id="btnRefreshCourses" type="button"
+                        onclick="refreshPortalCourses(this)">刷新课程</button>
+                    <span class="portal-refresh-meta" id="portalRefreshMeta">等待刷新</span>
+                </div>
+                <div class="portal-filter-extra is-collapsed" id="portalFilterExtra">
+                    <label class="portal-checkbox-label">
+                        <input type="checkbox" id="portalSelfSign" onchange="filterCourses()">
+                        仅自主签到
+                    </label>
+                    <label class="portal-checkbox-label">
+                        <input type="checkbox" id="portalExpired" onchange="filterCourses()">
+                        含已过期
+                    </label>
+                    <label class="portal-checkbox-label">
+                        <input type="checkbox" id="portalAvailableNow" onchange="togglePortalQuickFilter('available')">
+                        只看可抢
+                    </label>
+                    <label class="portal-checkbox-label">
+                        <input type="checkbox" id="portalWaitlistOnly" onchange="togglePortalQuickFilter('waitlist')">
+                        只看蹲退选
+                    </label>
+                </div>
             </div>
 
             <!-- Course Grid -->
