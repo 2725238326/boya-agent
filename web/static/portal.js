@@ -117,8 +117,19 @@ function toggleFeedbackFloat() {
 
 function toggleWelcomeBanner() {
     const banner = document.getElementById('welcomeBanner');
+    const btn = document.getElementById('portalHelpButton');
     if (!banner) return;
-    banner.classList.toggle('mobile-open');
+    const shouldOpen = !banner.classList.contains('mobile-open');
+    banner.classList.toggle('mobile-open', shouldOpen);
+    btn?.classList.toggle('active', shouldOpen);
+}
+
+function dismissBanner() {
+    const banner = document.getElementById('welcomeBanner');
+    const btn = document.getElementById('portalHelpButton');
+    if (!banner) return;
+    banner.classList.remove('mobile-open');
+    btn?.classList.remove('active');
 }
 
 function toggleMobileFilters(forceOpen = null) {
@@ -431,22 +442,52 @@ async function refreshPortalCourses(btnEl) {
     if (!btnEl) return;
     btnEl.disabled = true;
     const originalText = btnEl.textContent;
-    btnEl.textContent = '刷新中…';
+    btnEl.textContent = '后台刷新中…';
 
-    const result = await portalApi('/api/trigger', { method: 'POST' });
+    const requestedAt = Date.now();
+    const result = await portalApi('/api/portal/refresh', { method: 'POST' });
     if (result.success) {
-        await loadPortalData();
         if (result.joined_existing) {
-            showPortalToast('已复用后台刷新，本页已同步最新结果', 'success');
+            showPortalToast('后台已有刷新任务，正在同步最新结果', 'info');
         } else {
-            showPortalToast('课程已刷新', 'success');
+            showPortalToast('已开始刷新课程，稍后自动更新', 'info');
         }
+        await waitForPortalRefresh(requestedAt);
     } else {
         showPortalToast(result.error || '刷新失败', 'error');
     }
 
     btnEl.disabled = false;
     btnEl.textContent = originalText;
+}
+
+async function waitForPortalRefresh(requestedAt) {
+    const deadline = Date.now() + 70000;
+    const threshold = requestedAt - 5000;
+
+    while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const statusRes = await portalApi('/api/status');
+        if (!statusRes.success) continue;
+
+        const data = statusRes.data || {};
+        if (data.is_running) continue;
+
+        const lastSuccess = data.last_success
+            ? new Date(String(data.last_success).replace(' ', 'T')).getTime()
+            : 0;
+        const lastRun = data.last_run
+            ? new Date(String(data.last_run).replace(' ', 'T')).getTime()
+            : 0;
+
+        if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
+            await loadPortalData();
+            showPortalToast('课程列表已同步最新结果', 'success');
+            return;
+        }
+    }
+
+    showPortalToast('后台仍在刷新，稍后会自动显示最新结果', 'info');
 }
 
 // ══════ Register Reminder ══════

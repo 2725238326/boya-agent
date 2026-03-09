@@ -403,6 +403,31 @@ def api_trigger_scrape():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/portal/refresh", methods=["POST"])
+def api_portal_refresh():
+    """Start or join a scrape for the user portal without blocking the request."""
+    try:
+        status = get_run_status()
+        if status.get("is_running"):
+            return jsonify({
+                "success": True,
+                "started": False,
+                "joined_existing": True,
+                "message": "后台已有刷新任务，正在为你同步最新结果",
+            })
+
+        submit_coroutine(run_scrape_task())
+        return jsonify({
+            "success": True,
+            "started": True,
+            "joined_existing": False,
+            "message": "已开始后台刷新课程",
+        })
+    except Exception as e:
+        logger.error(f"portal refresh trigger failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/status")
 def api_status():
     """获取系统运行状态"""
