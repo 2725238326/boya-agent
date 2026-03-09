@@ -278,20 +278,24 @@ body.portal-body {
 
 .portal-quick-links {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
     gap: 6px;
     flex-shrink: 0;
-    width: 220px;
+    width: auto;
+    max-width: 360px;
 }
 
 .portal-quick-card {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: 8px;
+    padding: 8px 12px;
+    min-width: 0;
     background: var(--portal-surface);
     border: 1px solid var(--portal-border);
-    border-radius: var(--portal-radius-sm);
+    border-radius: 999px;
     text-decoration: none;
     color: var(--portal-text);
     transition: var(--portal-transition);
@@ -305,32 +309,32 @@ body.portal-body {
 }
 
 .portal-quick-icon {
-    font-size: 22px;
+    font-size: 18px;
     flex-shrink: 0;
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: rgba(0, 113, 227, 0.06);
-    border-radius: 10px;
+    border-radius: 999px;
 }
 
 .portal-quick-info {
-    flex: 1;
+    flex: 0 1 auto;
+    min-width: 0;
 }
 
 .portal-quick-title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--portal-text);
     letter-spacing: -0.01em;
+    white-space: nowrap;
 }
 
 .portal-quick-desc {
-    font-size: 10px;
-    color: var(--portal-text-muted);
-    margin-top: 1px;
+    display: none;
 }
 
 .portal-quick-arrow {
