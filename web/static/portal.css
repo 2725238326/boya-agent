@@ -249,11 +249,11 @@ body.portal-body {
 
 /* ═══ Hero + Quick Links Section ═══ */
 .portal-hero-section {
-    padding: 48px 0 36px;
+    padding: 26px 0 18px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 40px;
+    gap: 24px;
 }
 
 .portal-hero {
@@ -261,16 +261,16 @@ body.portal-body {
 }
 
 .portal-hero-title {
-    font-size: 52px;
+    font-size: 40px;
     font-weight: 700;
     letter-spacing: -0.025em;
-    line-height: 1.05;
+    line-height: 1.08;
     color: var(--portal-text);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
 .portal-hero-subtitle {
-    font-size: 19px;
+    font-size: 16px;
     font-weight: 400;
     color: var(--portal-text-secondary);
     letter-spacing: 0.012em;
@@ -279,16 +279,16 @@ body.portal-body {
 .portal-quick-links {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     flex-shrink: 0;
-    width: 260px;
+    width: 240px;
 }
 
 .portal-quick-card {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 16px 18px;
+    gap: 12px;
+    padding: 12px 14px;
     background: var(--portal-surface);
     border: 1px solid var(--portal-border);
     border-radius: var(--portal-radius-sm);
@@ -305,10 +305,10 @@ body.portal-body {
 }
 
 .portal-quick-icon {
-    font-size: 28px;
+    font-size: 24px;
     flex-shrink: 0;
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -321,14 +321,14 @@ body.portal-body {
 }
 
 .portal-quick-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--portal-text);
     letter-spacing: -0.01em;
 }
 
 .portal-quick-desc {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--portal-text-muted);
     margin-top: 1px;
 }
@@ -349,8 +349,8 @@ body.portal-body {
     display: flex;
     justify-content: center;
     gap: 4px;
-    margin-top: 4px;
-    margin-bottom: 32px;
+    margin-top: 0;
+    margin-bottom: 18px;
     padding: 3px;
     background: rgba(0, 0, 0, 0.04);
     border-radius: 10px;
@@ -516,8 +516,8 @@ body.portal-body {
 .portal-highlights {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    margin-bottom: 28px;
+    gap: 12px;
+    margin-bottom: 16px;
 }
 
 .portal-highlight-card {
@@ -526,7 +526,7 @@ body.portal-body {
     -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid rgba(255, 255, 255, 0.7);
     border-radius: var(--portal-radius);
-    padding: 18px 20px;
+    padding: 14px 16px;
     box-shadow: var(--portal-shadow-card);
     transition: var(--portal-transition);
 }
@@ -537,25 +537,25 @@ body.portal-body {
 }
 
 .portal-highlight-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--portal-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 .portal-highlight-value {
-    font-size: 34px;
+    font-size: 28px;
     font-weight: 700;
     color: var(--portal-text);
     letter-spacing: -0.03em;
     line-height: 1;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .portal-highlight-sub {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--portal-text-muted);
     line-height: 1.4;
 }
@@ -581,8 +581,8 @@ body.portal-body {
 }
 
 .portal-upcoming-section {
-    margin: 6px 0 36px;
-    padding: 16px 18px 18px;
+    margin: 0 0 18px;
+    padding: 12px 14px 14px;
     border-radius: var(--portal-radius);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0.2));
     border: 1px solid rgba(255, 255, 255, 0.55);
@@ -590,21 +590,21 @@ body.portal-body {
 }
 
 .portal-upcoming-heading {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--portal-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
 
 .portal-upcoming-item {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
-    min-height: 92px;
-    padding: 18px 20px;
+    gap: 14px;
+    min-height: 0;
+    padding: 14px 16px;
     background: var(--portal-surface);
     border: 1px solid var(--portal-border);
     border-radius: var(--portal-radius-sm);
@@ -623,7 +623,7 @@ body.portal-body {
 }
 
 .portal-upcoming-name {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--portal-text);
     line-height: 1.45;
@@ -634,14 +634,14 @@ body.portal-body {
 }
 
 .portal-upcoming-meta {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--portal-text-muted);
-    margin-top: 6px;
+    margin-top: 4px;
     line-height: 1.5;
 }
 
 .portal-upcoming-countdown {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--portal-accent);
     font-variant-numeric: tabular-nums;
@@ -729,7 +729,7 @@ body.portal-body {
     gap: 10px;
     align-items: center;
     flex-wrap: wrap;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
 }
 
 .portal-search {
@@ -1601,11 +1601,11 @@ body.portal-body {
 @media (max-width: 768px) {
     .portal-highlights {
         grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
+        gap: 8px;
     }
 
     .portal-highlight-card {
-        padding: 14px 12px;
+        padding: 12px 10px;
     }
 
     .portal-feedback-float {
@@ -1657,16 +1657,16 @@ body.portal-body {
     .portal-hero-section {
         flex-direction: column;
         text-align: center;
-        gap: 16px;
-        padding: 28px 0 20px;
+        gap: 12px;
+        padding: 20px 0 14px;
     }
 
     .portal-hero-title {
-        font-size: 36px;
+        font-size: 32px;
     }
 
     .portal-hero-subtitle {
-        font-size: 17px;
+        font-size: 15px;
     }
 
     .portal-quick-links {
@@ -1706,15 +1706,16 @@ body.portal-body {
 
     .portal-tabs {
         max-width: 100%;
+        margin-bottom: 14px;
     }
 
     .portal-upcoming-section {
-        margin-bottom: 28px;
-        padding: 14px;
+        margin-bottom: 16px;
+        padding: 12px;
     }
 
     .portal-upcoming-item {
-        padding: 16px;
+        padding: 12px 14px;
     }
 
     .portal-filter-bar {
