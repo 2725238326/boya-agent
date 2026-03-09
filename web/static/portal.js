@@ -668,7 +668,7 @@ function renderPortalHighlights(data) {
     const todayEl = document.getElementById('hlTodayNew');
     const remindersEl = document.getElementById('hlPendingReminders');
     if (upcomingEl) upcomingEl.textContent = upcoming.length;
-    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 ????????' : `${upcoming.length} ???????`;
+    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 小时内无开抢课程' : `${upcoming.length} 门课程即将开始`;
     if (todayEl) todayEl.textContent = todayNew;
     if (remindersEl) remindersEl.textContent = pendingReminders;
 
@@ -706,25 +706,25 @@ function _renderUpcomingSummary() {
 
     const count = _upcomingData.length;
     countEl.textContent = String(count);
-    toggleEl.textContent = _upcomingExpanded ? '??' : '??';
+    toggleEl.textContent = _upcomingExpanded ? '收起' : '展开';
     summaryEl.classList.toggle('expanded', _upcomingExpanded);
 
     if (!count) {
-        summaryTextEl.textContent = '24 ?????????';
+        summaryTextEl.textContent = '24 小时内暂无开抢课程';
         return;
     }
 
     const first = _upcomingData[0];
     const elapsed = Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt);
     const secsLeft = Math.max(0, Number(first.seconds_left || 0) - elapsed);
-    const pieces = [first.name || '??????'];
+    const pieces = [first.name || '近期开抢课程'];
     if (secsLeft > 0) {
-        pieces.push(`${_formatCountdown(secsLeft)} ???`);
+        pieces.push(`${_formatCountdown(secsLeft)} 后开抢`);
     }
     if (count > 1) {
-        pieces.push(`?? ${count - 1} ?`);
+        pieces.push(`另有 ${count - 1} 门`);
     }
-    summaryTextEl.textContent = pieces.join(' ? ');
+    summaryTextEl.textContent = pieces.join(' · ');
 }
 
 function _renderUpcomingItems() {
@@ -744,7 +744,7 @@ function _renderUpcomingItems() {
         <div class="portal-upcoming-item">
             <div class="portal-upcoming-info">
                 <div class="portal-upcoming-name">${escapeHtml(c.name)}</div>
-                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} ? ${escapeHtml(c.category)} ? ?? ${c.remaining} ?</div>
+                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} · ${escapeHtml(c.category)} · 剩余 ${c.remaining} 人</div>
             </div>
             <div class="portal-upcoming-countdown ${isUrgent ? 'urgent' : ''}" data-secs="${secsLeft}">
                 ${_formatCountdown(secsLeft)}
