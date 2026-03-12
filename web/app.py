@@ -176,7 +176,45 @@ def subscribe_page():
 @app.route("/verify/<token>")
 def verify_page(token):
     bridge_ticket = (request.args.get("bridge") or "").strip()
-    return render_template("verify.html", token=token, bridge_ticket=bridge_ticket)
+    session = get_session()
+    try:
+        sub, error = _verify_subscriber_token(session, token, bridge_ticket)
+        if error:
+            return render_template(
+                "verify.html",
+                success=False,
+                portal_url="/subscribe",
+                title="验证没有完成",
+                detail="这个验证链接无效、已失效，或已经被系统清理。请回到订阅页重新发送一封新的验证邮件。",
+                auto_redirect=False,
+                button_label="返回订阅页",
+            )
+
+        session.commit()
+        resp = make_response(render_template(
+            "verify.html",
+            success=True,
+            portal_url=_portal_url_for_subscriber(sub),
+            title="邮箱验证成功",
+            detail="验证已经完成，正在为你进入课程门户。如果没有自动跳转，可以点下面的按钮继续。",
+            auto_redirect=True,
+            button_label="立即进入课程门户",
+        ))
+        return _set_portal_session_cookie(resp, sub.token)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"verify page failed: {e}")
+        return render_template(
+            "verify.html",
+            success=False,
+            portal_url="/subscribe",
+            title="验证失败",
+            detail="系统处理这条验证链接时出了问题。请稍后再试，或回到订阅页重新发送一封新的验证邮件。",
+            auto_redirect=False,
+            button_label="返回订阅页",
+        ), 500
+    finally:
+        session.close()
 
 
 # ========== API 路由 ==========
