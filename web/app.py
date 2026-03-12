@@ -46,6 +46,7 @@ PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
 LOGIN_EMAIL_COOLDOWN_SECONDS = 20
 LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "900")))
 _login_email_last_sent_at = {}
+DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
 
 
 def _is_https_request() -> bool:
@@ -89,10 +90,7 @@ def _get_public_base_url() -> str:
     configured = (os.getenv("APP_PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if configured:
         return configured
-
-    host = (request.headers.get("X-Forwarded-Host") or request.host).strip()
-    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme or "http").strip()
-    return f"{proto}://{host}"
+    return DEFAULT_PUBLIC_BASE_URL
 
 
 def _check_login_email_cooldown(email: str) -> int:

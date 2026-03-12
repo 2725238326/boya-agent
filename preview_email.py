@@ -86,7 +86,7 @@ MOCK_COURSES = [
     ),
 ]
 
-BASE_URL = "http://buaayqq.eu.cc"
+BASE_URL = "https://buaaboya.top"
 SUB_TOKEN = "preview-token-abc123"
 UNSUB_URL = f"{BASE_URL}/api/unsubscribe/{SUB_TOKEN}"
 
