@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>验证邮箱</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5f7fb;
+            --card: rgba(255, 255, 255, 0.92);
+            --text: #111827;
+            --muted: #6b7280;
+            --line: #e5e7eb;
+            --blue: #2563eb;
+            --green: #16a34a;
+            --red: #dc2626;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(147, 197, 253, 0.35), transparent 35%),
+                radial-gradient(circle at bottom right, rgba(221, 214, 254, 0.35), transparent 35%),
+                var(--bg);
+        }
+
+        .card {
+            width: min(100%, 460px);
+            padding: 28px 24px 22px;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 28px;
+            background: var(--card);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.10);
+        }
+
+        .eyebrow {
+            margin: 0 0 12px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: 30px;
+            line-height: 1.2;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 26px;
+            margin: 8px 0 14px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .status-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 999px;
+            background: var(--blue);
+            box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
+        }
+
+        .status.success .status-dot {
+            background: var(--green);
+            box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.12);
+        }
+
+        .status.error .status-dot {
+            background: var(--red);
+            box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.12);
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.8;
+        }
+
+        .panel {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 46px;
+            padding: 0 18px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background: var(--blue);
+            color: #fff;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn.secondary {
+            border-color: var(--line);
+            background: #fff;
+            color: var(--text);
+        }
+
+        .hint {
+            margin-top: 14px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <p class="eyebrow">BUAA 博雅课程</p>
+        <h1>验证邮箱</h1>
+        <div id="status" class="status">
+            <span class="status-dot"></span>
+            <span id="statusText">正在验证，请稍候...</span>
+        </div>
+        <p id="description">验证完成后会自动进入你的课程门户。</p>
+
+        <section class="panel" id="detailPanel">
+            <p id="detailText">如果你是在 QQ 邮箱里打开这封邮件，当前页面会直接给出结果，不会再像之前那样点了没反应。</p>
+        </section>
+
+        <div class="actions">
+            <a id="portalBtn" class="btn" href="/portal" style="display:none;">进入课程门户</a>
+            <a class="btn secondary" href="/subscribe">返回订阅页</a>
+        </div>
+
+        <p class="hint">如果页面停留超过 5 秒没有变化，请重新打开最新一封验证邮件。</p>
+    </main>
+
+    <script>
+        (function () {
+            const token = {{ token|tojson }};
+            const bridgeTicket = {{ bridge_ticket|tojson }};
+            const statusEl = document.getElementById("status");
+            const statusTextEl = document.getElementById("statusText");
+            const descriptionEl = document.getElementById("description");
+            const detailTextEl = document.getElementById("detailText");
+            const portalBtn = document.getElementById("portalBtn");
+
+            function setStatus(kind, text, detail) {
+                statusEl.className = "status" + (kind ? " " + kind : "");
+                statusTextEl.textContent = text;
+                if (detail) {
+                    detailTextEl.textContent = detail;
+                }
+            }
+
+            async function confirmVerify() {
+                const query = bridgeTicket ? `?bridge=${encodeURIComponent(bridgeTicket)}` : "";
+                try {
+                    const resp = await fetch(`/api/verify/${encodeURIComponent(token)}/confirm${query}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" }
+                    });
+                    const data = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !data.success) {
+                        throw new Error(data.error || "验证失败，请重新发送验证邮件。");
+                    }
+
+                    const portalUrl = data.data && data.data.portal_url ? data.data.portal_url : "/portal?login=ok";
+                    portalBtn.href = portalUrl;
+                    portalBtn.style.display = "inline-flex";
+                    setStatus("success", "邮箱验证成功", "正在为你进入课程门户。如果没有自动跳转，可以点下面的按钮继续。");
+                    descriptionEl.textContent = "验证状态已经写入系统，这台设备现在也会自动登录。";
+
+                    window.setTimeout(function () {
+                        window.location.href = portalUrl;
+                    }, 1200);
+                } catch (err) {
+                    setStatus("error", "验证没有完成", err.message || "链接可能已失效，请重新发送验证邮件。");
+                    descriptionEl.textContent = "你可以返回订阅页重新发送一封新的验证邮件。";
+                }
+            }
+
+            confirmVerify();
+        })();
+    </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Flask Web 控制台
 提供筛选配置、课程查看、自动选课开关、系统状态等功能
 """
@@ -144,6 +144,21 @@ def _bridge_payload(bridge: LoginBridgeTicket) -> dict:
     }
 
 
+def _portal_url_for_subscriber(sub: EmailSubscriber) -> str:
+    return f"/portal?email={sub.email}&login=ok"
+
+
+def _verify_subscriber_token(session, token: str, bridge_ticket: str = ""):
+    sub = session.query(EmailSubscriber).filter_by(token=token).first()
+    if not sub:
+        return None, "invalid"
+
+    sub.verified = True
+    sub.active = True
+    _mark_bridge_verified(session, bridge_ticket, sub)
+    return sub, None
+
+
 # ========== 页面路由 ==========
 
 @app.route("/")
@@ -156,6 +171,12 @@ def index():
 def subscribe_page():
     """订阅页面（公开访问）"""
     return render_template("subscribe.html")
+
+
+@app.route("/verify/<token>")
+def verify_page(token):
+    bridge_ticket = (request.args.get("bridge") or "").strip()
+    return render_template("verify.html", token=token, bridge_ticket=bridge_ticket)
 
 
 # ========== API 路由 ==========
@@ -598,7 +619,7 @@ def api_subscribe():
                     "message": "该邮箱已注册，正在进入门户。",
                     "data": {
                         "email": existing.email,
-                        "portal_url": f"/portal?email={existing.email}&login=ok",
+                        "portal_url": _portal_url_for_subscriber(existing),
                     },
                 })
                 return _set_portal_session_cookie(resp, existing.token)
@@ -624,7 +645,7 @@ def api_subscribe():
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
         bridge = _create_login_bridge_ticket(session, sub)
         base_url = _get_public_base_url()
-        verify_url = f"{base_url}/api/verify/{token}?bridge={bridge.ticket}"
+        verify_url = f"{base_url}/verify/{token}?bridge={bridge.ticket}"
         ok = send_verification_email(email, verify_url)
 
         if ok:
@@ -667,7 +688,7 @@ def api_login_request():
             "message": "识别为已注册用户，正在进入门户。",
             "data": {
                 "email": sub.email,
-                "portal_url": f"/portal?email={sub.email}&login=ok",
+                        "portal_url": _portal_url_for_subscriber(sub),
             },
         })
         return _set_portal_session_cookie(resp, sub.token)
@@ -690,7 +711,7 @@ def api_login(token):
             return redirect("/subscribe?result=invalid")
         _mark_bridge_verified(session, bridge_ticket, sub)
         session.commit()
-        resp = make_response(redirect(f"/portal?email={sub.email}&login=ok"))
+        resp = make_response(redirect(_portal_url_for_subscriber(sub)))
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
@@ -703,22 +724,39 @@ def api_login(token):
 @app.route("/api/verify/<token>")
 def api_verify(token):
     bridge_ticket = (request.args.get("bridge") or "").strip()
-    """验证邮箱"""
+    """旧验证链接入口，兼容历史邮件。"""
+    target = f"/verify/{token}"
+    if bridge_ticket:
+        target = f"{target}?bridge={bridge_ticket}"
+    return redirect(target)
+
+
+@app.route("/api/verify/<token>/confirm", methods=["POST"])
+def api_verify_confirm(token):
+    bridge_ticket = (request.args.get("bridge") or "").strip()
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
-        if not sub:
-            return redirect("/subscribe?result=invalid")
-        sub.verified = True
-        sub.active = True
-        _mark_bridge_verified(session, bridge_ticket, sub)
+        sub, error = _verify_subscriber_token(session, token, bridge_ticket)
+        if error:
+            return jsonify({
+                "success": False,
+                "error": "verification link is invalid or expired",
+            }), 404
+
         session.commit()
-        resp = make_response(redirect(f"/portal?email={sub.email}&login=ok"))
+        resp = jsonify({
+            "success": True,
+            "message": "email verified",
+            "data": {
+                "email": sub.email,
+                "portal_url": _portal_url_for_subscriber(sub),
+            },
+        })
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
-        logger.error(f"验证失败: {e}")
-        return redirect("/subscribe?result=invalid")
+        logger.error(f"verify confirm failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
 
