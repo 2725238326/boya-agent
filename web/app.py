@@ -1069,7 +1069,7 @@ def api_test_email():
 def portal_page():
     """用户门户页面"""
     token = (request.args.get("token") or "").strip()
-    email = (request.args.get("email") or "").strip()
+    email = (request.args.get("email") or "").strip().lower()
     if token:
         session = get_session()
         try:
@@ -1091,6 +1091,23 @@ def portal_page():
             target = f"/portal?email={target_email}"
         resp = make_response(redirect(target))
         return _set_portal_session_cookie(resp, token)
+
+    if email and "@" in email:
+        session = get_session()
+        try:
+            sub = (
+                session.query(EmailSubscriber)
+                .filter_by(email=email, verified=True, active=True)
+                .first()
+            )
+            if sub:
+                sub.last_portal_seen_at = datetime.now()
+                session.commit()
+                resp = make_response(render_template("portal.html"))
+                return _set_portal_session_cookie(resp, sub.token)
+        finally:
+            session.close()
+
     return render_template("portal.html")
 
 
@@ -1135,27 +1152,37 @@ def api_remind_session(course_id):
 def api_subscriber_session():
     """从会话 Cookie 获取当前订阅者"""
     token = _get_session_token()
-    if not token:
-        return jsonify({"success": False, "error": "未登录"}), 401
+    email = (request.args.get("email") or "").strip().lower()
 
     session = get_session()
     try:
-        sub = (
-            session.query(EmailSubscriber)
-            .filter_by(token=token, verified=True, active=True)
-            .first()
-        )
+        sub = None
+        if token:
+            sub = (
+                session.query(EmailSubscriber)
+                .filter_by(token=token, verified=True, active=True)
+                .first()
+            )
+        if not sub and email and "@" in email:
+            sub = (
+                session.query(EmailSubscriber)
+                .filter_by(email=email, verified=True, active=True)
+                .first()
+            )
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.last_portal_seen_at = datetime.now()
         session.commit()
-        return jsonify({
+        resp = jsonify({
             "success": True,
             "data": {
                 **sub.to_dict(),
                 "token": sub.token,
             },
         })
+        if token != sub.token:
+            return _set_portal_session_cookie(resp, sub.token)
+        return resp
     finally:
         session.close()
 

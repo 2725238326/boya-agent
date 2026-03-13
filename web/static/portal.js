@@ -160,7 +160,8 @@ async function portalApi(url, options = {}) {
 
 // ══════ Data Loading ══════
 async function loadPortalData() {
-    const sessionRes = await portalApi('/api/subscriber/session');
+    const emailQuery = portalState.email ? `?email=${encodeURIComponent(portalState.email)}` : '';
+    const sessionRes = await portalApi(`/api/subscriber/session${emailQuery}`);
     if (!sessionRes.success) {
         window.location.href = '/subscribe';
         return;
