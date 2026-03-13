@@ -145,7 +145,7 @@ def _bridge_payload(bridge: LoginBridgeTicket) -> dict:
 
 
 def _portal_url_for_subscriber(sub: EmailSubscriber) -> str:
-    return f"/portal?email={sub.email}&login=ok"
+    return "/portal"
 
 
 def _verify_subscriber_token(session, token: str, bridge_ticket: str = ""):
@@ -851,7 +851,7 @@ def api_subscribe_bridge_claim(ticket):
             "message": "already logged in",
             "data": {
                 "email": sub.email,
-                "portal_url": f"/portal?email={sub.email}&login=ok",
+                "portal_url": _portal_url_for_subscriber(sub),
             },
         })
         return _set_portal_session_cookie(resp, sub.token)
@@ -894,7 +894,7 @@ def api_pause_by_token(token):
             return redirect("/subscribe?result=invalid")
         sub.push_paused_until = datetime.now() + timedelta(hours=hours)
         session.commit()
-        target = f"/portal?email={sub.email}&push=paused&hours={hours}"
+        target = f"/portal?push=paused&hours={hours}"
         resp = make_response(redirect(target))
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
@@ -1085,11 +1085,7 @@ def portal_page():
             session.close()
         if not sub:
             return redirect("/subscribe?force=1")
-        target = "/portal"
-        target_email = email or sub.email
-        if target_email:
-            target = f"/portal?email={target_email}"
-        resp = make_response(redirect(target))
+        resp = make_response(redirect(_portal_url_for_subscriber(sub)))
         return _set_portal_session_cookie(resp, token)
 
     if email and "@" in email:
@@ -1103,7 +1099,7 @@ def portal_page():
             if sub:
                 sub.last_portal_seen_at = datetime.now()
                 session.commit()
-                resp = make_response(render_template("portal.html"))
+                resp = make_response(redirect(_portal_url_for_subscriber(sub)))
                 return _set_portal_session_cookie(resp, sub.token)
         finally:
             session.close()
