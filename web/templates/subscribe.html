@@ -62,11 +62,11 @@
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(420px, 460px);
             gap: 28px;
-            align-items: center;
+            align-items: start;
         }
 
         .intro-panel {
-            padding: 18px 12px 18px 4px;
+            padding: 10px 12px 14px 4px;
         }
 
         .intro-eyebrow {
@@ -85,8 +85,8 @@
         }
 
         .intro-title {
-            margin-top: 22px;
-            font-size: clamp(42px, 5vw, 72px);
+            margin-top: 18px;
+            font-size: clamp(40px, 4.6vw, 64px);
             line-height: 0.98;
             letter-spacing: -0.045em;
             font-weight: 700;
@@ -95,23 +95,23 @@
         }
 
         .intro-copy {
-            margin-top: 18px;
+            margin-top: 14px;
             max-width: 560px;
-            font-size: 18px;
-            line-height: 1.65;
+            font-size: 17px;
+            line-height: 1.58;
             color: rgba(29, 29, 31, 0.72);
         }
 
         .intro-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 28px;
+            gap: 12px;
+            margin-top: 20px;
             max-width: 720px;
         }
 
         .intro-item {
-            padding: 18px 18px 16px;
+            padding: 16px 16px 14px;
             border-radius: 22px;
             background: rgba(255, 255, 255, 0.5);
             backdrop-filter: blur(16px) saturate(150%);
@@ -136,10 +136,10 @@
         }
 
         .intro-note {
-            margin-top: 18px;
+            margin-top: 14px;
             max-width: 620px;
-            font-size: 14px;
-            line-height: 1.7;
+            font-size: 13px;
+            line-height: 1.65;
             color: rgba(29, 29, 31, 0.64);
         }
 
@@ -147,6 +147,13 @@
             display: flex;
             flex-direction: column;
             gap: 18px;
+        }
+
+        @media (min-width: 981px) {
+            .card-stack {
+                position: sticky;
+                top: 24px;
+            }
         }
 
         .card {
@@ -162,7 +169,7 @@
         }
 
         .card-header {
-            padding: 40px 32px 16px;
+            padding: 32px 32px 14px;
             text-align: center;
         }
 
@@ -182,7 +189,7 @@
         }
 
         .card-body {
-            padding: 16px 32px 40px;
+            padding: 12px 32px 30px;
         }
 
         .form-group {
@@ -407,8 +414,8 @@
         }
 
         .insight-panel {
-            margin-top: 16px;
-            padding: 14px;
+            margin-top: 14px;
+            padding: 12px;
             background: rgba(255, 255, 255, 0.5);
             border: 1px solid rgba(0, 0, 0, 0.05);
             border-radius: 14px;
@@ -417,36 +424,36 @@
         .insight-stats {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 8px;
+            margin-bottom: 8px;
         }
 
         .insight-stat {
             background: rgba(255, 255, 255, 0.75);
             border-radius: 10px;
-            padding: 10px;
+            padding: 8px;
             text-align: center;
             border: 1px solid rgba(0, 0, 0, 0.04);
         }
 
         .insight-value {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 700;
             color: var(--text-main);
         }
 
         .insight-label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-muted);
         }
 
         .insight-countdown {
             border-radius: 10px;
-            padding: 10px;
+            padding: 9px 10px;
             background: rgba(0, 113, 227, 0.08);
             color: #004d9a;
-            font-size: 13px;
-            margin-bottom: 10px;
+            font-size: 12px;
+            margin-bottom: 8px;
             line-height: 1.5;
         }
 
@@ -460,9 +467,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-main);
-            padding: 8px 10px;
+            padding: 7px 9px;
             background: rgba(255, 255, 255, 0.72);
             border-radius: 9px;
         }
@@ -511,19 +518,59 @@
         }
 
         .guide-panel {
-            margin-bottom: 22px;
-            padding: 16px 18px;
+            margin-bottom: 18px;
             border-radius: 18px;
+            overflow: hidden;
             background: linear-gradient(180deg, rgba(0, 113, 227, 0.08) 0%, rgba(255, 255, 255, 0.58) 100%);
             border: 1px solid rgba(0, 113, 227, 0.12);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+        }
+
+        .guide-panel[open] {
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 10px 24px rgba(0, 113, 227, 0.08);
+        }
+
+        .guide-summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 18px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            user-select: none;
+        }
+
+        .guide-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .guide-summary::after {
+            content: "展开";
+            flex-shrink: 0;
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .guide-panel[open] .guide-summary::after {
+            content: "收起";
+        }
+
+        .guide-content {
+            border-radius: 18px;
+            padding: 0 18px 16px;
         }
 
         .guide-title {
             font-size: 15px;
             font-weight: 700;
             color: var(--text-main);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .guide-list {
@@ -536,6 +583,17 @@
 
         .guide-list li+li {
             margin-top: 6px;
+        }
+
+        .action-stack {
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .action-stack .btn {
+            margin-top: 0;
         }
 
         .verify-code-panel {
@@ -675,6 +733,15 @@
             .intro-copy {
                 font-size: 16px;
             }
+
+            .guide-summary {
+                padding: 13px 16px;
+                font-size: 13px;
+            }
+
+            .guide-content {
+                padding: 0 16px 14px;
+            }
         }
     </style>
 </head>
@@ -716,14 +783,17 @@
                     </div>
                     <div class="card-body">
                         <form id="subscribeForm" onsubmit="handleSubscribe(event)">
-                            <div class="guide-panel">
-                                <div class="guide-title">&#27880;&#20876;&#25351;&#24341;</div>
-                                <ol class="guide-list">
-                                    <li>&#36755;&#20837;&#37038;&#31665;&#21518;&#28857;&#20987;&#8220;&#39318;&#27425;&#35746;&#38405;&#8221;&#65292;&#31995;&#32479;&#20250;&#31435;&#21363;&#21457;&#36865;&#39564;&#35777;&#37038;&#20214;&#12290;</li>
-                                    <li>&#20808;&#23581;&#35797;&#28857;&#20987;&#37038;&#20214;&#37324;&#30340;&#8220;&#39564;&#35777;&#37038;&#31665;&#8221;&#25353;&#38062;&#23436;&#25104;&#27880;&#20876;&#12290;</li>
-                                    <li>&#22914;&#26524; QQ &#37038;&#31665;&#37324;&#28857;&#38142;&#25509;&#27809;&#21453;&#24212;&#65292;&#30452;&#25509;&#22238;&#21040;&#26412;&#39029;&#36755;&#20837; 6 &#20301;&#39564;&#35777;&#30721;&#20063;&#21487;&#23436;&#25104;&#39564;&#35777;&#12290;</li>
-                                </ol>
-                            </div>
+                            <details class="guide-panel">
+                                <summary class="guide-summary">&#27880;&#20876;&#25351;&#24341;&#65306;&#20808;&#28857;&#37038;&#20214;&#25353;&#38062;&#65292;&#28857;&#19981;&#24320;&#23601;&#36755;&#20837; 6 &#20301;&#39564;&#35777;&#30721;</summary>
+                                <div class="guide-content">
+                                    <div class="guide-title">&#27880;&#20876;&#21482;&#38656;&#19977;&#27493;</div>
+                                    <ol class="guide-list">
+                                        <li>&#36755;&#20837;&#37038;&#31665;&#21518;&#28857;&#20987;&#8220;&#39318;&#27425;&#35746;&#38405;&#8221;&#65292;&#31995;&#32479;&#20250;&#31435;&#21363;&#21457;&#36865;&#39564;&#35777;&#37038;&#20214;&#12290;</li>
+                                        <li>&#20808;&#23581;&#35797;&#28857;&#20987;&#37038;&#20214;&#37324;&#30340;&#8220;&#39564;&#35777;&#37038;&#31665;&#8221;&#25353;&#38062;&#23436;&#25104;&#27880;&#20876;&#12290;</li>
+                                        <li>&#22914;&#26524; QQ &#37038;&#31665;&#37324;&#28857;&#38142;&#25509;&#27809;&#21453;&#24212;&#65292;&#30452;&#25509;&#22238;&#21040;&#26412;&#39029;&#36755;&#20837; 6 &#20301;&#39564;&#35777;&#30721;&#20063;&#21487;&#23436;&#25104;&#39564;&#35777;&#12290;</li>
+                                    </ol>
+                                </div>
+                            </details>
                             <div class="form-group">
                                 <label>&#37038;&#31665;&#22320;&#22336;</label>
                                 <input type="email" class="input" id="emailInput" required placeholder="name@example.com">
@@ -764,23 +834,10 @@
                                 </label>
                             </div>
 
-                            <div class="insight-panel">
-                                <div class="insight-stats">
-                                    <div class="insight-stat">
-                                        <div class="insight-value" id="insightAvailableCount">-</div>
-                                        <div class="insight-label">&#24403;&#21069;&#21487;&#36873;&#35838;&#31243;</div>
-                                    </div>
-                                    <div class="insight-stat">
-                                        <div class="insight-value" id="insightActiveCount">-</div>
-                                        <div class="insight-label">&#31995;&#32479;&#36861;&#36394;&#35838;&#31243;</div>
-                                    </div>
-                                </div>
-                                <div class="insight-countdown" id="insightCountdown">&#27491;&#22312;&#21152;&#36733;&#26368;&#36817;&#24320;&#25250;&#35838;&#31243;...</div>
-                                <div class="insight-hot-list" id="insightHotList"></div>
+                            <div class="action-stack">
+                                <button type="submit" class="btn" id="submitBtn">&#39318;&#27425;&#35746;&#38405;</button>
+                                <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
                             </div>
-
-                            <button type="submit" class="btn" id="submitBtn">&#39318;&#27425;&#35746;&#38405;</button>
-                            <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
                             <div class="message" id="msgBox"></div>
                             <div class="verify-code-panel" id="verifyCodePanel">
                                 <div class="verify-code-title">&#22914;&#26524; QQ &#37038;&#31665;&#37324;&#28857;&#39564;&#35777;&#38142;&#25509;&#27809;&#21453;&#24212;</div>
@@ -796,6 +853,21 @@
                                 </div>
                             </div>
                             <div class="action-hint">&#24050;&#27880;&#20876;&#29992;&#25143;&#21482;&#38656;&#36755;&#20837;&#37038;&#31665;&#21363;&#21487;&#36827;&#20837;&#38376;&#25143;&#65307;&#39318;&#27425;&#35746;&#38405;&#20250;&#21521;&#20320;&#30340;&#37038;&#31665;&#21457;&#36865;&#39564;&#35777;&#38142;&#25509;&#21644; 6 &#20301;&#39564;&#35777;&#30721;&#12290;</div>
+
+                            <div class="insight-panel">
+                                <div class="insight-stats">
+                                    <div class="insight-stat">
+                                        <div class="insight-value" id="insightAvailableCount">-</div>
+                                        <div class="insight-label">&#24403;&#21069;&#21487;&#36873;&#35838;&#31243;</div>
+                                    </div>
+                                    <div class="insight-stat">
+                                        <div class="insight-value" id="insightActiveCount">-</div>
+                                        <div class="insight-label">&#31995;&#32479;&#36861;&#36394;&#35838;&#31243;</div>
+                                    </div>
+                                </div>
+                                <div class="insight-countdown" id="insightCountdown">&#27491;&#22312;&#21152;&#36733;&#26368;&#36817;&#24320;&#25250;&#35838;&#31243;...</div>
+                                <div class="insight-hot-list" id="insightHotList"></div>
+                            </div>
                         </form>
                     </div>
                 </div>

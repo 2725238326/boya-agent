@@ -1728,7 +1728,7 @@ body.portal-body {
 @media (max-width: 768px) {
     .portal-feedback-float {
         right: 12px;
-        bottom: 84px;
+        bottom: 72px;
         top: auto;
         transform: none;
         width: auto;
@@ -1741,9 +1741,10 @@ body.portal-body {
         writing-mode: horizontal-tb;
         width: auto;
         border-radius: 999px;
-        padding: 10px 14px;
+        padding: 8px 12px;
         text-align: left;
         box-shadow: 0 10px 24px rgba(0, 113, 227, 0.18);
+        font-size: 12px;
     }
 
     .portal-feedback-panel {
@@ -1771,8 +1772,8 @@ body.portal-body {
     .portal-highlights {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
-        margin: 0 0 8px;
+        gap: 6px;
+        margin: 0 0 6px;
         padding: 0;
     }
 
@@ -1783,24 +1784,25 @@ body.portal-body {
     .portal-highlight-card {
         min-width: 0;
         min-height: 0;
-        padding: 8px 10px;
+        padding: 7px 8px;
         grid-template-columns: 1fr;
         grid-template-areas:
             "label"
             "value";
-        row-gap: 3px;
+        row-gap: 2px;
         align-items: start;
+        border-radius: 16px;
     }
 
     .portal-highlight-label {
-        font-size: 11px;
+        font-size: 10px;
         letter-spacing: 0;
         text-transform: none;
     }
 
     .portal-highlight-value {
         min-width: 0;
-        font-size: 24px;
+        font-size: 22px;
     }
 
     .portal-highlight-sub {
@@ -1811,14 +1813,14 @@ body.portal-body {
         flex-direction: column;
         align-items: flex-start;
         text-align: left;
-        gap: 6px;
-        padding: 8px 0 4px;
+        gap: 8px;
+        padding: 6px 0 2px;
     }
 
     .portal-hero {
         width: 100%;
         justify-content: flex-start;
-        gap: 6px;
+        gap: 4px;
     }
 
     .portal-hero-title {
@@ -1827,37 +1829,34 @@ body.portal-body {
     }
 
     .portal-hero-count {
-        font-size: 30px;
+        font-size: 28px;
     }
 
     .portal-hero-subtitle {
-        width: 100%;
-        font-size: 12px;
-        line-height: 1.4;
-        margin-top: 0;
+        display: none;
     }
 
     .portal-quick-links {
         width: 100%;
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        gap: 6px;
         max-width: none;
     }
 
     .portal-quick-card {
         width: 100%;
-        min-height: 48px;
-        padding: 8px 10px;
-        gap: 8px;
-        border-radius: 16px;
+        min-height: 42px;
+        padding: 7px 9px;
+        gap: 7px;
+        border-radius: 14px;
         justify-content: flex-start;
     }
 
     .portal-quick-icon {
-        width: 30px;
-        height: 30px;
-        font-size: 18px;
+        width: 28px;
+        height: 28px;
+        font-size: 16px;
         border-radius: 999px;
     }
 
@@ -1866,22 +1865,22 @@ body.portal-body {
     }
 
     .portal-quick-title {
-        font-size: 13px;
+        font-size: 12px;
     }
 
     .portal-mobile-help {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 38px;
-        width: 100%;
-        padding: 0 14px;
+        min-height: 34px;
+        width: auto;
+        padding: 0 12px;
         border: 1px solid rgba(0, 113, 227, 0.16);
-        border-radius: 14px;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.72);
         color: var(--portal-accent);
         box-shadow: var(--portal-shadow-card);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         font-family: var(--portal-font);
     }
@@ -1909,12 +1908,12 @@ body.portal-body {
 
     .portal-course-grid {
         grid-template-columns: 1fr;
-        gap: 14px;
-        margin-bottom: 28px;
+        gap: 12px;
+        margin-bottom: 24px;
     }
 
     .portal-course-card {
-        padding: 18px;
+        padding: 16px;
     }
 
     .portal-split {
@@ -1923,13 +1922,19 @@ body.portal-body {
 
     .portal-tabs {
         max-width: 100%;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
         gap: 2px;
         padding: 2px;
+        position: sticky;
+        top: 60px;
+        z-index: 40;
+        background: rgba(245, 245, 247, 0.82);
+        backdrop-filter: blur(14px) saturate(160%);
+        -webkit-backdrop-filter: blur(14px) saturate(160%);
     }
 
     .portal-tab {
-        padding: 10px 8px;
+        padding: 9px 8px;
         font-size: 13px;
     }
 
@@ -1960,7 +1965,7 @@ body.portal-body {
         display: grid;
         grid-template-columns: 1fr 1fr;
         align-items: stretch;
-        gap: 10px;
+        gap: 8px;
     }
 
     .portal-search {
@@ -1977,7 +1982,7 @@ body.portal-body {
     .portal-filter-actions {
         grid-column: 1 / -1;
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: auto 1fr auto;
         gap: 8px;
         align-items: stretch;
     }
@@ -1986,7 +1991,7 @@ body.portal-body {
         grid-column: 1 / -1;
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
+        gap: 8px;
     }
 
     .portal-filter-extra.is-collapsed {
@@ -2006,16 +2011,19 @@ body.portal-body {
 
     .portal-checkbox-label {
         min-height: 40px;
-        padding: 0 12px;
-        border-radius: 14px;
+        padding: 0 10px;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.72);
         border: 1px solid rgba(0, 0, 0, 0.05);
         box-shadow: var(--portal-shadow-card);
+        font-size: 13px;
     }
 
     .portal-filter-refresh {
         width: 100%;
         justify-content: center;
+        min-height: 38px;
+        padding: 9px 12px;
     }
 
     .portal-refresh-meta {
@@ -2026,17 +2034,17 @@ body.portal-body {
         width: 100%;
         grid-column: 1 / -1;
         text-align: right;
-        font-size: 12px;
+        font-size: 11px;
         white-space: nowrap;
     }
 
     .portal-nav-inner {
         padding: 0 16px;
-        height: 56px;
+        height: 52px;
     }
 
     .portal-main {
-        padding: 0 16px 140px;
+        padding: 0 16px 128px;
     }
 
     .portal-logo {
@@ -2052,7 +2060,7 @@ body.portal-body {
     }
 
     .portal-user-btn {
-        padding: 7px 12px;
+        padding: 6px 11px;
         font-size: 12px;
     }
 
@@ -2093,7 +2101,7 @@ body.portal-body {
     }
 
     .portal-highlight-value {
-        font-size: 22px;
+        font-size: 20px;
     }
 
     .portal-highlight-label {
@@ -2102,12 +2110,12 @@ body.portal-body {
 
     .portal-highlight-card {
         min-height: 0;
-        padding: 8px 9px;
+        padding: 7px 7px;
     }
 
     .portal-tab {
         font-size: 12px;
-        padding: 9px 6px;
+        padding: 8px 6px;
     }
 
     .portal-filter-bar {
@@ -2117,6 +2125,12 @@ body.portal-body {
     .portal-filter-actions {
         grid-template-columns: 1fr 1fr;
         gap: 8px;
+    }
+
+    .portal-refresh-meta {
+        justify-content: flex-start;
+        text-align: left;
+        font-size: 11px;
     }
 
     .portal-filter-extra {
@@ -2129,13 +2143,13 @@ body.portal-body {
     }
 
     .portal-feedback-float {
-        right: 12px;
-        bottom: 90px;
+        right: 10px;
+        bottom: 78px;
     }
 
     .portal-feedback-tab {
         padding: 6px 10px;
-        font-size: 12px;
+        font-size: 11px;
         opacity: 0.94;
     }
 
@@ -2144,11 +2158,11 @@ body.portal-body {
     }
 
     .portal-hero-count {
-        font-size: 28px;
+        font-size: 26px;
     }
 
     .portal-hero-title-label {
-        font-size: 16px;
+        font-size: 15px;
     }
 
     .portal-hero-subtitle {
@@ -2157,7 +2171,7 @@ body.portal-body {
 
     .portal-hero-section {
         gap: 6px;
-        padding: 8px 0 4px;
+        padding: 4px 0 2px;
     }
 
     .portal-quick-links {
@@ -2166,7 +2180,7 @@ body.portal-body {
 
     .portal-quick-card {
         min-height: 44px;
-        padding: 8px 10px;
+        padding: 7px 8px;
     }
 
     .portal-quick-title {
