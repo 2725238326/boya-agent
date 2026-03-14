@@ -251,10 +251,14 @@ async function loadPortalData() {
 
     // Reminders
     if (remindersRes.success) {
-        portalState.reminderCourseIds = new Set(remindersRes.data.map(r => r.course_id));
-        renderReminders(remindersRes.data);
+        const highlightReminderItems = highlightsRes.success && highlightsRes.data && Array.isArray(highlightsRes.data.pending_reminder_items)
+            ? highlightsRes.data.pending_reminder_items
+            : [];
+        const reminderItems = remindersRes.data.length ? remindersRes.data : highlightReminderItems;
+        portalState.reminderCourseIds = new Set(reminderItems.map(r => r.course_id));
+        renderReminders(reminderItems);
         // Update reminder count badge
-        const pendingCount = remindersRes.data.filter(r => !r.sent).length;
+        const pendingCount = reminderItems.filter(r => !r.sent).length;
         const badge = document.getElementById('reminderBadge');
         if (pendingCount > 0) {
             badge.textContent = pendingCount;

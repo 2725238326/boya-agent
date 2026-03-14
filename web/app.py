@@ -227,6 +227,32 @@ def _verify_subscriber_code(session, email: str, code: str, bridge_ticket: str =
     return sub, None
 
 
+def _serialize_course_reminders(session, subscriber_id: int, pending_only: bool = False):
+    query = (
+        session.query(CourseReminder)
+        .filter_by(subscriber_id=subscriber_id)
+        .order_by(CourseReminder.created_at.desc())
+    )
+    if pending_only:
+        query = query.filter_by(sent=False)
+
+    result = []
+    for reminder in query.all():
+        course = session.query(Course).filter_by(id=reminder.course_id).first()
+        result.append({
+            "id": reminder.id,
+            "course_id": reminder.course_id,
+            "course_name": course.name if course else "未知课程",
+            "course_category": course.category if course else "",
+            "course_teacher": course.teacher if course else "",
+            "enroll_start": course.enroll_start.strftime("%Y-%m-%d %H:%M") if course and course.enroll_start else "",
+            "remind_before_minutes": reminder.remind_before_minutes,
+            "sent": reminder.sent,
+            "created_at": reminder.created_at.strftime("%Y-%m-%d %H:%M") if reminder.created_at else "",
+        })
+    return result
+
+
 # ========== 页面路由 ==========
 
 @app.route("/")
@@ -1381,28 +1407,7 @@ def api_subscriber_reminders(token=None):
         if not sub:
             return jsonify({"success": False, "error": "无效的 token"}), 404
 
-        reminders = (
-            session.query(CourseReminder)
-            .filter_by(subscriber_id=sub.id)
-            .order_by(CourseReminder.created_at.desc())
-            .all()
-        )
-
-        result = []
-        for r in reminders:
-            course = session.query(Course).filter_by(id=r.course_id).first()
-            result.append({
-                "id": r.id,
-                "course_id": r.course_id,
-                "course_name": course.name if course else "未知课程",
-                "course_category": course.category if course else "",
-                "course_teacher": course.teacher if course else "",
-                "enroll_start": course.enroll_start.strftime("%Y-%m-%d %H:%M") if course and course.enroll_start else "",
-                "remind_before_minutes": r.remind_before_minutes,
-                "sent": r.sent,
-                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
-            })
-
+        result = _serialize_course_reminders(session, sub.id)
         return jsonify({"success": True, "data": result, "total": len(result)})
     finally:
         session.close()
@@ -1686,6 +1691,7 @@ def api_portal_highlights():
             .filter_by(subscriber_id=sub.id, sent=False)
             .count()
         )
+        pending_reminder_items = _serialize_course_reminders(session, sub.id, pending_only=True)
 
         # 推送暂停状态
         push_paused_until = None
@@ -1699,6 +1705,7 @@ def api_portal_highlights():
                 "upcoming_count": len(upcoming_data),
                 "today_new_count": today_new,
                 "pending_reminders": pending_reminders,
+                "pending_reminder_items": pending_reminder_items,
                 "push_paused_until": push_paused_until,
             },
         })
