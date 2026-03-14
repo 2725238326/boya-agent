@@ -452,6 +452,52 @@ def send_login_email(to_email: str, login_url: str) -> bool:
     return retry_ok
 
 
+# Override the historical verification mail implementation with a clean version.
+def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
+    """发送邮箱验证邮件。"""
+    guide_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 14px;">
+  <p style="margin:0 0 10px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">注册指引</p>
+  <p style="margin:0 0 8px; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.75;">
+    1. 先点击下方“验证邮箱”按钮尝试完成验证。<br>
+    2. 如果 QQ 邮箱里点链接没有反应，请回到
+    <a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top/subscribe</a>。<br>
+    3. 在订阅页输入这封邮件里的 6 位验证码，也可以直接完成验证并进入门户。
+  </p>
+</td></tr></table>"""
+
+    code_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 16px; text-align:center;">
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">验证码兜底</p>
+  <p style="margin:0 0 8px; font-size:30px; letter-spacing:0.24em; font-weight:800; color:{_EMAIL_TEXT};">{verify_code}</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+    如果 QQ 邮箱里点验证链接没有反应，回到
+    <a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top/subscribe</a>
+    输入这个 6 位验证码，也可以完成验证。
+  </p>
+</td></tr></table>"""
+
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  完成这一步后，你就可以开始接收博雅课程通知，并在后续直接进入你的个人门户。
+</p>
+{_email_info_panel("下一步", "验证你的邮箱", "点击下方按钮完成验证。如果邮箱内置浏览器没有反应，请直接使用下方的 6 位验证码。")}
+{guide_panel}
+{_email_primary_button(verify_url, "验证邮箱")}
+{code_panel}
+{_email_link_fallback(verify_url, "如果按钮无法打开，请复制下面的链接到系统浏览器：")}"""
+
+    html = _email_shell("验证你的邮箱", body, eyebrow="邮箱验证")
+    ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
+    if ok:
+        logger.info(f"验证邮件已发送: {to_email}")
+    return ok
+
+
 # ========== 课程通知 ==========
 
 
