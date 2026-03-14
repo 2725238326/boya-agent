@@ -5,6 +5,7 @@ Flask Web 控制台
 
 import os
 import asyncio
+import secrets
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
@@ -45,6 +46,7 @@ PORTAL_SESSION_COOKIE = "portal_token"
 PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
 LOGIN_EMAIL_COOLDOWN_SECONDS = 20
 LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "900")))
+VERIFICATION_CODE_TTL_MINUTES = max(5, int(os.getenv("VERIFICATION_CODE_TTL_MINUTES", "20")))
 _login_email_last_sent_at = {}
 DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
 
@@ -148,6 +150,40 @@ def _portal_url_for_subscriber(sub: EmailSubscriber) -> str:
     return "/portal"
 
 
+def _generate_verification_code() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def _normalize_verification_code(text: str) -> str:
+    return "".join(ch for ch in (text or "") if ch.isdigit())[:6]
+
+
+def _issue_verification_code(sub: EmailSubscriber) -> str:
+    code = _generate_verification_code()
+    sub.verify_code = code
+    sub.verify_code_expires_at = datetime.now() + timedelta(minutes=VERIFICATION_CODE_TTL_MINUTES)
+    return code
+
+
+def _clear_verification_code(sub: EmailSubscriber) -> None:
+    sub.verify_code = None
+    sub.verify_code_expires_at = None
+
+
+def _mark_all_bridges_verified(session, sub: EmailSubscriber) -> None:
+    now = datetime.now()
+    bridges = (
+        session.query(LoginBridgeTicket)
+        .filter_by(subscriber_token=sub.token)
+        .all()
+    )
+    for bridge in bridges:
+        if bridge.expires_at and bridge.expires_at < now:
+            continue
+        bridge.verified = True
+        bridge.verified_at = now
+
+
 def _verify_subscriber_token(session, token: str, bridge_ticket: str = ""):
     sub = session.query(EmailSubscriber).filter_by(token=token).first()
     if not sub:
@@ -155,7 +191,39 @@ def _verify_subscriber_token(session, token: str, bridge_ticket: str = ""):
 
     sub.verified = True
     sub.active = True
+    _clear_verification_code(sub)
     _mark_bridge_verified(session, bridge_ticket, sub)
+    _mark_all_bridges_verified(session, sub)
+    return sub, None
+
+
+def _verify_subscriber_code(session, email: str, code: str, bridge_ticket: str = ""):
+    sub = session.query(EmailSubscriber).filter_by(email=email).first()
+    if not sub:
+        return None, "missing"
+
+    if sub.verified and sub.active:
+        _mark_bridge_verified(session, bridge_ticket, sub)
+        _mark_all_bridges_verified(session, sub)
+        return sub, None
+
+    normalized = _normalize_verification_code(code)
+    if len(normalized) != 6:
+        return None, "invalid_code"
+
+    expires_at = sub.verify_code_expires_at
+    if not sub.verify_code or not expires_at:
+        return None, "missing_code"
+    if expires_at < datetime.now():
+        return None, "expired_code"
+    if sub.verify_code != normalized:
+        return None, "code_mismatch"
+
+    sub.verified = True
+    sub.active = True
+    _clear_verification_code(sub)
+    _mark_bridge_verified(session, bridge_ticket, sub)
+    _mark_all_bridges_verified(session, sub)
     return sub, None
 
 
@@ -681,16 +749,23 @@ def api_subscribe():
             token = sub.token
 
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        verify_code = _issue_verification_code(sub)
         bridge = _create_login_bridge_ticket(session, sub)
         base_url = _get_public_base_url()
         verify_url = f"{base_url}/verify/{token}?bridge={bridge.ticket}"
-        ok = send_verification_email(email, verify_url)
+        subscribe_url = f"{base_url}/subscribe"
+        ok = send_verification_email(email, verify_url, verify_code, subscribe_url)
 
         if ok:
             session.commit()
             return jsonify({
                 "success": True,
-                "message": "首次订阅需要点击邮箱链接完成验证，验证后即可进入门户。",
+                "message": "验证邮件已经发出。若邮箱内点链接没有反应，可直接在本页输入邮件里的 6 位验证码完成验证。",
+                "data": {
+                    "email": email,
+                    "verify_code_required": True,
+                    "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
+                },
                 **_bridge_payload(bridge),
             })
         return jsonify({"success": False, "error": "验证邮件发送失败，请稍后重试"}), 500
@@ -795,6 +870,48 @@ def api_verify_confirm(token):
         session.rollback()
         logger.error(f"verify confirm failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/subscribe/verify-code", methods=["POST"])
+def api_subscribe_verify_code():
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    code = _normalize_verification_code(data.get("code") or "")
+    bridge_ticket = (data.get("bridge_ticket") or "").strip()
+
+    if not email or "@" not in email:
+        return jsonify({"success": False, "error": "请输入订阅时使用的邮箱"}), 400
+    if len(code) != 6:
+        return jsonify({"success": False, "error": "请输入邮件中的 6 位验证码"}), 400
+
+    session = get_session()
+    try:
+        sub, error = _verify_subscriber_code(session, email, code, bridge_ticket)
+        if error == "missing":
+            return jsonify({"success": False, "error": "没有找到这个邮箱的订阅记录，请先重新提交订阅"}), 404
+        if error == "missing_code":
+            return jsonify({"success": False, "error": "这个邮箱当前没有待验证的验证码，请重新发送验证邮件"}), 409
+        if error == "expired_code":
+            return jsonify({"success": False, "error": "验证码已过期，请回到订阅页重新发送验证邮件"}), 410
+        if error in {"invalid_code", "code_mismatch"}:
+            return jsonify({"success": False, "error": "验证码不正确，请检查邮件中的 6 位数字"}), 400
+
+        session.commit()
+        resp = jsonify({
+            "success": True,
+            "message": "邮箱验证成功，正在进入课程门户。",
+            "data": {
+                "email": sub.email,
+                "portal_url": _portal_url_for_subscriber(sub),
+            },
+        })
+        return _set_portal_session_cookie(resp, sub.token)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"subscribe verify code failed: {e}")
+        return jsonify({"success": False, "error": "验证码验证失败，请稍后重试"}), 500
     finally:
         session.close()
 

@@ -1,5 +1,5 @@
-"""
-SQLAlchemy 数据模型 - 课程信息 & 筛选配置
+﻿"""
+SQLAlchemy 鏁版嵁妯″瀷 - 璇剧▼淇℃伅 & 绛涢€夐厤缃?
 """
 
 import json
@@ -17,37 +17,37 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 class Course(Base):
-    """博雅课程信息"""
+    """鍗氶泤璇剧▼淇℃伅"""
     __tablename__ = "courses"
 
-    id = Column(String, primary_key=True)  # 名称+时间 hash
+    id = Column(String, primary_key=True)  # 鍚嶇О+鏃堕棿 hash
     name = Column(String, nullable=False)
     category = Column(String, default="")
     location = Column(String, default="")
     teacher = Column(String, default="")
-    college = Column(String, default="")       # 学院
+    college = Column(String, default="")       # 瀛﹂櫌
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
     enroll_start = Column(DateTime, nullable=True)
     enroll_end = Column(DateTime, nullable=True)
-    sign_method = Column(String, default="")     # 自主签课 / 非自主签课
+    sign_method = Column(String, default="")     # 鑷富绛捐 / 闈炶嚜涓荤璇?
     capacity = Column(Integer, default=0)
     enrolled = Column(Integer, default=0)
-    status = Column(String, default="")         # 可选 / 已满
+    status = Column(String, default="")         # 鍙€?/ 宸叉弧
     campus = Column(String, default="")
-    open_college = Column(String, default="")   # 开放学院
-    open_grade = Column(String, default="")     # 开放年级
-    open_group = Column(String, default="")     # 开放人群
-    has_homework = Column(String, default="")   # 课程作业
-    check_in_method = Column(String, default="")  # 签到方式（详情页）
-    description = Column(Text, default="")        # 课程介绍（详情页）
-    organizer = Column(String, default="")        # 课程组织负责人
+    open_college = Column(String, default="")   # 寮€鏀惧闄?
+    open_grade = Column(String, default="")     # 寮€鏀惧勾绾?
+    open_group = Column(String, default="")     # 寮€鏀句汉缇?
+    has_homework = Column(String, default="")   # 璇剧▼浣滀笟
+    check_in_method = Column(String, default="")  # 绛惧埌鏂瑰紡锛堣鎯呴〉锛?
+    description = Column(Text, default="")        # 璇剧▼浠嬬粛锛堣鎯呴〉锛?
+    organizer = Column(String, default="")        # 璇剧▼缁勭粐璐熻矗浜?
 
     first_seen = Column(DateTime, default=datetime.now)
     last_seen = Column(DateTime, default=datetime.now)
     pushed = Column(Boolean, default=False)
-    expired = Column(Boolean, default=False)  # 选课已截止/失效
-    enrolled_by_bot = Column(Boolean, default=False)  # 是否被自动选课
+    expired = Column(Boolean, default=False)  # 閫夎宸叉埅姝?澶辨晥
+    enrolled_by_bot = Column(Boolean, default=False)  # 鏄惁琚嚜鍔ㄩ€夎
 
     @property
     def remaining(self) -> int:
@@ -92,32 +92,32 @@ class Course(Base):
 
 
 class FilterConfig(Base):
-    """用户筛选配置"""
+    """User filter configuration."""
     __tablename__ = "filter_config"
 
     id = Column(Integer, primary_key=True, default=1)
-    categories_json = Column(Text, default="[]")         # 选中的类别列表
-    self_sign_only = Column(Boolean, default=True)        # 仅自主签到
-    strict_boya_only = Column(Boolean, default=False)     # 严格博雅规则：非校医院 + 自主签到
-    min_remaining = Column(Integer, default=1)            # 最少剩余名额
-    campus_filter = Column(String, default="")            # 校区过滤
-    keyword_whitelist_json = Column(Text, default="[]")   # 关键词白名单
-    keyword_blacklist_json = Column(Text, default="[]")   # 关键词黑名单
+    categories_json = Column(Text, default="[]")         # 閫変腑鐨勭被鍒垪琛?
+    self_sign_only = Column(Boolean, default=True)        # 浠呰嚜涓荤鍒?
+    strict_boya_only = Column(Boolean, default=False)     # 涓ユ牸鍗氶泤瑙勫垯锛氶潪鏍″尰闄?+ 鑷富绛惧埌
+    min_remaining = Column(Integer, default=1)            # 鏈€灏戝墿浣欏悕棰?
+    campus_filter = Column(String, default="")            # 鏍″尯杩囨护
+    keyword_whitelist_json = Column(Text, default="[]")   # 鍏抽敭璇嶇櫧鍚嶅崟
+    keyword_blacklist_json = Column(Text, default="[]")   # 鍏抽敭璇嶉粦鍚嶅崟
 
-    # 自动选课设置
+    # 鑷姩閫夎璁剧疆
     auto_enroll_enabled = Column(Boolean, default=False)
-    priority_keywords_json = Column(Text, default="[]")   # 意愿优先级关键词
+    priority_keywords_json = Column(Text, default="[]")   # 鎰忔効浼樺厛绾у叧閿瘝
     confirm_before_enroll = Column(Boolean, default=True)
     max_auto_enroll_per_day = Column(Integer, default=2)
 
-    # 推送设置
+    # 鎺ㄩ€佽缃?
     telegram_enabled = Column(Boolean, default=False)
     email_enabled = Column(Boolean, default=False)
     rss_enabled = Column(Boolean, default=True)
-    daily_summary_enabled = Column(Boolean, default=False)   # 是否启用每日汇总推送
-    daily_summary_time = Column(String, default="21:00")     # 每日汇总推送时间（HH:MM）
+    daily_summary_enabled = Column(Boolean, default=False)   # 鏄惁鍚敤姣忔棩姹囨€绘帹閫?
+    daily_summary_time = Column(String, default="21:00")     # 姣忔棩姹囨€绘帹閫佹椂闂达紙HH:MM锛?
 
-    # 调度设置
+    # 璋冨害璁剧疆
     interval_minutes = Column(Integer, default=10)
 
     @property
@@ -175,7 +175,7 @@ class FilterConfig(Base):
 
 
 class PushLog(Base):
-    """推送日志"""
+    """Push delivery log."""
     __tablename__ = "push_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -187,7 +187,7 @@ class PushLog(Base):
 
 
 class EnrollLog(Base):
-    """选课操作日志"""
+    """閫夎鎿嶄綔鏃ュ織"""
     __tablename__ = "enroll_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -199,7 +199,7 @@ class EnrollLog(Base):
 
 
 class EmailSubscriber(Base):
-    """邮件订阅者"""
+    """Email subscriber."""
     __tablename__ = "email_subscribers"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -207,13 +207,15 @@ class EmailSubscriber(Base):
     token = Column(String, unique=True, default=lambda: secrets.token_urlsafe(32))
     verified = Column(Boolean, default=False)
     active = Column(Boolean, default=True)
-    # 偏好设置
+    # 鍋忓ソ璁剧疆
     categories_json = Column(Text, default="[]")
     campus_filter = Column(String, default="")
     self_sign_only = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
-    push_paused_until = Column(DateTime, nullable=True)  # 推送暂停截止时间，None 表示不暂停
+    push_paused_until = Column(DateTime, nullable=True)
     last_portal_seen_at = Column(DateTime, nullable=True)
+    verify_code = Column(String, nullable=True)
+    verify_code_expires_at = Column(DateTime, nullable=True)
 
     @property
     def categories(self) -> list:
@@ -249,7 +251,7 @@ class EmailSubscriber(Base):
 
 
 class LoginBridgeTicket(Base):
-    """跨设备验证后的一次性登录桥接票据"""
+    """Cross-device login bridge ticket."""
     __tablename__ = "login_bridge_tickets"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -265,19 +267,19 @@ class LoginBridgeTicket(Base):
 
 
 class CourseReminder(Base):
-    """选课提醒：用户通过邮件中的“提醒我选课”按钮注册"""
+    """Reminder created from the email action link."""
     __tablename__ = "course_reminders"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    subscriber_id = Column(Integer, nullable=False)   # 关联 EmailSubscriber.id
-    course_id = Column(String, nullable=False)         # 关联 Course.id
+    subscriber_id = Column(Integer, nullable=False)   # 鍏宠仈 EmailSubscriber.id
+    course_id = Column(String, nullable=False)         # 鍏宠仈 Course.id
     remind_before_minutes = Column(Integer, default=5)
     sent = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 
 
 class NotificationEvent(Base):
-    """面向订阅者的通知中心事件（用于门户时间线）"""
+    """Subscriber-facing notification event."""
     __tablename__ = "notification_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -296,10 +298,10 @@ class NotificationEvent(Base):
 
 
 def init_db():
-    """初始化数据库表，如果不存在则创建"""
+    """鍒濆鍖栨暟鎹簱琛紝濡傛灉涓嶅瓨鍦ㄥ垯鍒涘缓"""
     Base.metadata.create_all(engine)
     _migrate_schema_if_needed()
-    # 确保至少有一条 FilterConfig 记录
+    # 纭繚鑷冲皯鏈変竴鏉?FilterConfig 璁板綍
     session = SessionLocal()
     try:
         config = session.query(FilterConfig).first()
@@ -312,12 +314,12 @@ def init_db():
 
 
 def get_session():
-    """获取数据库会话"""
+    """Get a database session."""
     return SessionLocal()
 
 
 def _migrate_schema_if_needed():
-    """最小化迁移：为旧库补充新列"""
+    """鏈€灏忓寲杩佺Щ锛氫负鏃у簱琛ュ厖鏂板垪"""
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
     with engine.begin() as conn:
@@ -367,3 +369,14 @@ def _migrate_schema_if_needed():
                     "ALTER TABLE email_subscribers "
                     "ADD COLUMN last_portal_seen_at DATETIME"
                 ))
+            if "verify_code" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN verify_code VARCHAR"
+                ))
+            if "verify_code_expires_at" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN verify_code_expires_at DATETIME"
+                ))
+

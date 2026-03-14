@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>订阅博雅课程</title>
+    <title>&#35746;&#38405;&#21338;&#38597;&#35838;&#31243;</title>
     <style>
         :root {
             /* Apple light theme colors */
@@ -510,6 +510,39 @@
             text-align: center;
         }
 
+        .verify-code-panel {
+            margin-top: 14px;
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            display: none;
+        }
+
+        .verify-code-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 6px;
+        }
+
+        .verify-code-note {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.65;
+            margin-bottom: 12px;
+        }
+
+        .verify-code-row {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .verify-code-btn {
+            margin-top: 0;
+        }
+
         .result-card {
             text-align: center;
             padding: 60px 40px;
@@ -713,6 +746,19 @@
                             <button type="submit" class="btn" id="submitBtn">&#39318;&#27425;&#35746;&#38405;</button>
                             <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
                             <div class="message" id="msgBox"></div>
+                            <div class="verify-code-panel" id="verifyCodePanel">
+                                <div class="verify-code-title">&#22914;&#26524; QQ &#37038;&#31665;&#37324;&#28857;&#39564;&#35777;&#38142;&#25509;&#27809;&#21453;&#24212;</div>
+                                <div class="verify-code-note">
+                                    &#30452;&#25509;&#36755;&#20837;&#37038;&#20214;&#37324;&#30340; 6 &#20301;&#39564;&#35777;&#30721;&#20063;&#21487;&#20197;&#23436;&#25104;&#39564;&#35777;&#12290;
+                                    &#39564;&#35777;&#25104;&#21151;&#21518;&#20250;&#30452;&#25509;&#36827;&#20837;&#35838;&#31243;&#38376;&#25143;&#12290;
+                                </div>
+                                <div class="verify-code-row">
+                                    <input type="text" class="input" id="verifyCodeInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 &#20301;&#39564;&#35777;&#30721;">
+                                    <button type="button" class="btn btn-secondary verify-code-btn" id="verifyCodeBtn" onclick="submitVerificationCode()">
+                                        &#36755;&#20837;&#39564;&#35777;&#30721;&#23436;&#25104;&#39564;&#35777;
+                                    </button>
+                                </div>
+                            </div>
                             <div class="action-hint">&#24050;&#27880;&#20876;&#29992;&#25143;&#21482;&#38656;&#36755;&#20837;&#37038;&#31665;&#21363;&#21487;&#36827;&#20837;&#38376;&#25143;&#65307;&#39318;&#27425;&#35746;&#38405;&#20250;&#21521;&#20320;&#30340;&#37038;&#31665;&#21457;&#36865;&#39564;&#35777;&#38142;&#25509;&#12290;</div>
                         </form>
                     </div>
@@ -740,6 +786,9 @@
             error: '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />',
             info: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />'
         };
+        const PENDING_VERIFY_EMAIL_KEY = 'portal_pending_verify_email';
+        const BRIDGE_TICKET_KEY = 'portal_bridge_ticket';
+        const BRIDGE_EXPIRES_KEY = 'portal_bridge_expires_at';
         let insightSecondsLeft = null;
         let insightTimer = null;
 
@@ -750,13 +799,92 @@
                 .map(c => c.textContent.trim());
         }
 
+        function showVerifyCodePanel(email) {
+            const panel = document.getElementById('verifyCodePanel');
+            if (!panel) return;
+            panel.style.display = 'block';
+            if (email) {
+                sessionStorage.setItem(PENDING_VERIFY_EMAIL_KEY, email);
+            }
+        }
+
+        function hideVerifyCodePanel() {
+            const panel = document.getElementById('verifyCodePanel');
+            if (!panel) return;
+            panel.style.display = 'none';
+            sessionStorage.removeItem(PENDING_VERIFY_EMAIL_KEY);
+        }
+
+        async function submitVerificationCode() {
+            const email = document.getElementById('emailInput').value.trim().toLowerCase();
+            const codeInput = document.getElementById('verifyCodeInput');
+            const btn = document.getElementById('verifyCodeBtn');
+            const msg = document.getElementById('msgBox');
+            const code = (codeInput.value || '').replace(/\D/g, '').slice(0, 6);
+
+            if (!email || !email.includes('@')) {
+                msg.className = 'message error';
+                msg.textContent = '\u8bf7\u5148\u8f93\u5165\u8ba2\u9605\u65f6\u4f7f\u7528\u7684\u90ae\u7bb1';
+                msg.style.display = 'block';
+                return;
+            }
+            if (code.length !== 6) {
+                msg.className = 'message error';
+                msg.textContent = '\u8bf7\u8f93\u5165\u90ae\u4ef6\u91cc\u7684 6 \u4f4d\u9a8c\u8bc1\u7801';
+                msg.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '\u5904\u7406\u4e2d...';
+            msg.className = 'message';
+            msg.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/subscribe/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email,
+                        code,
+                        bridge_ticket: sessionStorage.getItem(BRIDGE_TICKET_KEY) || '',
+                    }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    sessionStorage.removeItem(PENDING_VERIFY_EMAIL_KEY);
+                    sessionStorage.removeItem(BRIDGE_TICKET_KEY);
+                    sessionStorage.removeItem(BRIDGE_EXPIRES_KEY);
+                    msg.className = 'message success';
+                    msg.textContent = data.message || '\u90ae\u7bb1\u9a8c\u8bc1\u6210\u529f';
+                    msg.style.display = 'block';
+                    hideVerifyCodePanel();
+                    const portalUrl = data.data && data.data.portal_url;
+                    setTimeout(() => {
+                        window.location.href = portalUrl || '/portal';
+                    }, 500);
+                } else {
+                    msg.className = 'message error';
+                    msg.textContent = data.error || '\u767b\u5f55\u5931\u8d25';
+                    msg.style.display = 'block';
+                }
+            } catch (err) {
+                msg.className = 'message error';
+                msg.textContent = '\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
+                msg.style.display = 'block';
+            }
+
+            btn.disabled = false;
+            btn.textContent = '\u9996\u6b21\u8ba2\u9605';
+        }
+
         async function handleSubscribe(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
             const msg = document.getElementById('msgBox');
             const email = document.getElementById('emailInput').value.trim();
             btn.disabled = true;
-            btn.textContent = '处理中...';
+            btn.textContent = '\u5904\u7406\u4e2d...';
             msg.className = 'message';
             msg.style.display = 'none';
 
@@ -787,20 +915,22 @@
                         setTimeout(() => {
                             window.location.href = portalUrl;
                         }, 800);
+                    } else {
+                        showVerifyCodePanel(email);
                     }
                 } else {
                     msg.className = 'message error';
-                    msg.textContent = data.error || '订阅失败';
+                    msg.textContent = data.error || '\u8ba2\u9605\u5931\u8d25';
                     msg.style.display = 'block';
                 }
             } catch (err) {
                 msg.className = 'message error';
-                msg.textContent = '网络错误，请稍后重试';
+                msg.textContent = '\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
                 msg.style.display = 'block';
             }
 
             btn.disabled = false;
-            btn.textContent = '首次订阅';
+            btn.textContent = '\u9996\u6b21\u8ba2\u9605';
         }
 
         async function sendLoginLink() {
@@ -809,13 +939,13 @@
             const email = document.getElementById('emailInput').value.trim();
             if (!email || !email.includes('@')) {
                 msg.className = 'message error';
-                msg.textContent = '请先输入有效邮箱';
+                msg.textContent = '\u8bf7\u5148\u8f93\u5165\u6709\u6548\u90ae\u7bb1';
                 msg.style.display = 'block';
                 return;
             }
 
             btn.disabled = true;
-            btn.textContent = '登录中...';
+            btn.textContent = '\u767b\u5f55\u4e2d...';
             msg.className = 'message';
             msg.style.display = 'none';
 
@@ -832,6 +962,9 @@
                     } else {
                         localStorage.removeItem('portal_last_email');
                     }
+                    hideVerifyCodePanel();
+                    sessionStorage.removeItem(BRIDGE_TICKET_KEY);
+                    sessionStorage.removeItem(BRIDGE_EXPIRES_KEY);
                     msg.className = 'message success';
                     msg.textContent = data.message;
                     msg.style.display = 'block';
@@ -843,17 +976,17 @@
                     }
                 } else {
                     msg.className = 'message error';
-                    msg.textContent = data.error || '发送失败';
+                    msg.textContent = data.error || '\u767b\u5f55\u5931\u8d25';
                     msg.style.display = 'block';
                 }
             } catch (err) {
                 msg.className = 'message error';
-                msg.textContent = '网络错误，请稍后重试';
+                msg.textContent = '\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
                 msg.style.display = 'block';
             }
 
             btn.disabled = false;
-            btn.textContent = '已注册用户邮箱登录';
+            btn.textContent = '\u5df2\u6ce8\u518c\u7528\u6237\u90ae\u7bb1\u767b\u5f55';
         }
 
         const rememberedEmail = localStorage.getItem('portal_last_email') || '';
@@ -862,26 +995,35 @@
             if (emailInput) emailInput.value = rememberedEmail;
         }
 
+        const pendingVerifyEmail = sessionStorage.getItem(PENDING_VERIFY_EMAIL_KEY) || '';
+        if (pendingVerifyEmail) {
+            const emailInput = document.getElementById('emailInput');
+            if (emailInput && !emailInput.value) {
+                emailInput.value = pendingVerifyEmail;
+            }
+            showVerifyCodePanel(pendingVerifyEmail);
+        }
+
         function formatSeconds(sec) {
             const s = Math.max(0, sec);
             const d = Math.floor(s / 86400);
             const h = Math.floor((s % 86400) / 3600);
             const m = Math.floor((s % 3600) / 60);
             const x = s % 60;
-            if (d > 0) return `${d}天 ${h}小时 ${m}分`;
-            if (h > 0) return `${h}小时 ${m}分 ${x}秒`;
-            return `${m}分 ${x}秒`;
+            if (d > 0) return `${d}\u5929 ${h}\u5c0f\u65f6 ${m}\u5206`;
+            if (h > 0) return `${h}\u5c0f\u65f6 ${m}\u5206 ${x}\u79d2`;
+            return `${m}\u5206 ${x}\u79d2`;
         }
 
         function renderCountdownText() {
             const box = document.getElementById('insightCountdown');
             if (!box) return;
             if (insightSecondsLeft === null) {
-                box.textContent = '最近暂无即将开抢课程';
+                box.textContent = '\u6700\u8fd1\u6682\u65f6\u6ca1\u6709\u5373\u5c06\u5f00\u62a2\u7684\u8bfe\u7a0b';
                 return;
             }
-            const courseName = box.dataset.courseName || '课程';
-            box.textContent = `最近开抢：${courseName} · 倒计时 ${formatSeconds(insightSecondsLeft)}`;
+            const courseName = box.dataset.courseName || '\u8bfe\u7a0b';
+            box.textContent = `\u6700\u8fd1\u5f00\u62a2\uff1a${courseName} | \u5012\u8ba1\u65f6 ${formatSeconds(insightSecondsLeft)}`;
         }
 
         function startInsightTimer() {
@@ -907,7 +1049,7 @@
                 const countdownEl = document.getElementById('insightCountdown');
                 if (d.next_enroll && countdownEl) {
                     insightSecondsLeft = Number(d.next_enroll.seconds_left || 0);
-                    countdownEl.dataset.courseName = d.next_enroll.course_name || '课程';
+                    countdownEl.dataset.courseName = d.next_enroll.course_name || '\u8bfe\u7a0b';
                 } else {
                     insightSecondsLeft = null;
                     if (countdownEl) countdownEl.dataset.courseName = '';
@@ -918,12 +1060,12 @@
                 const hot = Array.isArray(d.popular_courses) ? d.popular_courses : [];
                 if (hotListEl) {
                     if (hot.length === 0) {
-                        hotListEl.innerHTML = '<div class="insight-hot-item"><span>暂无热门课程</span><span></span></div>';
+                        hotListEl.innerHTML = '<div class="insight-hot-item"><span>\u6682\u65e0\u70ed\u95e8\u8bfe\u7a0b</span><span></span></div>';
                     } else {
                         hotListEl.innerHTML = hot.map(item => `
                             <div class="insight-hot-item">
                                 <span>${item.name}</span>
-                                <span>剩余 ${item.remaining} · 热度 ${item.hot_score ?? '-'}</span>
+                                <span>\u5269\u4f59 ${item.remaining} | \u70ed\u5ea6 ${item.hot_score ?? '-'}</span>
                             </div>
                         `).join('');
                     }
@@ -935,7 +1077,7 @@
         startInsightTimer();
         setInterval(loadPublicInsights, 30000);
 
-        // 自动跳转：如果会话仍有效，直接进入门户
+        // 鑷姩璺宠浆锛氬鏋滀細璇濅粛鏈夋晥锛岀洿鎺ヨ繘鍏ラ棬鎴?
         const params = new URLSearchParams(window.location.search);
 
         if (!params.has('result') && !params.has('force')) {
@@ -949,7 +1091,7 @@
                 .catch(() => { });
         }
 
-        // 处理结果回调显示
+        // 澶勭悊缁撴灉鍥炶皟鏄剧ず
         if (params.has('result')) {
             document.getElementById('formCard').style.display = 'none';
             document.getElementById('resultCard').style.display = 'block';
@@ -963,23 +1105,23 @@
             if (type === 'verified') {
                 iconWrapper.className = 'icon-wrapper success';
                 iconSvg.innerHTML = ICONS.success;
-                title.textContent = '邮箱验证成功';
-                desc.textContent = '你已成功订阅，系统将根据偏好为你实时推送最新博雅课程';
+                title.textContent = '\u90ae\u7bb1\u9a8c\u8bc1\u6210\u529f';
+                desc.textContent = '\u4f60\u5df2\u6210\u529f\u8ba2\u9605\uff0c\u7cfb\u7edf\u4f1a\u6309\u7167\u4f60\u7684\u504f\u597d\u53d1\u9001\u6700\u65b0\u7684\u535a\u96c5\u8bfe\u7a0b\u63d0\u9192\u3002';
             } else if (type === 'unsubscribed') {
                 iconWrapper.className = 'icon-wrapper info';
                 iconSvg.innerHTML = ICONS.info;
-                title.textContent = '退订成功';
-                desc.textContent = '你将不再接收推送邮件，如需重新订阅请返回订阅页面';
+                title.textContent = '\u9000\u8ba2\u6210\u529f';
+                desc.textContent = '\u4f60\u5c06\u4e0d\u518d\u6536\u5230\u63a8\u9001\u90ae\u4ef6\uff0c\u5982\u9700\u91cd\u65b0\u8ba2\u9605\uff0c\u8bf7\u56de\u5230\u8ba2\u9605\u9875\u91cd\u65b0\u63d0\u4ea4\u90ae\u7bb1\u3002';
             } else if (type === 'reminded') {
                 iconWrapper.className = 'icon-wrapper success';
                 iconSvg.innerHTML = ICONS.success;
-                title.textContent = '提醒注册成功';
-                desc.textContent = '我们将在该课程选课开始前 5 分钟向你发送邮件提醒，请留意收件箱';
+                title.textContent = '\u63d0\u9192\u6ce8\u518c\u6210\u529f';
+                desc.textContent = '\u6211\u4eec\u4f1a\u5728\u8be5\u8bfe\u7a0b\u9009\u8bfe\u5f00\u59cb\u524d 5 \u5206\u949f\u5411\u4f60\u53d1\u9001\u90ae\u4ef6\u63d0\u9192\uff0c\u8bf7\u7559\u610f\u6536\u4ef6\u7bb1\u3002';
             } else if (type === 'invalid') {
                 iconWrapper.className = 'icon-wrapper error';
                 iconSvg.innerHTML = ICONS.error;
-                title.textContent = '链接无效或已过期';
-                desc.textContent = '无法完成操作，请确保使用了最新的邮箱链接';
+                title.textContent = '\u94fe\u63a5\u65e0\u6548\u6216\u5df2\u8fc7\u671f';
+                desc.textContent = '\u65e0\u6cd5\u5b8c\u6210\u64cd\u4f5c\uff0c\u8bf7\u786e\u8ba4\u4f7f\u7528\u7684\u662f\u6700\u65b0\u90ae\u4ef6\u4e2d\u7684\u94fe\u63a5\u3002';
             }
         }
     </script>
@@ -988,3 +1130,4 @@
 </body>
 
 </html>
+

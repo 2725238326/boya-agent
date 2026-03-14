@@ -400,14 +400,27 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 
 # ========== 验证邮件 ==========
 
-def send_verification_email(to_email: str, verify_url: str) -> bool:
+def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
     """发送邮箱验证邮件"""
+    code_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 16px; text-align:center;">
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">验证码兜底</p>
+  <p style="margin:0 0 8px; font-size:30px; letter-spacing:0.24em; font-weight:800; color:{_EMAIL_TEXT};">{verify_code}</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+    如果 QQ 邮箱里点验证链接没有反应，回到
+    <a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top/subscribe</a>
+    输入这个 6 位验证码，也可以完成验证。
+  </p>
+</td></tr></table>"""
     body = f"""
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
   完成这一步后，你就可以开始接收博雅课程通知，并在后续直接进入你的个人门户。
 </p>
-{_email_info_panel("下一步", "验证你的邮箱", f"点击下方按钮完成验证。<br>验证完成后，当前设备和其他设备都可以继续登录。")}
+{_email_info_panel("下一步", "验证你的邮箱", f"点击下方按钮完成验证。<br>如果邮箱内置浏览器没有反应，请直接使用下面的 6 位验证码。")}
 {_email_primary_button(verify_url, "验证邮箱")}
+{code_panel}
 {_email_link_fallback(verify_url)}"""
     html = _email_shell("验证你的邮箱", body, eyebrow="邮箱验证")
     ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
