@@ -1,8 +1,8 @@
-/**
- * 博雅课程用户门户 — 交互逻辑
+﻿/**
+ * 鍗氶泤璇剧▼鐢ㄦ埛闂ㄦ埛 鈥?浜や簰閫昏緫
  */
 
-// ══════ State ══════
+// 鈺愨晲鈺愨晲鈺愨晲 State 鈺愨晲鈺愨晲鈺愨晲
 let portalState = {
     email: '',
     subscriber: null,
@@ -83,26 +83,26 @@ function renderPortalRefreshMeta() {
     const el = document.getElementById('portalRefreshMeta');
     if (!el) return;
     if (!portalState.lastCourseRefreshAt) {
-        el.textContent = '等待刷新';
+        el.textContent = '绛夊緟鍒锋柊';
         return;
     }
     const now = Date.now();
     const diffSec = Math.max(0, Math.floor((now - portalState.lastCourseRefreshAt.getTime()) / 1000));
     if (diffSec < 60) {
-        el.textContent = '刚刚更新';
+        el.textContent = '鍒氬垰鏇存柊';
         return;
     }
     const hh = String(portalState.lastCourseRefreshAt.getHours()).padStart(2, '0');
     const mm = String(portalState.lastCourseRefreshAt.getMinutes()).padStart(2, '0');
-    el.textContent = `${hh}:${mm} 更新`;
+    el.textContent = `${hh}:${mm} 鏇存柊`;
 }
 
-// ══════ Init ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Init 鈺愨晲鈺愨晲鈺愨晲
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     const email = params.get('email') || '';
     portalState.email = email;
-    document.getElementById('userEmail').textContent = email || '加载中…';
+    document.getElementById('userEmail').textContent = email || '\u52a0\u8f7d\u4e2d...';
     initTabs();
     const savedTab = localStorage.getItem(PORTAL_TAB_KEY);
     if (savedTab) switchPortalTab(savedTab);
@@ -178,13 +178,13 @@ async function finishPortalOnboarding(target = 'browse') {
             card.scrollIntoView({ behavior: 'smooth', block: 'start' });
             setTimeout(() => card.classList.remove('first-run-focus'), 2200);
         }
-        showPortalToast('这里就是偏好设置区，按需改就行，不用一次配很复杂。', 'info');
+        showPortalToast('\u8fd9\u91cc\u5c31\u662f\u504f\u597d\u8bbe\u7f6e\u533a\uff0c\u6309\u9700\u4fee\u6539\u5c31\u884c\uff0c\u4e0d\u7528\u4e00\u6b21\u914d\u5f97\u5f88\u590d\u6742\u3002', 'info');
         return;
     }
 
     switchPortalTab('courses');
     toggleFirstRunSettingsHint(false);
-    showPortalToast('先浏览课程就行，想更精准再到“提醒 & 设置”里补偏好。', 'info');
+    showPortalToast('\u5148\u6d4f\u89c8\u8bfe\u7a0b\u5c31\u884c\uff0c\u60f3\u8bbe\u5f97\u66f4\u7cbe\u51c6\u518d\u53bb\u300c\u63d0\u9192 & \u8bbe\u7f6e\u300d\u3002', 'info');
 }
 
 function toggleMobileFilters(forceOpen = null) {
@@ -194,7 +194,7 @@ function toggleMobileFilters(forceOpen = null) {
 
     const shouldOpen = forceOpen == null ? extra.classList.contains('is-collapsed') : forceOpen;
     extra.classList.toggle('is-collapsed', !shouldOpen);
-    toggle.textContent = shouldOpen ? '收起筛选' : '更多筛选';
+    toggle.textContent = shouldOpen ? '\u6536\u8d77\u7b5b\u9009' : '\u66f4\u591a\u7b5b\u9009';
     toggle.classList.toggle('active', shouldOpen);
 }
 
@@ -208,12 +208,12 @@ async function portalApi(url, options = {}) {
         return await resp.json();
     } catch (err) {
         console.error('API Error:', err);
-        showPortalToast('网络请求失败', 'error');
+        showPortalToast('缃戠粶璇锋眰澶辫触', 'error');
         return { success: false, error: err.message };
     }
 }
 
-// ══════ Data Loading ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Data Loading 鈺愨晲鈺愨晲鈺愨晲
 async function loadPortalData() {
     const emailQuery = portalState.email ? `?email=${encodeURIComponent(portalState.email)}` : '';
     const sessionRes = await portalApi(`/api/subscriber/session${emailQuery}`);
@@ -232,7 +232,7 @@ async function loadPortalData() {
         portalApi('/api/portal/highlights'),
     ]);
 
-    document.getElementById('userEmail').textContent = portalState.subscriber.email || '已登录';
+    document.getElementById('userEmail').textContent = portalState.subscriber.email || '\u5df2\u767b\u5f55';
     renderSettings(portalState.subscriber, categoriesRes.success ? categoriesRes.data : []);
     toggleFirstRunSettingsHint(portalState.shouldShowOnboarding);
 
@@ -272,7 +272,7 @@ async function loadPortalData() {
     }
 }
 
-// ══════ Tabs ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Tabs 鈺愨晲鈺愨晲鈺愨晲
 function initTabs() {
     document.querySelectorAll('.portal-tab').forEach(tab => {
         tab.addEventListener('click', () => switchPortalTab(tab.dataset.tab));
@@ -287,40 +287,39 @@ function switchPortalTab(tabName) {
     localStorage.setItem(PORTAL_TAB_KEY, tabName);
 }
 
-// ══════ Course Rendering ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Course Rendering 鈺愨晲鈺愨晲鈺愨晲
 function renderCourses(courses) {
     const grid = document.getElementById('courseGrid');
     if (!courses || !courses.length) {
         grid.innerHTML = `
             <div class="portal-empty" style="grid-column: 1/-1;">
-                <div class="portal-empty-icon">📭</div>
-                <div class="portal-empty-text">暂无课程</div>
-                <div class="portal-empty-hint">等待系统抓取新课程</div>
+                <div class="portal-empty-icon">馃摥</div>
+                <div class="portal-empty-text">鏆傛棤璇剧▼</div>
+                <div class="portal-empty-hint">绛夊緟绯荤粺鎶撳彇鏂拌绋?/div>
             </div>`;
         return;
     }
 
-    // 分为有名额 / 已满
+    // 鍒嗕负鏈夊悕棰?/ 宸叉弧
     const available = courses.filter(c => c.remaining > 0 || c.expired);
     const full = courses.filter(c => c.remaining <= 0 && !c.expired);
 
     let html = '';
 
-    // 有名额的课程
+    // 鏈夊悕棰濈殑璇剧▼
     if (available.length > 0) {
         html += available.map(c => renderCourseCard(c)).join('');
     } else {
         html += `<div class="portal-empty" style="grid-column:1/-1;">
-            <div class="portal-empty-icon">🎉</div>
-            <div class="portal-empty-text">所有课程都已满员</div>
-            <div class="portal-empty-hint">有退课名额时系统会立即通知你</div>
+            <div class="portal-empty-icon">馃帀</div>
+            <div class="portal-empty-text">鎵€鏈夎绋嬮兘宸叉弧鍛?/div>
+            <div class="portal-empty-hint">鏈夐€€璇惧悕棰濇椂绯荤粺浼氱珛鍗抽€氱煡浣?/div>
         </div>`;
     }
 
     grid.innerHTML = html;
 
-    // 已满课程折叠区
-    let fullSection = document.getElementById('fullCoursesSection');
+    // 宸叉弧璇剧▼鎶樺彔鍖?    let fullSection = document.getElementById('fullCoursesSection');
     if (full.length > 0) {
         if (!fullSection) {
             fullSection = document.createElement('div');
@@ -329,10 +328,10 @@ function renderCourses(courses) {
         }
         fullSection.innerHTML = `
             <div class="portal-full-toggle" onclick="toggleFullCourses()">
-                <span class="portal-full-toggle-icon" id="fullToggleIcon">▶</span>
-                <span>已满课程</span>
+                <span class="portal-full-toggle-icon" id="fullToggleIcon">鈻?/span>
+                <span>宸叉弧璇剧▼</span>
                 <span class="portal-full-count">${full.length}</span>
-                <span class="portal-full-hint">有退课时系统自动即时推送</span>
+                <span class="portal-full-hint">鏈夐€€璇炬椂绯荤粺鑷姩鍗虫椂鎺ㄩ€?/span>
             </div>
             <div class="portal-full-grid" id="fullCoursesGrid" style="display:none;">
                 ${full.map(c => renderCourseCard(c, true)).join('')}
@@ -348,7 +347,7 @@ function toggleFullCourses() {
     if (!grid) return;
     const isHidden = grid.style.display === 'none';
     grid.style.display = isHidden ? 'grid' : 'none';
-    icon.textContent = isHidden ? '▼' : '▶';
+    icon.textContent = isHidden ? '\u25b2' : '\u25bc';
 }
 
 function renderCourseCard(course, isFull = false) {
@@ -417,9 +416,29 @@ function renderCourseCard(course, isFull = false) {
 function buildPortalCoursePrimaryAction(course) {
     const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
     const canOpenNow = !course.expired && Number(course.remaining || 0) > 0 && enrollStart && !Number.isNaN(enrollStart.getTime()) && enrollStart.getTime() <= Date.now();
-    const label = canOpenNow ? '\u7acb\u5373\u53bb\u9009\u8bfe' : '\u6253\u5f00\u9009\u8bfe\u95e8\u6237';
+    const staleHot = isPortalCourseStale(course) && isPortalCourseHot(course);
+    const label = staleHot
+        ? '\u7acb\u5373\u6838\u5b9e\u540d\u989d'
+        : canOpenNow
+            ? '\u7acb\u5373\u53bb\u9009\u8bfe'
+            : '\u6253\u5f00\u9009\u8bfe\u95e8\u6237';
     const className = canOpenNow ? 'portal-btn-go primary' : 'portal-btn-go';
     return `<a class="${className}" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">${label}</a>`;
+}
+
+function getPortalCourseAgeSeconds(course) {
+    const value = Number(course.last_seen_seconds_ago ?? -1);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function isPortalCourseHot(course) {
+    const remaining = Number(course.remaining || 0);
+    return remaining > 0 && remaining <= 3;
+}
+
+function isPortalCourseStale(course) {
+    const ageSeconds = getPortalCourseAgeSeconds(course);
+    return ageSeconds !== null && ageSeconds >= 90;
 }
 
 function buildPortalCourseStatus(course) {
@@ -430,52 +449,65 @@ function buildPortalCourseStatus(course) {
     const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
 
     if (course.expired) {
-        return '<span class="portal-status-pill muted">已过期</span>';
+        return '<span class="portal-status-pill muted">\u5df2\u8fc7\u671f</span>';
     }
     if (remaining <= 0) {
-        return '<span class="portal-status-pill wait">已满蹲退选</span>';
+        return '<span class="portal-status-pill wait">\u5df2\u6ee1\u8e72\u9000\u9009</span>';
+    }
+    if (isPortalCourseStale(course) && isPortalCourseHot(course)) {
+        return '<span class="portal-status-pill warn">\u540d\u989d\u53d8\u5316\u5feb</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 0) {
-        return '<span class="portal-status-pill hot">可立即尝试</span>';
+        return '<span class="portal-status-pill hot">\u53ef\u7acb\u5373\u5c1d\u8bd5</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 180) {
-        return '<span class="portal-status-pill soon">即将开抢</span>';
+        return '<span class="portal-status-pill soon">\u5373\u5c06\u5f00\u62a2</span>';
     }
     if (remaining >= 20) {
-        return '<span class="portal-status-pill easy">名额较充足</span>';
+        return '<span class="portal-status-pill easy">\u540d\u989d\u8f83\u5145\u8db3</span>';
     }
     if (remaining <= 5) {
-        return '<span class="portal-status-pill tight">名额紧张</span>';
+        return '<span class="portal-status-pill tight">\u540d\u989d\u7d27\u5f20</span>';
     }
-    return '<span class="portal-status-pill normal">可加入关注</span>';
+    return '<span class="portal-status-pill normal">\u53ef\u52a0\u5165\u5173\u6ce8</span>';
 }
 
 function buildPortalCourseTimingHint(course) {
     const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
-    if (!enrollStart || Number.isNaN(enrollStart.getTime()) || course.expired) return '';
+    const hints = [];
 
-    const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
-    if (diffMinutes <= 0) {
-        const opened = Math.abs(diffMinutes);
-        if (opened < 60) return `已开选 ${opened} 分钟`;
-        const hours = Math.floor(opened / 60);
-        const mins = opened % 60;
-        return mins ? `已开选 ${hours} 小时 ${mins} 分` : `已开选 ${hours} 小时`;
+    if (enrollStart && !Number.isNaN(enrollStart.getTime()) && !course.expired) {
+        const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
+        if (diffMinutes <= 0) {
+            const opened = Math.abs(diffMinutes);
+            if (opened < 60) {
+                hints.push(`\u5df2\u5f00\u9009 ${opened} \u5206\u949f`);
+            } else {
+                const hours = Math.floor(opened / 60);
+                const mins = opened % 60;
+                hints.push(mins ? `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6 ${mins} \u5206` : `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6`);
+            }
+        } else if (diffMinutes < 60) {
+            hints.push(`${diffMinutes} \u5206\u949f\u540e\u5f00\u62a2`);
+        } else if (diffMinutes < 1440) {
+            const hours = Math.floor(diffMinutes / 60);
+            const mins = diffMinutes % 60;
+            hints.push(mins ? `${hours} \u5c0f\u65f6 ${mins} \u5206\u540e\u5f00\u62a2` : `${hours} \u5c0f\u65f6\u540e\u5f00\u62a2`);
+        } else {
+            const days = Math.floor(diffMinutes / 1440);
+            const hours = Math.floor((diffMinutes % 1440) / 60);
+            hints.push(hours ? `${days} \u5929 ${hours} \u5c0f\u65f6\u540e\u5f00\u62a2` : `${days} \u5929\u540e\u5f00\u62a2`);
+        }
     }
 
-    if (diffMinutes < 60) return `${diffMinutes} 分钟后开抢`;
-    if (diffMinutes < 1440) {
-        const hours = Math.floor(diffMinutes / 60);
-        const mins = diffMinutes % 60;
-        return mins ? `${hours} 小时 ${mins} 分后开抢` : `${hours} 小时后开抢`;
+    const ageSeconds = getPortalCourseAgeSeconds(course);
+    if (isPortalCourseStale(course) && ageSeconds !== null) {
+        const ageMinutes = Math.max(1, Math.floor(ageSeconds / 60));
+        hints.push(`\u6570\u636e\u66f4\u65b0\u4e8e ${ageMinutes} \u5206\u949f\u524d\uff0c\u540d\u989d\u53ef\u80fd\u5df2\u53d8\u5316`);
     }
-    const days = Math.floor(diffMinutes / 1440);
-    const hours = Math.floor((diffMinutes % 1440) / 60);
-    return hours ? `${days} 天 ${hours} 小时后开抢` : `${days} 天后开抢`;
+
+    return hints.join(' \u00b7 ');
 }
-
-// ══════ Course Filtering ══════
-let courseSearchTimeout = null;
 
 function filterCourses() {
     clearTimeout(courseSearchTimeout);
@@ -505,19 +537,19 @@ async function refreshPortalCourses(btnEl) {
     if (!btnEl) return;
     btnEl.disabled = true;
     const originalText = btnEl.textContent;
-    btnEl.textContent = '后台刷新中…';
+    btnEl.textContent = '\u5237\u65b0\u4e2d...';
 
     const requestedAt = Date.now();
     const result = await portalApi('/api/portal/refresh', { method: 'POST' });
     if (result.success) {
         if (result.joined_existing) {
-            showPortalToast('后台已有刷新任务，正在同步最新结果', 'info');
+            showPortalToast('\u540e\u53f0\u5df2\u6709\u5237\u65b0\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
         } else {
-            showPortalToast('已开始刷新课程，稍后自动更新', 'info');
+            showPortalToast('\u5df2\u5f00\u59cb\u5237\u65b0\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u66f4\u65b0', 'info');
         }
         await waitForPortalRefresh(requestedAt);
     } else {
-        showPortalToast(result.error || '刷新失败', 'error');
+        showPortalToast(result.error || '鍒锋柊澶辫触', 'error');
     }
 
     btnEl.disabled = false;
@@ -545,18 +577,18 @@ async function waitForPortalRefresh(requestedAt) {
 
         if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
             await loadPortalData();
-            showPortalToast('课程列表已同步最新结果', 'success');
+            showPortalToast('\u8bfe\u7a0b\u5217\u8868\u5df2\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'success');
             return;
         }
     }
 
-    showPortalToast('后台仍在刷新，稍后会自动显示最新结果', 'info');
+    showPortalToast('\u540e\u53f0\u4ecd\u5728\u5237\u65b0\uff0c\u7a0d\u540e\u4f1a\u81ea\u52a8\u663e\u793a\u6700\u65b0\u7ed3\u679c', 'info');
 }
 
-// ══════ Register Reminder ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Register Reminder 鈺愨晲鈺愨晲鈺愨晲
 async function registerReminder(courseId, btnEl) {
     btnEl.disabled = true;
-    btnEl.textContent = '注册中…';
+    btnEl.textContent = '\u6ce8\u518c\u4e2d...';
 
     const res = await portalApi(`/api/remind/${courseId}`, {
         method: 'POST',
@@ -568,21 +600,21 @@ async function registerReminder(courseId, btnEl) {
 
     if (res.success) {
         portalState.reminderCourseIds.add(courseId);
-        btnEl.textContent = '✓ 已设提醒';
+        btnEl.textContent = '\u2713 \u5df2\u8bbe\u63d0\u9192';
         btnEl.classList.add('reminded');
-        showPortalToast('选课提醒已注册，开始前 5 分钟通知你', 'success');
+        showPortalToast('\u9009\u8bfe\u63d0\u9192\u5df2\u6ce8\u518c\uff0c\u5f00\u59cb\u524d 5 \u5206\u949f\u901a\u77e5\u4f60', 'success');
 
         // Refresh reminders
         const remRes = await portalApi('/api/subscriber/session/reminders');
         if (remRes.success) renderReminders(remRes.data);
     } else {
         btnEl.disabled = false;
-        btnEl.textContent = '🔔 提醒我选课';
-        showPortalToast('注册失败：' + (res.error || ''), 'error');
+        btnEl.textContent = '\ud83d\udd14 \u63d0\u9192\u6211\u9009\u8bfe';
+        showPortalToast('\u6ce8\u518c\u5931\u8d25\uff1a' + (res.error || ''), 'error');
     }
 }
 
-// ══════ Settings Rendering ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Settings Rendering 鈺愨晲鈺愨晲鈺愨晲
 function renderSettings(sub, categories) {
     // Campus
     const campusEl = document.getElementById('settingsCampus');
@@ -610,7 +642,7 @@ function renderSettings(sub, categories) {
 async function saveSettings() {
     const btn = document.getElementById('btnSaveSettings');
     btn.disabled = true;
-    btn.textContent = '保存中…';
+    btn.textContent = '\u4fdd\u5b58\u4e2d...';
 
     const selectedCats = Array.from(document.querySelectorAll('#settingsCategories .portal-chip.active'))
         .map(c => c.textContent.trim());
@@ -628,26 +660,26 @@ async function saveSettings() {
     });
 
     if (res.success) {
-        showPortalToast('偏好设置已保存', 'success');
+        showPortalToast('\u504f\u597d\u8bbe\u7f6e\u5df2\u4fdd\u5b58', 'success');
         portalState.subscriber = res.data;
         toggleFirstRunSettingsHint(false);
     } else {
-        showPortalToast('保存失败：' + (res.error || ''), 'error');
+        showPortalToast('\u4fdd\u5b58\u5931\u8d25\uff1a' + (res.error || ''), 'error');
     }
 
     btn.disabled = false;
-    btn.textContent = '保存设置';
+    btn.textContent = '淇濆瓨璁剧疆';
 }
 
-// ══════ Reminders Rendering ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Reminders Rendering 鈺愨晲鈺愨晲鈺愨晲
 function renderReminders(reminders) {
     const container = document.getElementById('reminderList');
     if (!reminders || !reminders.length) {
         container.innerHTML = `
             <div class="portal-empty">
-                <div class="portal-empty-icon">🔔</div>
-                <div class="portal-empty-text">暂无选课提醒</div>
-                <div class="portal-empty-hint">在课程页面点击「提醒我选课」注册提醒</div>
+                <div class="portal-empty-icon">\ud83d\udd14</div>
+                <div class="portal-empty-text">\u6682\u65e0\u9009\u8bfe\u63d0\u9192</div>
+                <div class="portal-empty-hint">\u5728\u8bfe\u7a0b\u9875\u9762\u70b9\u51fb\u300c\u63d0\u9192\u6211\u9009\u8bfe\u300d\u6ce8\u518c\u63d0\u9192</div>
             </div>`;
         return;
     }
@@ -656,41 +688,41 @@ function renderReminders(reminders) {
             <div class="portal-reminder-info">
                 <div class="portal-reminder-name">${escapeHtml(r.course_name)}</div>
                 <div class="portal-reminder-meta">
-                    ${escapeHtml(r.course_category)} · ${escapeHtml(r.course_teacher)}
-                    · 选课开始 ${escapeHtml(r.enroll_start)}
+                    ${escapeHtml(r.course_category)} \u00b7 ${escapeHtml(r.course_teacher)}
+                    \u00b7 \u9009\u8bfe\u5f00\u59cb ${escapeHtml(r.enroll_start)}
                 </div>
             </div>
             <span class="portal-reminder-status ${r.sent ? 'sent' : 'pending'}">
-                ${r.sent ? '✓ 已通知' : '等待中'}
+                ${r.sent ? '\u2713 \u5df2\u901a\u77e5' : '\u7b49\u5f85\u4e2d'}
             </span>
         </div>
     `).join('');
 }
 
-// ══════ Notification Center ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Notification Center 鈺愨晲鈺愨晲鈺愨晲
 function renderNotifications(notifications) {
     const container = document.getElementById('notificationTimeline');
     if (!notifications || !notifications.length) {
         container.innerHTML = `
             <div class="portal-empty">
-                <div class="portal-empty-icon">📭</div>
-                <div class="portal-empty-text">最近 ${portalState.notificationsHours} 小时暂无推送记录</div>
-                <div class="portal-empty-hint">系统发送通知后会在这里显示时间线</div>
+                <div class="portal-empty-icon">馃摥</div>
+                <div class="portal-empty-text">鏈€杩?${portalState.notificationsHours} 灏忔椂鏆傛棤鎺ㄩ€佽褰?/div>
+                <div class="portal-empty-hint">绯荤粺鍙戦€侀€氱煡鍚庝細鍦ㄨ繖閲屾樉绀烘椂闂寸嚎</div>
             </div>`;
         return;
     }
 
     const deliveryModeLabel = {
-        'priority': '即时提醒',
-        'digest_urgent': '近期摘要',
-        'digest_soon': '新课摘要',
-        'digest_daily': '每日汇总',
+        'priority': '\u5373\u65f6\u63d0\u9192',
+        'digest_urgent': '\u8fd1\u671f\u6458\u8981',
+        'digest_soon': '\u65b0\u8bfe\u6458\u8981',
+        'digest_daily': '\u6bcf\u65e5\u6c47\u603b',
     };
 
     container.innerHTML = notifications.map(item => {
         const typeClass = item.event_type === 'snipe' ? 'snipe' : 'new';
-        const typeText = item.event_type === 'snipe' ? '退课补录' : '新发';
-        const statusText = item.success ? '已送达' : '发送失败';
+        const typeText = item.event_type === 'snipe' ? '\u9000\u8bfe\u8865\u4f4d' : '\u65b0\u53d1\u73b0';
+        const statusText = item.success ? '\u5df2\u9001\u8fbe' : '\u53d1\u9001\u5931\u8d25';
         const statusClass = item.success ? 'success' : 'failed';
         const dm = item.delivery_mode || '';
         const modeLabel = item.event_type === 'snipe' ? '' : (deliveryModeLabel[dm] || '');
@@ -700,9 +732,9 @@ function renderNotifications(notifications) {
         return `
         <div class="portal-notify-item">
             <div class="portal-notify-main">
-                <div class="portal-notify-title">${escapeHtml(item.course_name || '未知课程')}</div>
+                <div class="portal-notify-title">${escapeHtml(item.course_name || '\u672a\u77e5\u8bfe\u7a0b')}</div>
                 <div class="portal-notify-meta">
-                    ${escapeHtml(item.course_category || '未分类')} · ${escapeHtml(item.sent_at || '')}
+                    ${escapeHtml(item.course_category || '\u672a\u5206\u7c7b')} \u00b7 ${escapeHtml(item.sent_at || '')}
                 </div>
             </div>
             <div class="portal-notify-badges">
@@ -747,7 +779,7 @@ async function reloadNotifications() {
 function exportNotificationsCsv() {
     const rows = portalState.filteredNotifications || [];
     if (!rows.length) {
-        showPortalToast('没有可导出的通知记录', 'error');
+        showPortalToast('娌℃湁鍙鍑虹殑閫氱煡璁板綍', 'error');
         return;
     }
     const header = ['sent_at', 'course_name', 'course_category', 'event_type', 'status', 'channel', 'message'];
@@ -777,7 +809,7 @@ function exportNotificationsCsv() {
     URL.revokeObjectURL(url);
 }
 
-// ══════ Portal Highlights ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Portal Highlights 鈺愨晲鈺愨晲鈺愨晲
 let _upcomingTimer = null;
 let _upcomingData = [];
 let _upcomingExpanded = false;
@@ -794,7 +826,7 @@ function renderPortalHighlights(data) {
     const todayEl = document.getElementById('hlTodayNew');
     const remindersEl = document.getElementById('hlPendingReminders');
     if (upcomingEl) upcomingEl.textContent = upcoming.length;
-    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 小时内无开抢课程' : `${upcoming.length} 门课程即将开始`;
+    if (subEl) subEl.textContent = upcoming.length === 0 ? '24 \u5c0f\u65f6\u5185\u65e0\u5f00\u62a2\u8bfe\u7a0b' : `${upcoming.length} \u95e8\u8bfe\u7a0b\u5373\u5c06\u5f00\u59cb`;
     if (todayEl) todayEl.textContent = todayNew;
     if (remindersEl) remindersEl.textContent = pendingReminders;
 
@@ -832,25 +864,25 @@ function _renderUpcomingSummary() {
 
     const count = _upcomingData.length;
     countEl.textContent = String(count);
-    toggleEl.textContent = _upcomingExpanded ? '收起' : '展开';
+    toggleEl.textContent = _upcomingExpanded ? '\u6536\u8d77' : '\u5c55\u5f00';
     summaryEl.classList.toggle('expanded', _upcomingExpanded);
 
     if (!count) {
-        summaryTextEl.textContent = '24 小时内暂无开抢课程';
+        summaryTextEl.textContent = '24 \u5c0f\u65f6\u5185\u6682\u65f6\u65e0\u5f00\u62a2\u8bfe\u7a0b';
         return;
     }
 
     const first = _upcomingData[0];
     const elapsed = Math.floor((Date.now() / 1000) - _upcomingTimerStartedAt);
     const secsLeft = Math.max(0, Number(first.seconds_left || 0) - elapsed);
-    const pieces = [first.name || '近期开抢课程'];
+    const pieces = [first.name || '\u8fd1\u671f\u5f00\u62a2\u8bfe\u7a0b'];
     if (secsLeft > 0) {
-        pieces.push(`${_formatCountdown(secsLeft)} 后开抢`);
+        pieces.push(`${_formatCountdown(secsLeft)} \u540e\u5f00\u62a2`);
     }
     if (count > 1) {
-        pieces.push(`另有 ${count - 1} 门`);
+        pieces.push(`\u53e6\u6709 ${count - 1} \u95e8`);
     }
-    summaryTextEl.textContent = pieces.join(' · ');
+    summaryTextEl.textContent = pieces.join(' \u00b7 ');
 }
 
 function _renderUpcomingItems() {
@@ -870,7 +902,7 @@ function _renderUpcomingItems() {
         <div class="portal-upcoming-item">
             <div class="portal-upcoming-info">
                 <div class="portal-upcoming-name">${escapeHtml(c.name)}</div>
-                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} · ${escapeHtml(c.category)} · 剩余 ${c.remaining} 人</div>
+                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} 路 ${escapeHtml(c.category)} 路 鍓╀綑 ${c.remaining} 浜?/div>
             </div>
             <div class="portal-upcoming-countdown ${isUrgent ? 'urgent' : ''}" data-secs="${secsLeft}">
                 ${_formatCountdown(secsLeft)}
@@ -915,14 +947,14 @@ function _updatePausePushUI(pausedUntil) {
     const desc = document.getElementById('pushPauseDesc');
     if (!btn || !desc) return;
     if (pausedUntil) {
-        btn.textContent = '恢复推送';
+        btn.textContent = '\u6062\u590d\u63a8\u9001';
         btn.className = 'portal-push-pause-btn resume';
-        desc.textContent = `推送已暂停，将于 ${pausedUntil} 自动恢复`;
+        desc.textContent = `\u63a8\u9001\u5df2\u6682\u505c\uff0c\u5c06\u4e8e ${pausedUntil} \u81ea\u52a8\u6062\u590d`;
         desc.style.color = '#c93400';
     } else {
-        btn.textContent = '暂停 24 小时';
+        btn.textContent = '\u6682\u505c 24 \u5c0f\u65f6';
         btn.className = 'portal-push-pause-btn';
-        desc.textContent = '暂时屏蔽邮件通知，不影响设置';
+        desc.textContent = '\u6682\u65f6\u5c4f\u853d\u90ae\u4ef6\u901a\u77e5\uff0c\u4e0d\u5f71\u54cd\u8bbe\u7f6e';
         desc.style.color = '';
     }
 }
@@ -930,15 +962,15 @@ function _updatePausePushUI(pausedUntil) {
 async function togglePausePush() {
     const btn = document.getElementById('btnPausePush');
     const isResuming = btn && btn.classList.contains('resume');
-    if (btn) { btn.disabled = true; btn.textContent = '处理中…'; }
+    if (btn) { btn.disabled = true; btn.textContent = '\u5904\u7406\u4e2d...'; }
 
     if (isResuming) {
         const res = await portalApi('/api/subscriber/session/resume-push', { method: 'POST' });
         if (res.success) {
             _updatePausePushUI(null);
-            showPortalToast('推送已恢复', 'success');
+            showPortalToast('\u63a8\u9001\u5df2\u6062\u590d', 'success');
         } else {
-            showPortalToast('操作失败：' + (res.error || ''), 'error');
+            showPortalToast('\u64cd\u4f5c\u5931\u8d25\uff1a' + (res.error || ''), 'error');
         }
     } else {
         const res = await portalApi('/api/subscriber/session/pause-push', {
@@ -947,16 +979,16 @@ async function togglePausePush() {
         });
         if (res.success) {
             _updatePausePushUI(res.paused_until || '');
-            showPortalToast('推送已暂停 24 小时', 'success');
+            showPortalToast('\u63a8\u9001\u5df2\u6682\u505c 24 \u5c0f\u65f6', 'success');
         } else {
-            showPortalToast('操作失败：' + (res.error || ''), 'error');
+            showPortalToast('\u64cd\u4f5c\u5931\u8d25\uff1a' + (res.error || ''), 'error');
         }
     }
 
     if (btn) btn.disabled = false;
 }
 
-// ══════ Switch Account ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Switch Account 鈺愨晲鈺愨晲鈺愨晲
 function switchAccount() {
     fetch('/api/session/clear', { method: 'POST' }).finally(() => {
         window.location.href = '/subscribe?force=1';
@@ -967,7 +999,7 @@ async function logoutCurrentDevice() {
     const btn = document.getElementById('btnLogoutDevice');
     if (btn) {
         btn.disabled = true;
-        btn.textContent = '退出中…';
+        btn.textContent = '\u9000\u51fa\u4e2d...';
     }
     try {
         await fetch('/api/session/clear', { method: 'POST' });
@@ -976,30 +1008,30 @@ async function logoutCurrentDevice() {
     }
 }
 
-// ══════ Unsubscribe ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Unsubscribe 鈺愨晲鈺愨晲鈺愨晲
 async function unsubscribe() {
-    if (!confirm('确定要退订推送吗？退订后将不再收到任何课程通知邮件。')) return;
+    if (!confirm('\u786e\u5b9a\u8981\u9000\u8ba2\u63a8\u9001\u5417\uff1f\u9000\u8ba2\u540e\u5c06\u4e0d\u518d\u6536\u5230\u4efb\u4f55\u8bfe\u7a0b\u901a\u77e5\u90ae\u4ef6\u3002')) return;
 
     const btn = document.getElementById('btnUnsubscribe');
     btn.disabled = true;
-    btn.textContent = '处理中…';
+    btn.textContent = '\u5904\u7406\u4e2d...';
 
     try {
         const resp = await fetch('/api/unsubscribe', { method: 'POST' });
         const data = await resp.json();
-        if (!data.success) throw new Error(data.error || '退订失败');
-        showPortalToast('已成功退订推送', 'success');
+        if (!data.success) throw new Error(data.error || '\u9000\u8ba2\u5931\u8d25');
+        showPortalToast('\u5df2\u6210\u529f\u9000\u8ba2\u63a8\u9001', 'success');
         setTimeout(() => {
             window.location.href = '/subscribe?result=unsubscribed';
         }, 1500);
     } catch (err) {
         btn.disabled = false;
-        btn.textContent = '退订推送';
-        showPortalToast('退订失败，请稍后重试', 'error');
+        btn.textContent = '\u9000\u8ba2\u63a8\u9001';
+        showPortalToast('\u9000\u8ba2\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5', 'error');
     }
 }
 
-// ══════ Toast ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Toast 鈺愨晲鈺愨晲鈺愨晲
 function showPortalToast(message, type = 'info') {
     const container = document.getElementById('portalToastContainer');
     const toast = document.createElement('div');
@@ -1012,7 +1044,7 @@ function showPortalToast(message, type = 'info') {
     }, 3500);
 }
 
-// ══════ Utility ══════
+// 鈺愨晲鈺愨晲鈺愨晲 Utility 鈺愨晲鈺愨晲鈺愨晲
 function escapeHtml(text) {
     if (!text) return '';
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
@@ -1023,3 +1055,5 @@ function csvEscape(text) {
     const s = String(text ?? '');
     return `"${s.replace(/"/g, '""')}"`;
 }
+
+

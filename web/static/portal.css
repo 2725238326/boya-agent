@@ -1031,6 +1031,7 @@ body.portal-body {
     font-size: 12px;
     color: var(--portal-text-muted);
     font-weight: 600;
+    line-height: 1.55;
 }
 
 .portal-status-pill {
@@ -1061,6 +1062,12 @@ body.portal-body {
 .portal-status-pill.tight {
     background: rgba(0, 113, 227, 0.10);
     color: #0058b0;
+}
+
+.portal-status-pill.warn {
+    background: rgba(249, 115, 22, 0.12);
+    color: #c2410c;
+    border: 1px solid rgba(249, 115, 22, 0.18);
 }
 
 .portal-status-pill.wait,

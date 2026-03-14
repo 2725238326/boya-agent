@@ -72,6 +72,8 @@ SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
 ACTIVE_ENROLL_JUST_STARTED_MINUTES = max(5, int(os.getenv("ACTIVE_ENROLL_JUST_STARTED_MINUTES", "15")))
 ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_MIN_REMAINING", "8")))
+HOT_COURSE_REMAINING_THRESHOLD = max(1, int(os.getenv("HOT_COURSE_REMAINING_THRESHOLD", "3")))
+HOT_COURSE_STALE_SECONDS = max(30, int(os.getenv("HOT_COURSE_STALE_SECONDS", "90")))
 
 
 # ═══════════════════════════════════════════════════════
@@ -254,14 +256,14 @@ async def monitor_active_enrollment_courses():
     finally:
         session.close()
 
-    await run_scrape_task()
+    await run_scrape_task(mode="quick")
 
 
 # ═══════════════════════════════════════════════════════
 #  核心抓取任务
 # ═══════════════════════════════════════════════════════
 
-async def _run_scrape_task_impl():
+async def _run_scrape_task_impl(mode: str = "full"):
     """Run one scrape cycle and return a structured result."""
     global _consecutive_failures
 
@@ -277,7 +279,7 @@ async def _run_scrape_task_impl():
 
     try:
         logger.info("=" * 50)
-        logger.info(f"start scrape round {run_status['total_runs']}")
+        logger.info(f"start scrape round {run_status['total_runs']} ({mode})")
 
         courses_data = None
         last_scrape_error = None
@@ -291,7 +293,7 @@ async def _run_scrape_task_impl():
 
             _sync_course_lifecycle()
             try:
-                courses_data = await scrape_courses(page)
+                courses_data = await scrape_courses(page, include_details=(mode != "quick"))
                 _mark_browser_used()
                 break
             except Exception as e:
@@ -303,7 +305,7 @@ async def _run_scrape_task_impl():
             run_status["last_error"] = last_scrape_error or "scrape failed"
             _consecutive_failures += 1
             await _check_and_alert_failures()
-            return _scrape_result(False, run_status["last_error"], scraped_count=0, new_courses=0)
+            return _scrape_result(False, run_status["last_error"], scraped_count=0, new_courses=0, mode=mode)
 
         scraped_count = len(courses_data)
         if not courses_data:
@@ -311,7 +313,7 @@ async def _run_scrape_task_impl():
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return _scrape_result(True, "scrape succeeded but returned no courses", scraped_count=0, new_courses=0)
+            return _scrape_result(True, "scrape succeeded but returned no courses", scraped_count=0, new_courses=0, mode=mode)
 
         new_course_ids = save_courses_to_db(courses_data)
         _sync_course_lifecycle()
@@ -354,7 +356,7 @@ async def _run_scrape_task_impl():
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return _scrape_result(True, msg, scraped_count=scraped_count, new_courses=0, pushed=reopened_pushed + active_pushed)
+            return _scrape_result(True, msg, scraped_count=scraped_count, new_courses=0, pushed=reopened_pushed + active_pushed, mode=mode)
 
         logger.info(f"found {len(new_course_ids)} new courses")
 
@@ -370,7 +372,7 @@ async def _run_scrape_task_impl():
                 run_status["last_success"] = datetime.now()
                 run_status["last_error"] = None
                 _consecutive_failures = 0
-                return _scrape_result(True, "scrape succeeded, new courses found, but all were filtered out", scraped_count=scraped_count, new_courses=len(new_course_ids), passed_courses=0)
+                return _scrape_result(True, "scrape succeeded, new courses found, but all were filtered out", scraped_count=scraped_count, new_courses=len(new_course_ids), passed_courses=0, mode=mode)
 
             logger.info(f"{len(passed_courses)} courses passed filters")
             immediate_courses = []
@@ -415,6 +417,7 @@ async def _run_scrape_task_impl():
             active_pushed=active_pushed,
             urgent_buffer=len(_push_buffer['urgent']),
             soon_buffer=len(_push_buffer['soon']),
+            mode=mode,
         )
 
     except Exception as e:
@@ -422,12 +425,12 @@ async def _run_scrape_task_impl():
         logger.error(f"scrape task failed: {e}")
         _consecutive_failures += 1
         await _check_and_alert_failures()
-        return _scrape_result(False, str(e), scraped_count=scraped_count, new_courses=len(new_course_ids))
+        return _scrape_result(False, str(e), scraped_count=scraped_count, new_courses=len(new_course_ids), mode=mode)
     finally:
         run_status["is_running"] = False
 
 
-async def run_scrape_task():
+async def run_scrape_task(mode: str = "full"):
     """Reuse the in-flight scrape task instead of failing concurrent callers."""
     global _active_scrape_task
 
@@ -441,7 +444,7 @@ async def run_scrape_task():
             return joined
         return result
 
-    task = asyncio.create_task(_run_scrape_task_impl())
+    task = asyncio.create_task(_run_scrape_task_impl(mode=mode))
     _active_scrape_task = task
     try:
         return await task

@@ -541,7 +541,7 @@ def api_portal_refresh():
                 "message": "后台已有刷新任务，正在为你同步最新结果",
             })
 
-        submit_coroutine(run_scrape_task())
+        submit_coroutine(run_scrape_task(mode="quick"))
         return jsonify({
             "success": True,
             "started": True,

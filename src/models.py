@@ -66,6 +66,10 @@ class Course(Base):
         )
 
     def to_dict(self) -> dict:
+        now = datetime.now()
+        seconds_since_last_seen = None
+        if self.last_seen:
+            seconds_since_last_seen = max(0, int((now - self.last_seen).total_seconds()))
         return {
             "id": self.id,
             "name": self.name,
@@ -88,6 +92,8 @@ class Course(Base):
             "pushed": self.pushed,
             "expired": self.expired,
             "first_seen": self.first_seen.strftime("%Y-%m-%d %H:%M") if self.first_seen else "",
+            "last_seen": self.last_seen.strftime("%Y-%m-%d %H:%M:%S") if self.last_seen else "",
+            "last_seen_seconds_ago": seconds_since_last_seen,
         }
 
 

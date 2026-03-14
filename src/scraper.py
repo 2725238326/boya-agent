@@ -311,7 +311,7 @@ async def _ensure_session_with_retry(page: Page, stage: str, retries: int = 2) -
     return False
 
 
-async def scrape_courses(page: Page) -> List[dict]:
+async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
     """
@@ -385,7 +385,11 @@ async def scrape_courses(page: Page) -> List[dict]:
             logger.info(f"当前页解析到 {len(page_courses)} 条课程")
 
             if page_courses:
-                page_courses = await _enrich_with_details(page, page_courses)
+                if include_details:
+                    page_courses = await _enrich_with_details(page, page_courses)
+                else:
+                    for course in page_courses:
+                        course.pop("__row_index", None)
                 courses.extend(page_courses)
 
             has_next = await _go_to_next_page(page)
