@@ -1288,6 +1288,33 @@ body.portal-body {
     padding: 8px 24px 24px;
 }
 
+.portal-settings-tip {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(0, 113, 227, 0.08), rgba(255, 255, 255, 0.82));
+    border: 1px solid rgba(0, 113, 227, 0.12);
+}
+
+.portal-settings-tip strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--portal-text);
+    margin-bottom: 4px;
+}
+
+.portal-settings-tip span {
+    display: block;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--portal-text-muted);
+}
+
+.first-run-focus {
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.14), var(--portal-shadow-card);
+}
+
 /* ── Settings Form ─────────────────── */
 .portal-form-group {
     margin-bottom: 20px;
@@ -1594,6 +1621,138 @@ body.portal-body {
 
 .portal-toast.error {
     border-left: 3px solid var(--portal-danger);
+}
+
+.portal-onboarding-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(17, 24, 39, 0.18);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+}
+
+.portal-onboarding-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.portal-onboarding-dialog {
+    width: min(100%, 520px);
+    padding: 26px 26px 22px;
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.88);
+    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
+    transform: translateY(12px) scale(0.98);
+    transition: transform 0.18s ease;
+}
+
+.portal-onboarding-overlay.open .portal-onboarding-dialog {
+    transform: translateY(0) scale(1);
+}
+
+.portal-onboarding-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(0, 113, 227, 0.08);
+    color: var(--portal-accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 16px;
+}
+
+.portal-onboarding-title {
+    font-size: 30px;
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+    color: var(--portal-text);
+    margin-bottom: 10px;
+}
+
+.portal-onboarding-copy {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--portal-text-secondary);
+    margin-bottom: 18px;
+}
+
+.portal-onboarding-steps {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.portal-onboarding-step {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(0, 0, 0, 0.025);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.portal-onboarding-step span {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 113, 227, 0.12);
+    color: var(--portal-accent);
+    font-weight: 700;
+}
+
+.portal-onboarding-step strong {
+    display: block;
+    font-size: 15px;
+    margin-bottom: 4px;
+    color: var(--portal-text);
+}
+
+.portal-onboarding-step p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--portal-text-muted);
+}
+
+.portal-onboarding-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.portal-onboarding-btn {
+    min-height: 44px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 999px;
+    background: var(--portal-accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--portal-font);
+    transition: var(--portal-transition);
+}
+
+.portal-onboarding-btn.secondary {
+    background: rgba(0, 113, 227, 0.08);
+    color: var(--portal-accent);
 }
 
 @keyframes portalToastIn {
@@ -2077,6 +2236,32 @@ body.portal-body {
     .portal-banner {
         display: none;
     }
+
+    .portal-onboarding-overlay {
+        padding: 14px;
+    }
+
+    .portal-onboarding-dialog {
+        padding: 22px 18px 18px;
+        border-radius: 22px;
+    }
+
+    .portal-onboarding-title {
+        font-size: 24px;
+    }
+
+    .portal-onboarding-copy {
+        font-size: 14px;
+        line-height: 1.65;
+    }
+
+    .portal-onboarding-actions {
+        flex-direction: column-reverse;
+    }
+
+    .portal-onboarding-btn {
+        width: 100%;
+    }
 }
 
 @media (max-width: 480px) {
@@ -2228,6 +2413,23 @@ body.portal-body {
 
     .portal-section-body {
         padding: 4px 18px 18px;
+    }
+
+    .portal-settings-tip {
+        padding: 12px 14px;
+        border-radius: 16px;
+    }
+
+    .portal-onboarding-step {
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 10px;
+        padding: 11px 12px;
+    }
+
+    .portal-onboarding-step span {
+        width: 28px;
+        height: 28px;
+        font-size: 13px;
     }
 
     .portal-notify-item {

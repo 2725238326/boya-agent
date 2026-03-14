@@ -11,6 +11,7 @@ let portalState = {
     filteredNotifications: [],
     notificationsHours: 24,
     lastCourseRefreshAt: null,
+    shouldShowOnboarding: false,
 };
 const PORTAL_TAB_KEY = 'portal_active_tab';
 
@@ -132,6 +133,60 @@ function dismissBanner() {
     btn?.classList.remove('active');
 }
 
+function toggleFirstRunSettingsHint(visible) {
+    const tip = document.getElementById('firstRunSettingsHint');
+    if (!tip) return;
+    tip.hidden = !visible;
+}
+
+function openPortalOnboarding() {
+    const overlay = document.getElementById('portalOnboardingOverlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('open'));
+}
+
+function closePortalOnboarding() {
+    const overlay = document.getElementById('portalOnboardingOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('open');
+    setTimeout(() => {
+        overlay.hidden = true;
+    }, 180);
+}
+
+async function markPortalOnboardingSeen() {
+    if (!portalState.shouldShowOnboarding) return;
+    portalState.shouldShowOnboarding = false;
+    try {
+        await portalApi('/api/subscriber/session/onboarding-seen', { method: 'POST' });
+    } catch (err) {
+        console.error('mark onboarding failed', err);
+    }
+}
+
+async function finishPortalOnboarding(target = 'browse') {
+    await markPortalOnboardingSeen();
+    closePortalOnboarding();
+
+    if (target === 'settings') {
+        switchPortalTab('manage');
+        toggleFirstRunSettingsHint(true);
+        const card = document.getElementById('settingsCard');
+        if (card) {
+            card.classList.add('first-run-focus');
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => card.classList.remove('first-run-focus'), 2200);
+        }
+        showPortalToast('这里就是偏好设置区，按需改就行，不用一次配很复杂。', 'info');
+        return;
+    }
+
+    switchPortalTab('courses');
+    toggleFirstRunSettingsHint(false);
+    showPortalToast('先浏览课程就行，想更精准再到“提醒 & 设置”里补偏好。', 'info');
+}
+
 function toggleMobileFilters(forceOpen = null) {
     const extra = document.getElementById('portalFilterExtra');
     const toggle = document.getElementById('portalFilterToggle');
@@ -167,6 +222,7 @@ async function loadPortalData() {
         return;
     }
     portalState.subscriber = sessionRes.data;
+    portalState.shouldShowOnboarding = Boolean(sessionRes.data.show_onboarding);
 
     // Load in parallel
     const [coursesRes, remindersRes, categoriesRes, highlightsRes] = await Promise.all([
@@ -178,6 +234,7 @@ async function loadPortalData() {
 
     document.getElementById('userEmail').textContent = portalState.subscriber.email || '已登录';
     renderSettings(portalState.subscriber, categoriesRes.success ? categoriesRes.data : []);
+    toggleFirstRunSettingsHint(portalState.shouldShowOnboarding);
 
     // Highlights
     if (highlightsRes.success) {
@@ -208,6 +265,11 @@ async function loadPortalData() {
     }
 
     await reloadNotifications();
+
+    if (portalState.shouldShowOnboarding) {
+        switchPortalTab('courses');
+        openPortalOnboarding();
+    }
 }
 
 // ══════ Tabs ══════
@@ -568,6 +630,7 @@ async function saveSettings() {
     if (res.success) {
         showPortalToast('偏好设置已保存', 'success');
         portalState.subscriber = res.data;
+        toggleFirstRunSettingsHint(false);
     } else {
         showPortalToast('保存失败：' + (res.error || ''), 'error');
     }

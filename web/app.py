@@ -732,18 +732,20 @@ def api_subscribe():
             # 重新激活
             existing.active = True
             existing.verified = False
-            existing.campus_filter = data.get("campus_filter", "")
-            existing.self_sign_only = data.get("self_sign_only", True)
-            existing.categories = data.get("categories", [])
+            existing.campus_filter = ""
+            existing.self_sign_only = True
+            existing.categories = []
+            existing.onboarding_seen_at = None
             session.commit()
             token = existing.token
         else:
             sub = EmailSubscriber(
                 email=email,
-                campus_filter=data.get("campus_filter", ""),
-                self_sign_only=data.get("self_sign_only", True),
+                campus_filter="",
+                self_sign_only=True,
             )
-            sub.categories = data.get("categories", [])
+            sub.categories = []
+            sub.onboarding_seen_at = None
             session.add(sub)
             session.commit()
             token = sub.token
@@ -760,7 +762,7 @@ def api_subscribe():
             session.commit()
             return jsonify({
                 "success": True,
-                "message": "验证邮件已经发出。若邮箱内点链接没有反应，可直接在本页输入邮件里的 6 位验证码完成验证。",
+                "message": "验证邮件已经发出。先完成邮箱验证，进入课程门户后再设置校区、类别和签到偏好。",
                 "data": {
                     "email": email,
                     "verify_code_required": True,
@@ -1195,9 +1197,6 @@ def portal_page():
                 .filter_by(token=token, verified=True, active=True)
                 .first()
             )
-            if sub:
-                sub.last_portal_seen_at = datetime.now()
-                session.commit()
         finally:
             session.close()
         if not sub:
@@ -1214,8 +1213,6 @@ def portal_page():
                 .first()
             )
             if sub:
-                sub.last_portal_seen_at = datetime.now()
-                session.commit()
                 resp = make_response(redirect(_portal_url_for_subscriber(sub)))
                 return _set_portal_session_cookie(resp, sub.token)
         finally:
@@ -1284,6 +1281,7 @@ def api_subscriber_session():
             )
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
+        is_first_portal_visit = sub.last_portal_seen_at is None and sub.onboarding_seen_at is None
         sub.last_portal_seen_at = datetime.now()
         session.commit()
         resp = jsonify({
@@ -1291,11 +1289,40 @@ def api_subscriber_session():
             "data": {
                 **sub.to_dict(),
                 "token": sub.token,
+                "show_onboarding": is_first_portal_visit,
             },
         })
         if token != sub.token:
             return _set_portal_session_cookie(resp, sub.token)
         return resp
+    finally:
+        session.close()
+
+
+@app.route("/api/subscriber/session/onboarding-seen", methods=["POST"])
+def api_subscriber_onboarding_seen():
+    """标记当前订阅者已看过首次引导"""
+    token = _get_session_token()
+    if not token:
+        return jsonify({"success": False, "error": "未登录"}), 401
+
+    session = get_session()
+    try:
+        sub = (
+            session.query(EmailSubscriber)
+            .filter_by(token=token, verified=True, active=True)
+            .first()
+        )
+        if not sub:
+            return jsonify({"success": False, "error": "会话失效"}), 401
+        if not sub.onboarding_seen_at:
+            sub.onboarding_seen_at = datetime.now()
+            session.commit()
+        return jsonify({"success": True, "message": "首次引导已记录"})
+    except Exception as e:
+        session.rollback()
+        logger.error(f"mark onboarding seen failed: {e}")
+        return jsonify({"success": False, "error": "引导状态保存失败"}), 500
     finally:
         session.close()
 

@@ -242,9 +242,13 @@
                 </div>
 
                 <!-- Right: Settings -->
-                <div class="portal-section-card">
+                <div class="portal-section-card" id="settingsCard">
                     <div class="portal-section-header">⚙️ 订阅设置</div>
                     <div class="portal-section-body">
+                        <div class="portal-settings-tip" id="firstRunSettingsHint" hidden>
+                            <strong>第一次使用不用急着全配完。</strong>
+                            <span>如果你只想先看课，可以稍后再回来设置校区、类别和签到偏好。</span>
+                        </div>
 
                         <div class="portal-form-group">
                             <label class="portal-form-label">校区偏好</label>
@@ -352,6 +356,43 @@
 
     <!-- Toast Container -->
     <div class="portal-toast-container" id="portalToastContainer"></div>
+
+    <div class="portal-onboarding-overlay" id="portalOnboardingOverlay" hidden>
+        <div class="portal-onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="portalOnboardingTitle">
+            <div class="portal-onboarding-badge">首次使用指引</div>
+            <h2 class="portal-onboarding-title" id="portalOnboardingTitle">先看课程，再慢慢把偏好调准</h2>
+            <p class="portal-onboarding-copy">
+                这次先不用做复杂设置。你可以先看当前可选课程，真正想抢的课点「提醒我选课」；如果想让提醒更精准，再去设置里补校区、类别和签到偏好。
+            </p>
+            <div class="portal-onboarding-steps">
+                <div class="portal-onboarding-step">
+                    <span>1</span>
+                    <div>
+                        <strong>先看课程页</strong>
+                        <p>先用搜索、校区和「只看可抢」筛出你关心的课。</p>
+                    </div>
+                </div>
+                <div class="portal-onboarding-step">
+                    <span>2</span>
+                    <div>
+                        <strong>遇到想抢的课就设提醒</strong>
+                        <p>课程卡片里点「提醒我选课」，系统会在开始前发邮件提醒。</p>
+                    </div>
+                </div>
+                <div class="portal-onboarding-step">
+                    <span>3</span>
+                    <div>
+                        <strong>想更精准，再去设置</strong>
+                        <p>校区、类别、仅自主签到这些偏好，稍后去「提醒 & 设置」里补就行。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="portal-onboarding-actions">
+                <button class="portal-onboarding-btn secondary" type="button" onclick="finishPortalOnboarding('browse')">先看课程</button>
+                <button class="portal-onboarding-btn" type="button" onclick="finishPortalOnboarding('settings')">去设置偏好</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/persistent_login.js"></script>
     <script src="/static/portal.js"></script>
