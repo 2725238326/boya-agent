@@ -200,15 +200,50 @@ function toggleMobileFilters(forceOpen = null) {
 
 // API Helper
 async function portalApi(url, options = {}) {
+    const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
     try {
         const resp = await fetch(url, {
-            headers: { 'Content-Type': 'application/json' },
-            ...options,
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...headers,
+            },
+            ...fetchOptions,
         });
-        return await resp.json();
+
+        const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            const data = await resp.json();
+            if (!resp.ok && data && typeof data === 'object') {
+                data.success = false;
+                if (!data.error) data.error = `请求失败 (${resp.status})`;
+            }
+            return data;
+        }
+
+        const rawText = await resp.text();
+        const bodyPreview = String(rawText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const statusLabel = `${resp.status}${resp.statusText ? ` ${resp.statusText}` : ''}`.trim();
+        console.error('Portal non-JSON API response:', {
+            url,
+            status: resp.status,
+            contentType,
+            bodyPreview,
+        });
+        if (!suppressErrorToast) {
+            showPortalToast('接口返回异常页面，请稍后重试', 'error');
+        }
+        return {
+            success: false,
+            error: `接口返回了非 JSON 响应 (${statusLabel || 'unknown'})`,
+            status: resp.status,
+            bodyPreview,
+        };
     } catch (err) {
         console.error('API Error:', err);
-        showPortalToast('缃戠粶璇锋眰澶辫触', 'error');
+        if (!suppressErrorToast) {
+            showPortalToast('缃戠粶璇锋眰澶辫触', 'error');
+        }
         return { success: false, error: err.message };
     }
 }
@@ -218,7 +253,11 @@ async function loadPortalData() {
     const emailQuery = portalState.email ? `?email=${encodeURIComponent(portalState.email)}` : '';
     const sessionRes = await portalApi(`/api/subscriber/session${emailQuery}`);
     if (!sessionRes.success) {
-        window.location.href = '/subscribe';
+        if (sessionRes.status === 401) {
+            window.location.href = '/subscribe';
+            return;
+        }
+        showPortalToast(sessionRes.error || '加载门户数据失败', 'error');
         return;
     }
     portalState.subscriber = sessionRes.data;
@@ -566,7 +605,7 @@ async function waitForPortalRefresh(requestedAt) {
 
     while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const statusRes = await portalApi('/api/status');
+        const statusRes = await portalApi('/api/status', { suppressErrorToast: true });
         if (!statusRes.success) continue;
 
         const data = statusRes.data || {};

@@ -93,6 +93,10 @@ async function api(url, options = {}) {
 }
 
 // ========== 时间格式化 ==========
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function formatInterval(minutes) {
     minutes = parseInt(minutes);
     if (minutes >= 1440) return Math.round(minutes / 1440) + ' 天';
@@ -671,20 +675,61 @@ async function manualPush(courseId, btnEl) {
 // ========== 手动触发 ==========
 async function triggerScrape() {
     const btn = document.getElementById('btnTrigger');
+    if (!btn) return;
+    const originalHtml = btn.innerHTML;
+    const requestedAt = Date.now();
     btn.classList.add('loading');
+    btn.disabled = true;
     btn.textContent = '\u6293\u53d6\u4e2d...';
 
-    const result = await api('/api/trigger', { method: 'POST' });
+    const result = await api('/api/trigger', {
+        method: 'POST',
+        suppressErrorToast: true,
+    });
     if (result.success) {
-        showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
-        await loadStatus();
-        await loadCourses();
+        if (result.joined_existing) {
+            showToast(result.message || '\u540e\u53f0\u5df2\u6709\u6293\u53d6\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
+        } else {
+            showToast(result.message || '\u5df2\u5f00\u59cb\u540e\u53f0\u6293\u53d6\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u5237\u65b0', 'info');
+        }
+        void waitForConsoleRefresh(requestedAt);
     } else {
         showToast('\u6293\u53d6\u5931\u8d25: ' + (result.error || ''), 'error');
     }
 
+    btn.disabled = false;
     btn.classList.remove('loading');
-    btn.innerHTML = '<span class="btn-icon">\u{1F504}</span> \u7acb\u5373\u6293\u53d6';
+    btn.innerHTML = originalHtml;
+}
+
+async function waitForConsoleRefresh(requestedAt) {
+    const deadline = Date.now() + 180000;
+    const threshold = requestedAt - 5000;
+
+    while (Date.now() < deadline) {
+        await sleep(2500);
+        const statusRes = await api('/api/status', { suppressErrorToast: true });
+        if (!statusRes.success) continue;
+
+        const data = statusRes.data || {};
+        if (data.is_running) continue;
+
+        const lastSuccess = data.last_success
+            ? new Date(String(data.last_success).replace(' ', 'T')).getTime()
+            : 0;
+        const lastRun = data.last_run
+            ? new Date(String(data.last_run).replace(' ', 'T')).getTime()
+            : 0;
+
+        if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
+            await loadStatus();
+            await loadCourses();
+            showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
+            return;
+        }
+    }
+
+    showToast('\u540e\u53f0\u4ecd\u5728\u6293\u53d6\uff0c\u5b8c\u6210\u540e\u4f1a\u5728\u5217\u8868\u4e2d\u81ea\u52a8\u663e\u793a\u6700\u65b0\u7ed3\u679c', 'info');
 }
 
 // ========== Toast 通知 ==========

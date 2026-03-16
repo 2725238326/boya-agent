@@ -11,6 +11,7 @@
 
 import asyncio
 import os
+import threading
 from typing import Any, Dict
 from datetime import datetime, timedelta
 from loguru import logger
@@ -55,6 +56,9 @@ _browser_state = {
 
 _runtime_loop = None
 _active_scrape_task = None
+_active_scrape_task_lock = None
+_submitted_scrape_future = None
+_submitted_scrape_lock = threading.Lock()
 BROWSER_MAX_SCRAPE_RUNS = max(5, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "25")))
 
 # ── 推送缓冲区 ──────────────────────────────────────────
@@ -89,6 +93,44 @@ def submit_coroutine(coro):
     if _runtime_loop is None:
         raise RuntimeError("scheduler runtime loop is not ready")
     return asyncio.run_coroutine_threadsafe(coro, _runtime_loop)
+
+
+def queue_scrape_task(mode: str = "full") -> Dict[str, Any]:
+    global _submitted_scrape_future
+
+    with _submitted_scrape_lock:
+        future = _submitted_scrape_future
+        if future and not future.done():
+            return {
+                "success": True,
+                "started": False,
+                "joined_existing": True,
+                "mode": mode,
+            }
+
+        future = submit_coroutine(run_scrape_task(mode=mode))
+        _submitted_scrape_future = future
+
+        def _clear_submitted(done_future):
+            global _submitted_scrape_future
+            with _submitted_scrape_lock:
+                if _submitted_scrape_future is done_future:
+                    _submitted_scrape_future = None
+
+        future.add_done_callback(_clear_submitted)
+        return {
+            "success": True,
+            "started": True,
+            "joined_existing": False,
+            "mode": mode,
+        }
+
+
+def _ensure_active_scrape_task_lock():
+    global _active_scrape_task_lock
+    if _active_scrape_task_lock is None:
+        _active_scrape_task_lock = asyncio.Lock()
+    return _active_scrape_task_lock
 
 
 async def _close_browser_local(pw, browser):
@@ -433,24 +475,27 @@ async def _run_scrape_task_impl(mode: str = "full"):
 async def run_scrape_task(mode: str = "full"):
     """Reuse the in-flight scrape task instead of failing concurrent callers."""
     global _active_scrape_task
+    joined_existing = False
 
-    task = _active_scrape_task
-    if task and not task.done():
-        logger.info("scrape already in progress, joining existing task")
+    async with _ensure_active_scrape_task_lock():
+        task = _active_scrape_task
+        if task and not task.done():
+            logger.info("scrape already in progress, joining existing task")
+            joined_existing = True
+        else:
+            task = asyncio.create_task(_run_scrape_task_impl(mode=mode))
+            _active_scrape_task = task
+    try:
         result = await task
-        if isinstance(result, dict):
+        if joined_existing and isinstance(result, dict):
             joined = dict(result)
             joined["joined_existing"] = True
             return joined
         return result
-
-    task = asyncio.create_task(_run_scrape_task_impl(mode=mode))
-    _active_scrape_task = task
-    try:
-        return await task
     finally:
-        if _active_scrape_task is task:
-            _active_scrape_task = None
+        async with _ensure_active_scrape_task_lock():
+            if _active_scrape_task is task and task.done():
+                _active_scrape_task = None
 
 
 # ═══════════════════════════════════════════════════════

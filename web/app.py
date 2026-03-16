@@ -27,6 +27,7 @@ from src.models import (
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
     get_run_status,
+    queue_scrape_task,
     run_scrape_task,
     submit_coroutine,
     update_scheduler_interval,
@@ -254,24 +255,9 @@ def _serialize_course_reminders(session, subscriber_id: int, pending_only: bool 
 
 
 def _queue_scrape_task(mode: str, started_message: str, joined_message: str) -> dict:
-    status = get_run_status()
-    if status.get("is_running"):
-        return {
-            "success": True,
-            "started": False,
-            "joined_existing": True,
-            "mode": mode,
-            "message": joined_message,
-        }
-
-    submit_coroutine(run_scrape_task(mode=mode))
-    return {
-        "success": True,
-        "started": True,
-        "joined_existing": False,
-        "mode": mode,
-        "message": started_message,
-    }
+    payload = queue_scrape_task(mode=mode)
+    payload["message"] = joined_message if payload.get("joined_existing") else started_message
+    return payload
 
 
 # ========== 页面路由 ==========
