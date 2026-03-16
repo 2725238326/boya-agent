@@ -253,6 +253,27 @@ def _serialize_course_reminders(session, subscriber_id: int, pending_only: bool 
     return result
 
 
+def _queue_scrape_task(mode: str, started_message: str, joined_message: str) -> dict:
+    status = get_run_status()
+    if status.get("is_running"):
+        return {
+            "success": True,
+            "started": False,
+            "joined_existing": True,
+            "mode": mode,
+            "message": joined_message,
+        }
+
+    submit_coroutine(run_scrape_task(mode=mode))
+    return {
+        "success": True,
+        "started": True,
+        "joined_existing": False,
+        "mode": mode,
+        "message": started_message,
+    }
+
+
 # ========== 页面路由 ==========
 
 @app.route("/")
@@ -542,9 +563,22 @@ def api_toggle_enroll():
 
 @app.route("/api/trigger", methods=["POST"])
 def api_trigger_scrape():
-    """Run one scrape via the main runtime loop and return the real result."""
+    """Trigger a scrape and return immediately by default."""
+    wait = (request.args.get("wait") or "").strip().lower() == "true"
+    mode = (request.args.get("mode") or "full").strip().lower()
+    if mode not in {"full", "quick"}:
+        mode = "full"
+
     try:
-        future = submit_coroutine(run_scrape_task())
+        if not wait:
+            payload = _queue_scrape_task(
+                mode=mode,
+                started_message="已开始后台抓取课程",
+                joined_message="后台已有抓取任务，正在为你同步最新结果",
+            )
+            return jsonify(payload)
+
+        future = submit_coroutine(run_scrape_task(mode=mode))
         result = future.result(timeout=180)
         if result.get("success"):
             return jsonify(result)
@@ -558,22 +592,12 @@ def api_trigger_scrape():
 def api_portal_refresh():
     """Start or join a scrape for the user portal without blocking the request."""
     try:
-        status = get_run_status()
-        if status.get("is_running"):
-            return jsonify({
-                "success": True,
-                "started": False,
-                "joined_existing": True,
-                "message": "后台已有刷新任务，正在为你同步最新结果",
-            })
-
-        submit_coroutine(run_scrape_task(mode="quick"))
-        return jsonify({
-            "success": True,
-            "started": True,
-            "joined_existing": False,
-            "message": "已开始后台刷新课程",
-        })
+        payload = _queue_scrape_task(
+            mode="quick",
+            started_message="已开始后台刷新课程",
+            joined_message="后台已有刷新任务，正在为你同步最新结果",
+        )
+        return jsonify(payload)
     except Exception as e:
         logger.error(f"portal refresh trigger failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

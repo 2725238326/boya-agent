@@ -7,6 +7,7 @@ let currentConfig = {};
 let searchTimeout = null;
 const CONSOLE_TAB_KEY = 'console_active_tab';
 let pushLogsTodayOnly = false;
+let consoleRefreshWatchToken = 0;
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
@@ -46,12 +47,44 @@ function switchTab(tabName) {
 
 // ========== API 工具函数 ==========
 async function api(url, options = {}) {
+    const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
     try {
         const resp = await fetch(url, {
-            headers: { 'Content-Type': 'application/json' },
-            ...options,
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...headers,
+            },
+            ...fetchOptions,
         });
-        return await resp.json();
+        const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            const data = await resp.json();
+            if (!resp.ok && data && typeof data === 'object') {
+                data.success = false;
+                if (!data.error) data.error = `请求失败 (${resp.status})`;
+            }
+            return data;
+        }
+
+        const rawText = await resp.text();
+        const bodyPreview = String(rawText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const statusLabel = `${resp.status}${resp.statusText ? ` ${resp.statusText}` : ''}`.trim();
+        console.error('Non-JSON API response:', {
+            url,
+            status: resp.status,
+            contentType,
+            bodyPreview,
+        });
+        if (!suppressErrorToast) {
+            showToast('接口返回异常页面，请稍后重试', 'error');
+        }
+        return {
+            success: false,
+            error: `接口返回了非 JSON 响应 (${statusLabel || 'unknown'})`,
+            status: resp.status,
+            bodyPreview,
+        };
     } catch (err) {
         console.error('API Error:', err);
         showToast('网络请求失败', 'error');
@@ -787,4 +820,124 @@ function escapeHtml(text) {
     if (!text) return '';
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
     return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Override the earlier helper so HTML error pages no longer explode on resp.json().
+async function api(url, options = {}) {
+    const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
+    try {
+        const resp = await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...headers,
+            },
+            ...fetchOptions,
+        });
+
+        const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            const data = await resp.json();
+            if (!resp.ok && data && typeof data === 'object') {
+                data.success = false;
+                if (!data.error) data.error = `\u8bf7\u6c42\u5931\u8d25 (${resp.status})`;
+            }
+            return data;
+        }
+
+        const rawText = await resp.text();
+        const bodyPreview = String(rawText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const statusLabel = `${resp.status}${resp.statusText ? ` ${resp.statusText}` : ''}`.trim();
+        console.error('Non-JSON API response:', {
+            url,
+            status: resp.status,
+            contentType,
+            bodyPreview,
+        });
+        if (!suppressErrorToast) {
+            showToast('\u63a5\u53e3\u8fd4\u56de\u5f02\u5e38\u9875\u9762\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5', 'error');
+        }
+        return {
+            success: false,
+            error: `\u63a5\u53e3\u8fd4\u56de\u4e86\u975e JSON \u54cd\u5e94 (${statusLabel || 'unknown'})`,
+            status: resp.status,
+            bodyPreview,
+        };
+    } catch (err) {
+        console.error('API Error:', err);
+        if (!suppressErrorToast) {
+            showToast('\u7f51\u7edc\u8bf7\u6c42\u5931\u8d25', 'error');
+        }
+        return { success: false, error: err.message };
+    }
+}
+
+async function triggerScrape() {
+    const btn = document.getElementById('btnTrigger');
+    if (!btn) return;
+
+    const originalHtml = btn.innerHTML;
+    const requestedAt = Date.now();
+    btn.classList.add('loading');
+    btn.disabled = true;
+    btn.textContent = '\u6293\u53d6\u4e2d...';
+
+    const result = await api('/api/trigger', {
+        method: 'POST',
+        suppressErrorToast: true,
+    });
+
+    if (result.success) {
+        if (result.joined_existing) {
+            showToast(result.message || '\u540e\u53f0\u5df2\u6709\u6293\u53d6\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
+        } else {
+            showToast(result.message || '\u5df2\u5f00\u59cb\u540e\u53f0\u6293\u53d6\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u5237\u65b0', 'info');
+        }
+        const watchToken = ++consoleRefreshWatchToken;
+        void waitForConsoleRefresh(requestedAt, watchToken);
+    } else {
+        showToast('\u6293\u53d6\u5931\u8d25: ' + (result.error || ''), 'error');
+    }
+
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    btn.innerHTML = originalHtml;
+}
+
+async function waitForConsoleRefresh(requestedAt, watchToken) {
+    const deadline = Date.now() + 180000;
+    const threshold = requestedAt - 5000;
+
+    while (Date.now() < deadline) {
+        await sleep(2500);
+        if (watchToken !== consoleRefreshWatchToken) return;
+
+        const statusRes = await api('/api/status', { suppressErrorToast: true });
+        if (!statusRes.success) continue;
+
+        const data = statusRes.data || {};
+        if (data.is_running) continue;
+
+        const lastSuccess = data.last_success
+            ? new Date(String(data.last_success).replace(' ', 'T')).getTime()
+            : 0;
+        const lastRun = data.last_run
+            ? new Date(String(data.last_run).replace(' ', 'T')).getTime()
+            : 0;
+
+        if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
+            await loadStatus();
+            await loadCourses();
+            showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
+            return;
+        }
+    }
+
+    if (watchToken === consoleRefreshWatchToken) {
+        showToast('\u540e\u53f0\u4ecd\u5728\u6293\u53d6\uff0c\u5b8c\u6210\u540e\u4f1a\u5728\u5217\u8868\u4e2d\u81ea\u52a8\u663e\u793a\u6700\u65b0\u7ed3\u679c', 'info');
+    }
 }
