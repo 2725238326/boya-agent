@@ -400,7 +400,7 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 
 # ========== 验证邮件 ==========
 
-def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
+def _legacy_send_verification_email_v0(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
     """发送邮箱验证邮件"""
     code_panel = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
@@ -429,7 +429,7 @@ def send_verification_email(to_email: str, verify_url: str, verify_code: str, su
     return ok
 
 
-def send_login_email(to_email: str, login_url: str) -> bool:
+def _legacy_send_login_email_v0(to_email: str, login_url: str) -> bool:
     """发送登录链接邮件（免密码）"""
     body = f"""
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
@@ -453,7 +453,7 @@ def send_login_email(to_email: str, login_url: str) -> bool:
 
 
 # Override the historical verification mail implementation with a clean version.
-def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
+def _legacy_send_verification_email_v2(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
     """发送邮箱验证邮件。"""
     guide_panel = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
@@ -499,6 +499,73 @@ def send_verification_email(to_email: str, verify_url: str, verify_code: str, su
 
 
 # ========== 课程通知 ==========
+
+
+def send_login_email(to_email: str, login_url: str) -> bool:
+    """发送登录邮件（免密链接）。"""
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  你的邮箱已经完成验证。点击下方按钮即可进入个人门户，不需要再次输入邮箱。
+</p>
+{_email_info_panel("免密登录", "打开你的个人门户", "如果你是在邮箱 App 里打开这封邮件，优先使用“在浏览器打开”，体验会更稳定。")}
+{_email_primary_button(login_url, "进入课程门户")}
+{_email_link_fallback(login_url, "如果按钮无法打开，请复制下面的登录链接到系统浏览器：")}"""
+    html = _email_shell("登录你的门户", body, eyebrow="快速登录")
+    ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
+    if ok:
+        logger.info(f"登录邮件已发送: {to_email}")
+        return True
+
+    time.sleep(0.8)
+    retry_ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
+    if retry_ok:
+        logger.info(f"登录邮件重试成功: {to_email}")
+    return retry_ok
+
+
+def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
+    """发送邮箱验证邮件。"""
+    code_digits = len(verify_code or "")
+    guide_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 14px;">
+  <p style="margin:0 0 10px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">推荐做法</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.75;">
+    直接回到
+    <a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top/subscribe</a>
+    ，输入下方的 {code_digits} 位验证码完成验证。<br>
+    验证完成后会直接进入课程门户，后续再设置校区、类别和签到偏好即可。
+  </p>
+</td></tr></table>"""
+
+    code_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 16px; text-align:center;">
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">本次验证码</p>
+  <p style="margin:0 0 8px; font-size:30px; letter-spacing:0.24em; font-weight:800; color:{_EMAIL_TEXT};">{verify_code}</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+    邮件里的按钮打不开也没关系，回到订阅页输入这个验证码就可以完成验证。
+  </p>
+</td></tr></table>"""
+
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  欢迎使用 BUAA 博雅课程推送。为了确认这个邮箱可用，请先完成一次邮箱验证。
+</p>
+{_email_info_panel("验证邮箱", "推荐直接输入验证码", f"建议优先回到订阅页，输入这封邮件里的 {code_digits} 位验证码完成验证。邮件里的链接保留为备用方式。")}
+{guide_panel}
+{_email_primary_button(subscribe_url, "打开订阅页输入验证码")}
+{code_panel}
+{_email_link_fallback(subscribe_url, "如果按钮无法打开，请复制下面的订阅页地址到系统浏览器：")}
+{_email_link_fallback(verify_url, "备用：如果你更习惯直接使用验证链接，也可以复制下面这条链接到系统浏览器：")}"""
+
+    html = _email_shell("验证你的邮箱", body, eyebrow="邮箱验证")
+    ok = _send_raw_email(to_email, "验证你的博雅课程推送订阅", html, from_kind="verify")
+    if ok:
+        logger.info(f"验证邮件已发送: {to_email}")
+    return ok
 
 
 def _build_course_html(course, remind_url: str = "", portal_url: str = "") -> str:

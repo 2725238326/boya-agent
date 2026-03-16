@@ -7,6 +7,7 @@ import os
 import asyncio
 import secrets
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
 from loguru import logger
@@ -49,6 +50,7 @@ PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
 LOGIN_EMAIL_COOLDOWN_SECONDS = 20
 LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "900")))
 VERIFICATION_CODE_TTL_MINUTES = max(5, int(os.getenv("VERIFICATION_CODE_TTL_MINUTES", "20")))
+VERIFICATION_CODE_LENGTH = 4
 _login_email_last_sent_at = {}
 DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
 
@@ -156,11 +158,11 @@ def _portal_url_for_subscriber(sub: EmailSubscriber) -> str:
 
 
 def _generate_verification_code() -> str:
-    return f"{secrets.randbelow(1000000):06d}"
+    return f"{secrets.randbelow(10 ** VERIFICATION_CODE_LENGTH):0{VERIFICATION_CODE_LENGTH}d}"
 
 
 def _normalize_verification_code(text: str) -> str:
-    return "".join(ch for ch in (text or "") if ch.isdigit())[:6]
+    return "".join(ch for ch in (text or "") if ch.isdigit())[:VERIFICATION_CODE_LENGTH]
 
 
 def _issue_verification_code(sub: EmailSubscriber) -> str:
@@ -213,7 +215,7 @@ def _verify_subscriber_code(session, email: str, code: str, bridge_ticket: str =
         return sub, None
 
     normalized = _normalize_verification_code(code)
-    if len(normalized) != 6:
+    if len(normalized) != VERIFICATION_CODE_LENGTH:
         return None, "invalid_code"
 
     expires_at = sub.verify_code_expires_at
@@ -301,9 +303,9 @@ def verify_page(token):
             success=True,
             portal_url=_portal_url_for_subscriber(sub),
             title="邮箱验证成功",
-            detail="验证已经完成，正在为你进入课程门户。如果没有自动跳转，可以点下面的按钮继续。",
+            detail="邮箱已经验证完成。如果你是在邮箱内置浏览器里打开这个页面，稍后回到常用浏览器，点击订阅页里的“已注册用户邮箱登录”也可以进入课程门户。",
             auto_redirect=True,
-            button_label="立即进入课程门户",
+            button_label="进入课程门户",
         ))
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
@@ -795,17 +797,18 @@ def api_subscribe():
         bridge = _create_login_bridge_ticket(session, sub)
         base_url = _get_public_base_url()
         verify_url = f"{base_url}/verify/{token}?bridge={bridge.ticket}"
-        subscribe_url = f"{base_url}/subscribe"
+        subscribe_url = f"{base_url}/subscribe?email={quote(email)}"
         ok = send_verification_email(email, verify_url, verify_code, subscribe_url)
 
         if ok:
             session.commit()
             return jsonify({
                 "success": True,
-                "message": "验证邮件已经发出。先完成邮箱验证，进入课程门户后再设置校区、类别和签到偏好。",
+                "message": f"验证邮件已经发出。推荐直接回到本页输入邮件里的 {VERIFICATION_CODE_LENGTH} 位验证码完成验证。",
                 "data": {
                     "email": email,
                     "verify_code_required": True,
+                    "verify_code_length": VERIFICATION_CODE_LENGTH,
                     "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
                 },
                 **_bridge_payload(bridge),
@@ -895,13 +898,13 @@ def api_verify_confirm(token):
         if error:
             return jsonify({
                 "success": False,
-                "error": "verification link is invalid or expired",
+                "error": "验证链接无效或已过期，请回到订阅页重新发送验证邮件",
             }), 404
 
         session.commit()
         resp = jsonify({
             "success": True,
-            "message": "email verified",
+            "message": "邮箱验证成功",
             "data": {
                 "email": sub.email,
                 "portal_url": _portal_url_for_subscriber(sub),
@@ -925,8 +928,8 @@ def api_subscribe_verify_code():
 
     if not email or "@" not in email:
         return jsonify({"success": False, "error": "请输入订阅时使用的邮箱"}), 400
-    if len(code) != 6:
-        return jsonify({"success": False, "error": "请输入邮件中的 6 位验证码"}), 400
+    if len(code) != VERIFICATION_CODE_LENGTH:
+        return jsonify({"success": False, "error": f"请输入邮件中的 {VERIFICATION_CODE_LENGTH} 位验证码"}), 400
 
     session = get_session()
     try:
@@ -938,7 +941,7 @@ def api_subscribe_verify_code():
         if error == "expired_code":
             return jsonify({"success": False, "error": "验证码已过期，请回到订阅页重新发送验证邮件"}), 410
         if error in {"invalid_code", "code_mismatch"}:
-            return jsonify({"success": False, "error": "验证码不正确，请检查邮件中的 6 位数字"}), 400
+            return jsonify({"success": False, "error": f"验证码不正确，请检查邮件中的 {VERIFICATION_CODE_LENGTH} 位数字"}), 400
 
         session.commit()
         resp = jsonify({

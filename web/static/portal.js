@@ -83,18 +83,18 @@ function renderPortalRefreshMeta() {
     const el = document.getElementById('portalRefreshMeta');
     if (!el) return;
     if (!portalState.lastCourseRefreshAt) {
-        el.textContent = '绛夊緟鍒锋柊';
+        el.textContent = '等待刷新';
         return;
     }
     const now = Date.now();
     const diffSec = Math.max(0, Math.floor((now - portalState.lastCourseRefreshAt.getTime()) / 1000));
     if (diffSec < 60) {
-        el.textContent = '鍒氬垰鏇存柊';
+        el.textContent = '刚刚更新';
         return;
     }
     const hh = String(portalState.lastCourseRefreshAt.getHours()).padStart(2, '0');
     const mm = String(portalState.lastCourseRefreshAt.getMinutes()).padStart(2, '0');
-    el.textContent = `${hh}:${mm} 鏇存柊`;
+    el.textContent = `${hh}:${mm} 更新`;
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Init 鈺愨晲鈺愨晲鈺愨晲
@@ -595,7 +595,7 @@ async function refreshPortalCourses(btnEl) {
         }
         await waitForPortalRefresh(requestedAt);
     } else {
-        showPortalToast(result.error || '鍒锋柊澶辫触', 'error');
+        showPortalToast(result.error || '刷新失败', 'error');
     }
 
     btnEl.disabled = false;
@@ -714,7 +714,7 @@ async function saveSettings() {
     }
 
     btn.disabled = false;
-    btn.textContent = '淇濆瓨璁剧疆';
+    btn.textContent = '保存设置';
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Reminders Rendering 鈺愨晲鈺愨晲鈺愨晲
@@ -751,9 +751,9 @@ function renderNotifications(notifications) {
     if (!notifications || !notifications.length) {
         container.innerHTML = `
             <div class="portal-empty">
-                <div class="portal-empty-icon">馃摥</div>
-                <div class="portal-empty-text">鏈€杩?${portalState.notificationsHours} 灏忔椂鏆傛棤鎺ㄩ€佽褰?/div>
-                <div class="portal-empty-hint">绯荤粺鍙戦€侀€氱煡鍚庝細鍦ㄨ繖閲屾樉绀烘椂闂寸嚎</div>
+                <div class="portal-empty-icon">📭</div>
+                <div class="portal-empty-text">最近 ${portalState.notificationsHours} 小时暂无推送记录</div>
+                <div class="portal-empty-hint">系统发送通知后会在这里显示时间线</div>
             </div>`;
         return;
     }
@@ -825,7 +825,7 @@ async function reloadNotifications() {
 function exportNotificationsCsv() {
     const rows = portalState.filteredNotifications || [];
     if (!rows.length) {
-        showPortalToast('娌℃湁鍙鍑虹殑閫氱煡璁板綍', 'error');
+        showPortalToast('没有可导出的通知记录', 'error');
         return;
     }
     const header = ['sent_at', 'course_name', 'course_category', 'event_type', 'status', 'channel', 'message'];
@@ -948,7 +948,7 @@ function _renderUpcomingItems() {
         <div class="portal-upcoming-item">
             <div class="portal-upcoming-info">
                 <div class="portal-upcoming-name">${escapeHtml(c.name)}</div>
-                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} 路 ${escapeHtml(c.category)} 路 鍓╀綑 ${c.remaining} 浜?/div>
+                <div class="portal-upcoming-meta">${escapeHtml(c.campus)} · ${escapeHtml(c.category)} · 剩余 ${c.remaining} 人</div>
             </div>
             <div class="portal-upcoming-countdown ${isUrgent ? 'urgent' : ''}" data-secs="${secsLeft}">
                 ${_formatCountdown(secsLeft)}
