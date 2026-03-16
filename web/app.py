@@ -12,6 +12,7 @@ from flask_cors import CORS
 from loguru import logger
 from sqlalchemy import func
 
+from web.qrcode_feature import qrcode_bp
 from src.models import (
     Course,
     FilterConfig,
@@ -50,6 +51,9 @@ LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "90
 VERIFICATION_CODE_TTL_MINUTES = max(5, int(os.getenv("VERIFICATION_CODE_TTL_MINUTES", "20")))
 _login_email_last_sent_at = {}
 DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
+
+app.config["PORTAL_SESSION_COOKIE"] = PORTAL_SESSION_COOKIE
+app.register_blueprint(qrcode_bp)
 
 
 def _is_https_request() -> bool:

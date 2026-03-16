@@ -304,6 +304,46 @@ class NotificationEvent(Base):
     message = Column(Text, default="")
 
 
+class QRCodeUpload(Base):
+    """Uploaded check-in QR codes kept isolated from the main course flow."""
+    __tablename__ = "qrcode_uploads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    contributor_email = Column(String, nullable=False, index=True)
+    contributor_subscriber_id = Column(Integer, nullable=True)
+    course_name = Column(String, nullable=False, default="")
+    course_time = Column(String, default="")
+    course_location = Column(String, default="")
+    notes = Column(Text, default="")
+    file_path = Column(String, nullable=False)
+    original_filename = Column(String, default="")
+    mime_type = Column(String, default="")
+    file_size = Column(Integer, default=0)
+    verification_status = Column(String, default="pending")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now)
+    deactivated_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "contributor_email": self.contributor_email,
+            "course_name": self.course_name,
+            "course_time": self.course_time,
+            "course_location": self.course_location,
+            "notes": self.notes,
+            "file_path": self.file_path,
+            "original_filename": self.original_filename,
+            "mime_type": self.mime_type,
+            "file_size": self.file_size,
+            "verification_status": self.verification_status,
+            "is_active": self.is_active,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else "",
+        }
+
+
 
 def init_db():
     """鍒濆鍖栨暟鎹簱琛紝濡傛灉涓嶅瓨鍦ㄥ垯鍒涘缓"""

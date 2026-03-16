@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>签到二维码共享 | 博雅课程</title>
+    <meta name="description" content="上传和共享常规签到课程二维码，后续支持贡献统计与奖励。">
+    <link rel="stylesheet" href="{{ url_for('static', filename='qrcode.css') }}">
+</head>
+<body class="qrcode-body">
+    <header class="qrcode-header">
+        <div class="qrcode-header-inner">
+            <a class="qrcode-brand" href="/portal">博雅课程</a>
+            <div class="qrcode-header-actions">
+                <a class="qrcode-link" href="/portal">返回门户</a>
+                <a class="qrcode-link secondary" href="/subscribe">订阅管理</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="qrcode-main">
+        <section class="qrcode-hero">
+            <div class="qrcode-hero-copy">
+                <div class="qrcode-eyebrow">QRCode Share</div>
+                <h1>常规签到二维码共享页</h1>
+                <p>这一页与主站抓取、门户和提醒链路隔离。第一阶段先做上传与展示，奖励、审核和风控后续在独立模块里继续扩展。</p>
+            </div>
+            <div class="qrcode-hero-side">
+                <div class="qrcode-hero-card">
+                    <div class="qrcode-hero-card-label">当前策略</div>
+                    <div class="qrcode-hero-card-value">先上传共享</div>
+                    <div class="qrcode-hero-card-sub">不改主站主流程，不引入重审核</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="qrcode-layout">
+            <section class="qrcode-panel qrcode-upload-panel">
+                <div class="qrcode-panel-head">
+                    <h2>上传二维码</h2>
+                    <p>优先上传仍可用、信息清晰的常规签到二维码图片。</p>
+                </div>
+
+                <form id="qrcodeUploadForm" class="qrcode-form" enctype="multipart/form-data">
+                    <label class="qrcode-field">
+                        <span>联系邮箱</span>
+                        <input type="email" name="email" id="qrcodeEmail" placeholder="登录门户后会自动识别；未登录可手填">
+                    </label>
+
+                    <label class="qrcode-field">
+                        <span>课程名称</span>
+                        <input type="text" name="course_name" placeholder="例如：中医药文化体验活动" required>
+                    </label>
+
+                    <div class="qrcode-grid-two">
+                        <label class="qrcode-field">
+                            <span>课程时间</span>
+                            <input type="text" name="course_time" placeholder="例如：2026-03-22 10:30">
+                        </label>
+                        <label class="qrcode-field">
+                            <span>上课地点</span>
+                            <input type="text" name="course_location" placeholder="例如：学院路校区主南106">
+                        </label>
+                    </div>
+
+                    <label class="qrcode-field">
+                        <span>补充说明</span>
+                        <textarea name="notes" rows="3" placeholder="例如：适用于常规签到；请尽快扫码"></textarea>
+                    </label>
+
+                    <label class="qrcode-field">
+                        <span>二维码图片</span>
+                        <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp" required>
+                    </label>
+
+                    <div class="qrcode-form-hint">
+                        目前仅做基础共享与贡献统计。内容校验、失效识别、审核与举报后续独立加。
+                    </div>
+
+                    <div class="qrcode-form-actions">
+                        <button type="submit" class="qrcode-button primary" id="qrcodeSubmitButton">上传二维码</button>
+                    </div>
+                </form>
+            </section>
+
+            <aside class="qrcode-panel qrcode-side-panel">
+                <div class="qrcode-panel-head">
+                    <h2>贡献进度</h2>
+                    <p>先做轻量统计，后续再加奖励与通知。</p>
+                </div>
+
+                <div class="qrcode-stats" id="qrcodeContributorStats">
+                    <div class="qrcode-stat-card">
+                        <div class="qrcode-stat-label">当前识别用户</div>
+                        <div class="qrcode-stat-value" id="qrcodeCurrentUser">未登录</div>
+                    </div>
+                    <div class="qrcode-stat-card">
+                        <div class="qrcode-stat-label">累计上传</div>
+                        <div class="qrcode-stat-value" id="qrcodeUploadCount">0</div>
+                    </div>
+                    <div class="qrcode-stat-card">
+                        <div class="qrcode-stat-label">下一档贡献</div>
+                        <div class="qrcode-stat-value" id="qrcodeNextReward">3 次</div>
+                    </div>
+                </div>
+
+                <div class="qrcode-thresholds">
+                    <div class="qrcode-thresholds-title">当前预设阈值</div>
+                    <div class="qrcode-threshold-list">
+                        {% for threshold in reward_thresholds %}
+                        <span class="qrcode-threshold-chip">{{ threshold }} 次</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="qrcode-status-box" id="qrcodeStatusBox">
+                    页面已就绪。建议先用最小范围试上传，确认链路稳定后再扩展入口和奖励。
+                </div>
+            </aside>
+        </section>
+
+        <section class="qrcode-panel qrcode-list-panel">
+            <div class="qrcode-panel-head qrcode-list-head">
+                <div>
+                    <h2>最近共享二维码</h2>
+                    <p>先展示最近可用项；失效下线、合并重复和审核流后续再补。</p>
+                </div>
+                <button type="button" class="qrcode-button secondary" id="qrcodeRefreshButton">刷新列表</button>
+            </div>
+            <div class="qrcode-list" id="qrcodeList">
+                <div class="qrcode-empty">正在加载二维码列表...</div>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='qrcode.js') }}"></script>
+</body>
+</html>
