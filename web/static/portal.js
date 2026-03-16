@@ -336,9 +336,9 @@ function renderCourses(courses) {
     if (!courses || !courses.length) {
         grid.innerHTML = `
             <div class="portal-empty" style="grid-column: 1/-1;">
-                <div class="portal-empty-icon">馃摥</div>
-                <div class="portal-empty-text">鏆傛棤璇剧▼</div>
-                <div class="portal-empty-hint">绛夊緟绯荤粺鎶撳彇鏂拌绋?/div>
+                <div class="portal-empty-icon">\ud83d\udcec</div>
+                <div class="portal-empty-text">\u6682\u65e0\u8bfe\u7a0b</div>
+                <div class="portal-empty-hint">\u7b49\u5f85\u7cfb\u7edf\u6293\u53d6\u65b0\u8bfe\u7a0b</div>
             </div>`;
         return;
     }
@@ -354,9 +354,9 @@ function renderCourses(courses) {
         html += available.map(c => renderCourseCard(c)).join('');
     } else {
         html += `<div class="portal-empty" style="grid-column:1/-1;">
-            <div class="portal-empty-icon">馃帀</div>
-            <div class="portal-empty-text">鎵€鏈夎绋嬮兘宸叉弧鍛?/div>
-            <div class="portal-empty-hint">鏈夐€€璇惧悕棰濇椂绯荤粺浼氱珛鍗抽€氱煡浣?/div>
+            <div class="portal-empty-icon">\ud83c\udf89</div>
+            <div class="portal-empty-text">\u6240\u6709\u8bfe\u7a0b\u90fd\u5df2\u6ee1\u5458</div>
+            <div class="portal-empty-hint">\u6709\u8e72\u9000\u540d\u989d\u65f6\uff0c\u7cfb\u7edf\u4f1a\u7b2c\u4e00\u65f6\u95f4\u901a\u77e5\u4f60</div>
         </div>`;
     }
 
