@@ -333,7 +333,9 @@ function switchPortalTab(tabName) {
 // 鈺愨晲鈺愨晲鈺愨晲 Course Rendering 鈺愨晲鈺愨晲鈺愨晲
 function renderCourses(courses) {
     const grid = document.getElementById('courseGrid');
+    const existingFullSection = document.getElementById('fullCoursesSection');
     if (!courses || !courses.length) {
+        if (existingFullSection) existingFullSection.remove();
         grid.innerHTML = `
             <div class="portal-empty" style="grid-column: 1/-1;">
                 <div class="portal-empty-icon">\ud83d\udcec</div>
@@ -362,7 +364,8 @@ function renderCourses(courses) {
 
     grid.innerHTML = html;
 
-    // 宸叉弧璇剧▼鎶樺彔鍖?    let fullSection = document.getElementById('fullCoursesSection');
+    // 已满课程折叠区
+    let fullSection = existingFullSection;
     if (full.length > 0) {
         if (!fullSection) {
             fullSection = document.createElement('div');
@@ -371,10 +374,10 @@ function renderCourses(courses) {
         }
         fullSection.innerHTML = `
             <div class="portal-full-toggle" onclick="toggleFullCourses()">
-                <span class="portal-full-toggle-icon" id="fullToggleIcon">鈻?/span>
-                <span>宸叉弧璇剧▼</span>
+                <span class="portal-full-toggle-icon" id="fullToggleIcon">\u25bc</span>
+                <span>\u5df2\u6ee1\u8bfe\u7a0b</span>
                 <span class="portal-full-count">${full.length}</span>
-                <span class="portal-full-hint">鏈夐€€璇炬椂绯荤粺鑷姩鍗虫椂鎺ㄩ€?/span>
+                <span class="portal-full-hint">\u6709\u8e72\u9000\u65f6\u7cfb\u7edf\u4f1a\u7acb\u5373\u901a\u77e5\u4f60</span>
             </div>
             <div class="portal-full-grid" id="fullCoursesGrid" style="display:none;">
                 ${full.map(c => renderCourseCard(c, true)).join('')}
