@@ -42,7 +42,7 @@ from web.app import app
 
 def run_flask():
     """在子线程中运行 Flask"""
-    host = os.getenv("WEB_HOST", "0.0.0.0")
+    host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "5000"))
     logger.info(f"Web 控制台启动: http://{host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False)

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUAA 博雅课程提醒</title>
+    <meta name="description" content="北航博雅课程查询、订阅提醒与个人门户。">
+    <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+</head>
+<body class="home-body">
+    <header class="home-nav">
+        <a class="home-brand" href="/">
+            <span class="home-brand-mark">博</span>
+            <span class="home-brand-text">BUAA 博雅课程提醒</span>
+        </a>
+        <div class="home-nav-actions">
+            <a class="home-nav-link" href="/subscribe">邮箱订阅</a>
+            <a class="home-nav-link" href="/portal">我的门户</a>
+        </div>
+    </header>
+
+    <main class="home-main">
+        <section class="home-hero">
+            <div class="home-hero-copy">
+                <p class="home-eyebrow">公开首页</p>
+                <h1>把博雅课程信息、提醒入口和个人门户收拢到一个站点里。</h1>
+                <p class="home-subtitle">
+                    从这里进入课程提醒系统。首次使用先完成邮箱订阅，已验证用户可直接进入个人门户查看课程、提醒与通知。
+                </p>
+                <div class="home-actions">
+                    <a class="home-btn home-btn-primary" href="/subscribe">开始使用</a>
+                    <a class="home-btn home-btn-secondary" id="portalEntryBtn" href="/portal">进入我的门户</a>
+                </div>
+                <div class="home-note">
+                    对外统一入口：<strong>buaaboya.top</strong>
+                </div>
+            </div>
+            <aside class="home-panel">
+                <div class="home-panel-header">
+                    <span>实时概览</span>
+                    <span class="home-panel-status" id="homeGeneratedAt">加载中</span>
+                </div>
+                <div class="home-metrics">
+                    <div class="home-metric">
+                        <span class="home-metric-label">当前可选</span>
+                        <span class="home-metric-value" id="availableCount">-</span>
+                    </div>
+                    <div class="home-metric">
+                        <span class="home-metric-label">有效课程</span>
+                        <span class="home-metric-value" id="activeCount">-</span>
+                    </div>
+                    <div class="home-metric home-metric-wide">
+                        <span class="home-metric-label">最近开抢</span>
+                        <span class="home-metric-value" id="nextEnrollName">暂无</span>
+                        <span class="home-metric-hint" id="nextEnrollHint">系统正在整理最新课程</span>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <section class="home-section">
+            <div class="home-section-heading">
+                <h2>你可以直接从首页进入的 3 条路径</h2>
+                <p>公开站点只保留一个入口，但功能页仍然完整保留。</p>
+            </div>
+            <div class="home-grid">
+                <article class="home-card">
+                    <h3>邮箱订阅</h3>
+                    <p>首次使用输入邮箱，完成验证后就能接收课程提醒。</p>
+                    <a class="home-card-link" href="/subscribe">前往订阅页</a>
+                </article>
+                <article class="home-card">
+                    <h3>个人门户</h3>
+                    <p>查看课程、管理提醒、浏览通知和调整偏好设置。</p>
+                    <a class="home-card-link" href="/portal">前往用户门户</a>
+                </article>
+                <article class="home-card">
+                    <h3>签到二维码</h3>
+                    <p>独立入口保留在站内，供大家共享和查看常规签到二维码。</p>
+                    <a class="home-card-link" href="/QRcode">打开二维码页</a>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='home.js') }}"></script>
+</body>
+</html>

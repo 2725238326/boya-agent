@@ -269,9 +269,22 @@ def _queue_scrape_task(mode: str, started_message: str, joined_message: str) -> 
 # ========== 页面路由 ==========
 
 @app.route("/")
-def index():
-    """控制台主页"""
+def home_page():
+    """公开首页"""
+    return render_template("home.html")
+
+
+@app.route("/admin")
+@app.route("/admin/")
+def admin_console():
+    """管理后台首页"""
     return render_template("index.html")
+
+
+@app.route("/console")
+def console_redirect():
+    """历史控制台入口，统一跳转到 /admin"""
+    return redirect("/admin")
 
 
 @app.route("/subscribe")
