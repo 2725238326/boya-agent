@@ -11,6 +11,7 @@ let consoleRefreshWatchToken = 0;
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
+    repairConsoleCopy();
     const savedTab = localStorage.getItem(CONSOLE_TAB_KEY);
     if (savedTab) switchTab(savedTab);
     loadCourses();
@@ -22,6 +23,70 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(loadStatus, 30000);
     setInterval(loadCourses, 60000);
 });
+
+function repairConsoleCopy() {
+    document.title = '\u535a\u96c5\u8bfe\u7a0b\u63a8\u9001\u540e\u53f0';
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) meta.setAttribute('content', 'BUAA \u535a\u96c5\u8bfe\u7a0b\u6293\u53d6\u4e0e\u63d0\u9192\u7cfb\u7edf\u540e\u53f0');
+
+    const logoIcon = document.querySelector('.logo-icon');
+    if (logoIcon) logoIcon.textContent = '\ud83d\udee0';
+    const logoTitle = document.querySelector('.logo h1');
+    if (logoTitle) logoTitle.textContent = '\u535a\u96c5\u8bfe\u7a0b\u63a8\u9001\u540e\u53f0';
+
+    const statusText = document.querySelector('#statusIndicator .status-text');
+    if (statusText) statusText.textContent = '\u52a0\u8f7d\u4e2d...';
+
+    const triggerBtn = document.getElementById('btnTrigger');
+    if (triggerBtn) {
+        triggerBtn.innerHTML = '<span class="btn-icon">\ud83d\udd04</span> \u7acb\u5373\u6293\u53d6';
+    }
+
+    document.querySelectorAll('.dash-stat-label').forEach((el, index) => {
+        const labels = ['\u5f53\u524d\u53ef\u9009', '\u4eca\u65e5\u65b0\u8bfe', '\u4eca\u65e5\u9001\u8fbe', '\u5df2\u8fc7\u671f', '\u6293\u53d6\u95f4\u9694(\u5206\u949f)', '\u4e0a\u6b21\u8fd0\u884c', '\u6d4f\u89c8\u5668', '\u7f13\u51b2\u533a'];
+        if (labels[index]) el.textContent = labels[index];
+    });
+
+    document.querySelectorAll('.dash-stat-icon').forEach((el, index) => {
+        const icons = ['\ud83d\udcda', '\ud83c\udd95', '\ud83d\udce8', '\u23f3', '\u23f1', '\ud83d\udd52', '\ud83c\udf10', '\ud83e\uddf0'];
+        if (icons[index]) el.textContent = icons[index];
+    });
+
+    document.querySelectorAll('.tab').forEach((el, index) => {
+        const labels = ['\ud83d\udcda \u8bfe\u7a0b\u5217\u8868', '\u2699\ufe0f \u7b5b\u9009 & \u63a8\u9001', '\ud83c\udfaf \u81ea\u52a8\u9009\u8bfe', '\ud83d\udc65 \u7528\u6237\u7ba1\u7406', '\ud83e\uddfe \u65e5\u5fd7'];
+        if (labels[index]) el.textContent = labels[index];
+    });
+
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) searchInput.placeholder = '\ud83d\udd0e \u641c\u7d22\u8bfe\u7a0b\u540d\u79f0...';
+
+    const categoryFilter = document.getElementById('categoryFilter');
+    if (categoryFilter?.options?.[0]) categoryFilter.options[0].textContent = '\u5168\u90e8\u7c7b\u522b';
+
+    const campusFilter = document.getElementById('campusFilter');
+    if (campusFilter?.options?.[0]) campusFilter.options[0].textContent = '\u5168\u90e8\u6821\u533a';
+    if (campusFilter?.options?.[1]) campusFilter.options[1].textContent = '\u6c99\u6cb3\u6821\u533a';
+    if (campusFilter?.options?.[2]) campusFilter.options[2].textContent = '\u5b66\u9662\u8def\u6821\u533a';
+
+    const filterLabels = [
+        ['selfSignFilter', '\u4ec5\u81ea\u4e3b\u7b7e\u5230'],
+        ['showExpiredFilter', '\u663e\u793a\u5df2\u8fc7\u671f'],
+        ['todayNewFilter', '\u4ec5\u4eca\u5929\u65b0\u589e'],
+        ['availableNowFilter', '\u4ec5\u5f53\u524d\u53ef\u9009'],
+        ['waitlistFilter', '\u4ec5\u5df2\u6ee1\u53ef\u8e72'],
+    ];
+    for (const [id, text] of filterLabels) {
+        const input = document.getElementById(id);
+        const label = input?.closest('label')?.querySelector('span');
+        if (label) label.textContent = text;
+    }
+
+    const refreshBtn = document.querySelector('.filter-bar .btn.btn-sm.btn-accent');
+    if (refreshBtn) refreshBtn.textContent = '\ud83d\udd04 \u5237\u65b0\u5217\u8868';
+
+    const loading = document.querySelector('#courseGrid .loading');
+    if (loading) loading.textContent = '\u52a0\u8f7d\u4e2d...';
+}
 
 // ========== Tab 切换 ==========
 function switchTab(tabName) {
