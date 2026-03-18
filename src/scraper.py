@@ -436,6 +436,112 @@ async def _ensure_session_with_retry(page: Page, stage: str, retries: int = 2) -
     return False
 
 
+async def _wait_course_tables_ready(page: Page) -> bool:
+    """Wait until at least one table is present and the page has settled."""
+    try:
+        await page.wait_for_selector("table", timeout=15000)
+        await page.wait_for_timeout(1200)
+        return True
+    except Exception:
+        return False
+
+
+async def _get_visible_course_tables(page: Page) -> List[Tuple[int, Locator]]:
+    """Return visible tables that look like course tables."""
+    tables = page.locator("table:visible")
+    count = await tables.count()
+    result: List[Tuple[int, Locator]] = []
+
+    for idx in range(count):
+        table = tables.nth(idx)
+        try:
+            column_map = await _build_table_column_map(table)
+            if "name" in column_map and ("enroll" in column_map or "time" in column_map):
+                result.append((idx, table))
+        except Exception:
+            continue
+
+    return result
+
+
+async def _try_click_view_alias(page: Page, alias: str) -> bool:
+    selectors = [
+        f'button:has-text("{alias}")',
+        f'a:has-text("{alias}")',
+        f'[role="tab"]:has-text("{alias}")',
+        f'li:has-text("{alias}")',
+        f'span:has-text("{alias}")',
+        f'div:has-text("{alias}")',
+    ]
+
+    for selector in selectors:
+        locator = page.locator(selector)
+        count = await locator.count()
+        for idx in range(count):
+            candidate = locator.nth(idx)
+            try:
+                if not await candidate.is_visible():
+                    continue
+                await candidate.click(timeout=4000)
+                await page.wait_for_timeout(1500)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                await _wait_course_tables_ready(page)
+                logger.info(f"Switched course view with alias [{alias}]")
+                return True
+            except Exception:
+                continue
+    return False
+
+
+async def _activate_course_view(page: Page, aliases: List[str]) -> bool:
+    for alias in aliases:
+        if await _try_click_view_alias(page, alias):
+            return True
+    return False
+
+
+def _merge_scraped_course(base: dict, incoming: dict) -> dict:
+    merged = dict(base)
+    for key, value in incoming.items():
+        if key.startswith("__"):
+            continue
+        if value in (None, ""):
+            continue
+        current = merged.get(key)
+        if key in {"capacity", "enrolled"}:
+            if current in (None, "") or int(value or 0) >= int(current or 0):
+                merged[key] = value
+        elif current in (None, ""):
+            merged[key] = value
+
+    merged_remaining = max(0, int(merged.get("capacity") or 0) - int(merged.get("enrolled") or 0))
+    incoming_remaining = max(0, int(incoming.get("capacity") or 0) - int(incoming.get("enrolled") or 0))
+    if incoming_remaining > merged_remaining:
+        merged["capacity"] = incoming.get("capacity", merged.get("capacity"))
+        merged["enrolled"] = incoming.get("enrolled", merged.get("enrolled"))
+    return merged
+
+
+def _dedupe_scraped_courses(courses: List[dict]) -> List[dict]:
+    deduped: Dict[str, dict] = {}
+    order: List[str] = []
+
+    for course in courses:
+        cid = course.get("id")
+        if not cid:
+            continue
+        if cid not in deduped:
+            deduped[cid] = dict(course)
+            order.append(cid)
+        else:
+            deduped[cid] = _merge_scraped_course(deduped[cid], course)
+
+    return [deduped[cid] for cid in order]
+
+
 async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
