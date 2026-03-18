@@ -150,6 +150,40 @@ def _minutes_diff(left: Optional[datetime], right: Optional[datetime]) -> Option
     return abs(int((left - right).total_seconds() // 60))
 
 
+NEAR_DUPLICATE_RECENT_HOURS = 6
+
+
+def _same_calendar_day(left: Optional[datetime], right: Optional[datetime]) -> bool:
+    return bool(left and right and left.date() == right.date())
+
+
+def _is_near_duplicate_triplet(
+    left_start: Optional[datetime],
+    right_start: Optional[datetime],
+    left_enroll_start: Optional[datetime],
+    right_enroll_start: Optional[datetime],
+    left_enroll_end: Optional[datetime],
+    right_enroll_end: Optional[datetime],
+) -> bool:
+    start_gap = _minutes_diff(left_start, right_start)
+    enroll_start_gap = _minutes_diff(left_enroll_start, right_enroll_start)
+    enroll_end_gap = _minutes_diff(left_enroll_end, right_enroll_end)
+
+    gaps = (start_gap, enroll_start_gap, enroll_end_gap)
+    if all(gap == 0 for gap in gaps):
+        return True
+
+    # Keep the legacy 1-hour drift fallback, but only when all three time
+    # fields stay on the same calendar day. That preserves the old anti-dup
+    # behavior without swallowing genuinely new sessions.
+    return (
+        all(gap == 60 for gap in gaps)
+        and _same_calendar_day(left_start, right_start)
+        and _same_calendar_day(left_enroll_start, right_enroll_start)
+        and _same_calendar_day(left_enroll_end, right_enroll_end)
+    )
+
+
 def _find_similar_active_course(session, data: dict, now: datetime) -> Optional[Course]:
     """Fallback dedupe when the same course drifts by ~1 hour in scraped time fields."""
     name = (data.get("name") or "").strip()
@@ -181,14 +215,17 @@ def _find_similar_active_course(session, data: dict, now: datetime) -> Optional[
         if campus and c.campus and c.campus.strip() != campus:
             continue
 
-        if c.last_seen and (now - c.last_seen).total_seconds() > 48 * 3600:
+        if c.last_seen and (now - c.last_seen).total_seconds() > NEAR_DUPLICATE_RECENT_HOURS * 3600:
             continue
 
-        start_gap = _minutes_diff(c.start_time, new_start)
-        enroll_start_gap = _minutes_diff(c.enroll_start, new_enroll_start)
-        enroll_end_gap = _minutes_diff(c.enroll_end, new_enroll_end)
-
-        if start_gap in (0, 60) and enroll_start_gap in (0, 60) and enroll_end_gap in (0, 60):
+        if _is_near_duplicate_triplet(
+            c.start_time,
+            new_start,
+            c.enroll_start,
+            new_enroll_start,
+            c.enroll_end,
+            new_enroll_end,
+        ):
             return c
 
     return None
@@ -219,11 +256,22 @@ def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
             if (base.campus or "").strip() != (other.campus or "").strip():
                 continue
 
-            start_gap = _minutes_diff(base.start_time, other.start_time)
-            enroll_start_gap = _minutes_diff(base.enroll_start, other.enroll_start)
-            enroll_end_gap = _minutes_diff(base.enroll_end, other.enroll_end)
+            exact_duplicate = _is_near_duplicate_triplet(
+                base.start_time,
+                other.start_time,
+                base.enroll_start,
+                other.enroll_start,
+                base.enroll_end,
+                other.enroll_end,
+            )
+            if not exact_duplicate:
+                continue
 
-            if not (start_gap in (0, 60) and enroll_start_gap in (0, 60) and enroll_end_gap in (0, 60)):
+            newest_seen = max(base.last_seen or now, other.last_seen or now)
+            if (
+                _minutes_diff(base.start_time, other.start_time) == 60
+                and (now - newest_seen).total_seconds() > NEAR_DUPLICATE_RECENT_HOURS * 3600
+            ):
                 continue
 
             keep, drop = (base, other) if (base.last_seen or now) >= (other.last_seen or now) else (other, base)
