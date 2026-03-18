@@ -232,8 +232,19 @@ def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
             keep.check_in_method = keep.check_in_method or drop.check_in_method
             keep.description = keep.description or drop.description
             keep.organizer = keep.organizer or drop.organizer
-            keep.capacity = max(keep.capacity or 0, drop.capacity or 0)
-            keep.enrolled = max(keep.enrolled or 0, drop.enrolled or 0)
+            keep.status = keep.status or drop.status
+            keep.start_time = keep.start_time or drop.start_time
+            keep.end_time = keep.end_time or drop.end_time
+            keep.enroll_start = keep.enroll_start or drop.enroll_start
+            keep.enroll_end = keep.enroll_end or drop.enroll_end
+
+            # Preserve the freshest seat snapshot. Using max(enrolled) here would
+            # incorrectly turn a just-reopened course back into "full" when merged
+            # with an older duplicate record.
+            if (keep.capacity or 0) <= 0 and (drop.capacity or 0) > 0:
+                keep.capacity = drop.capacity or 0
+                keep.enrolled = drop.enrolled or 0
+
             keep.last_seen = max(keep.last_seen or now, drop.last_seen or now)
 
             session.delete(drop)
