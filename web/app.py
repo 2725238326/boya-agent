@@ -1509,6 +1509,41 @@ def api_subscriber_notifications(token=None):
 
 # ========== 管理工具 ==========
 
+@app.route("/api/admin/broadcast/service-update", methods=["POST"])
+def api_admin_broadcast_service_update():
+    """管理端：向现有已验证用户发送站点入口调整通知。"""
+    from src.push.email_push import send_service_update_to_subscribers
+
+    session = get_session()
+    try:
+        subscribers = (
+            session.query(EmailSubscriber)
+            .filter_by(active=True, verified=True)
+            .order_by(EmailSubscriber.created_at.asc())
+            .all()
+        )
+        if not subscribers:
+            return jsonify({"success": False, "error": "没有可发送的已验证用户"}), 404
+
+        result = send_service_update_to_subscribers(subscribers, _get_public_base_url())
+        logger.info(
+            "管理端发送站点调整通知: total={} success={} failed={}",
+            result["total"],
+            result["success"],
+            result["failed"],
+        )
+        return jsonify({
+            "success": True,
+            "message": f"通知发送完成：成功 {result['success']}，失败 {result['failed']}",
+            "data": result,
+        })
+    except Exception as e:
+        logger.error(f"发送站点调整通知失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        session.close()
+
+
 @app.route("/api/manual-push", methods=["POST"])
 def api_manual_push():
     """手动推送指定课程给所有活跃邮件订阅者"""

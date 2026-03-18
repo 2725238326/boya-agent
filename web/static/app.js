@@ -851,6 +851,25 @@ function renderSubscribers(list) {
     }).join('');
 }
 
+async function sendServiceUpdateBroadcast() {
+    const confirmed = window.confirm(
+        '确认要向所有已验证且仍激活的用户发送“站点入口调整通知”邮件吗？'
+    );
+    if (!confirmed) return;
+
+    showToast('正在发送站点调整通知，请稍候...', 'info');
+    const result = await api('/api/admin/broadcast/service-update', {
+        method: 'POST',
+    });
+
+    if (result.success) {
+        showToast(result.message || '站点调整通知已发送', 'success');
+        return;
+    }
+
+    showToast(`发送失败: ${result.error || '未知错误'}`, 'error');
+}
+
 async function adminToggleSubscriber(subscriberId, currentActive) {
     const action = currentActive ? '停用' : '启用';
     if (!window.confirm(`确认要${action}这个用户吗？`)) return;

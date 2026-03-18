@@ -568,6 +568,61 @@ def send_verification_email(to_email: str, verify_url: str, verify_code: str, su
     return ok
 
 
+def send_service_update_email(to_email: str, home_url: str, portal_url: str, subscribe_url: str) -> bool:
+    """发送站点入口调整通知邮件。"""
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  我们对博雅课程提醒站点做了一次入口整理。现在直接访问 <strong>buaaboya.top</strong> 就可以进入首页，不需要再记额外入口。
+</p>
+{_email_info_panel("入口调整", "现在从首页进入更方便", f"""
+  <p style=\"margin:0 0 8px;\">你现在可以直接访问 <a href=\"{home_url}\" style=\"color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;\">buaaboya.top</a>。</p>
+  <p style=\"margin:0 0 8px;\">原有订阅设置、提醒偏好和账户数据都已经保留，不需要重新注册。</p>
+  <p style=\"margin:0;\">如果你之前已经在当前浏览器登录过，通常可以继续保持登录状态；如果没有保留，从首页进入后重新获取一次登录邮件即可。</p>
+""")}
+{_email_primary_button(home_url, "打开博雅课程提醒首页")}
+{_email_info_panel("你可以这样使用", "常用入口", f"""
+  <p style=\"margin:0 0 8px;\">首页：<a href=\"{home_url}\" style=\"color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;\">{home_url}</a></p>
+  <p style=\"margin:0 0 8px;\">个人门户：<a href=\"{portal_url}\" style=\"color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;\">{portal_url}</a></p>
+  <p style=\"margin:0;\">邮箱订阅页：<a href=\"{subscribe_url}\" style=\"color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;\">{subscribe_url}</a></p>
+""")}
+{_email_link_fallback(home_url, "如果按钮无法打开，请复制下面的首页地址到系统浏览器：")}"""
+
+    html = _email_shell("站点入口更新通知", body, eyebrow="服务调整")
+    ok = _send_raw_email(to_email, "站点入口更新：现在直接访问 buaaboya.top 即可", html, from_kind="notify")
+    if ok:
+        logger.info(f"站点调整通知邮件已发送: {to_email}")
+    return ok
+
+
+def send_service_update_to_subscribers(subscribers: List, base_url: str) -> dict:
+    """向现有已验证用户发送站点入口调整通知。"""
+    home_url = base_url.rstrip("/") or "https://buaaboya.top"
+    portal_url = f"{home_url}/portal"
+    subscribe_url = f"{home_url}/subscribe"
+
+    success = 0
+    failed = 0
+    total = 0
+
+    for subscriber in subscribers:
+        email = (getattr(subscriber, "email", "") or "").strip().lower()
+        if not email:
+            continue
+        total += 1
+        ok = send_service_update_email(email, home_url, portal_url, subscribe_url)
+        if ok:
+            success += 1
+        else:
+            failed += 1
+        time.sleep(0.15)
+
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+    }
+
+
 def _build_course_html(course, remind_url: str = "", portal_url: str = "") -> str:
     """构建单条课程 HTML 卡片 — 移动端友好的单列布局"""
     check_in = getattr(course, 'check_in_method', '') or getattr(course, 'sign_method', '') or ''
