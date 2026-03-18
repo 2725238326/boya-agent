@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BUAA 博雅课程提醒</title>
-    <meta name="description" content="北航博雅课程查询、邮件提醒与个人门户统一入口。">
+    <meta name="description" content="北航博雅课程提醒、邮箱订阅与个人门户。">
     <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
 </head>
 <body class="home-body">
@@ -22,17 +22,17 @@
     <main class="home-main">
         <section class="home-hero">
             <div class="home-hero-copy">
-                <p class="home-eyebrow">统一入口</p>
-                <h1>从 buaaboya.top 直接进入课程提醒、订阅验证和个人门户。</h1>
+                <p class="home-eyebrow">博雅课程提醒</p>
+                <h1>课程有变化时，尽快收到提醒。</h1>
                 <p class="home-subtitle">
-                    这里是对外公开首页。首次使用可以先完成邮箱订阅，已验证用户可以直接进入个人门户查看课程、提醒和通知，不需要再记额外入口或端口。
+                    输入邮箱完成验证后，就可以接收博雅课程提醒。已经注册的用户可以直接进入个人门户，查看课程、管理提醒和浏览通知。
                 </p>
                 <div class="home-actions">
-                    <a class="home-btn home-btn-primary" href="/subscribe">开始使用</a>
+                    <a class="home-btn home-btn-primary" href="/subscribe">邮箱订阅</a>
                     <a class="home-btn home-btn-secondary" id="portalEntryBtn" href="/portal">进入我的门户</a>
                 </div>
                 <div class="home-note">
-                    对外统一入口：<strong>buaaboya.top</strong>
+                    访问地址：<strong>buaaboya.top</strong>
                 </div>
             </div>
 
@@ -51,9 +51,9 @@
                         <span class="home-metric-value" id="activeCount">-</span>
                     </div>
                     <div class="home-metric home-metric-wide">
-                        <span class="home-metric-label">最近开抢</span>
+                        <span class="home-metric-label">最近开抢课程</span>
                         <span class="home-metric-value" id="nextEnrollName">暂无</span>
-                        <span class="home-metric-hint" id="nextEnrollHint">系统正在整理最新课程。</span>
+                        <span class="home-metric-hint" id="nextEnrollHint">系统正在整理最新课程信息。</span>
                     </div>
                 </div>
             </aside>
@@ -61,8 +61,8 @@
 
         <section class="home-section">
             <div class="home-section-heading">
-                <h2>首页保留一个公开入口，功能页继续完整可用</h2>
-                <p>订阅、门户和签到二维码都保留在站内，不再让用户额外记住后台路径或端口。</p>
+                <h2>常用功能都在这里</h2>
+                <p>订阅、个人门户和签到二维码页都可以直接从首页进入。</p>
             </div>
             <div class="home-grid">
                 <article class="home-card">
@@ -77,7 +77,7 @@
                 </article>
                 <article class="home-card">
                     <h3>签到二维码</h3>
-                    <p>常规签到课程的二维码共享页，后续会补充贡献统计和奖励能力。</p>
+                    <p>上传和查看常规签到课程二维码，方便同学之间共享签到信息。</p>
                     <a class="home-card-link" href="/QRcode">打开二维码页</a>
                 </article>
             </div>

@@ -34,8 +34,8 @@ async function loadHomeInsights() {
             nextNameEl.textContent = payload.next_enroll.course_name || '即将开抢';
             nextHintEl.textContent = formatCountdown(payload.next_enroll.seconds_left || 0);
         } else {
-            nextNameEl.textContent = '暂无即将开抢课程';
-            nextHintEl.textContent = '系统会在发现近期开抢课程后更新这里。';
+            nextNameEl.textContent = '暂无近期可抢课程';
+            nextHintEl.textContent = '发现新的开抢课程后，这里会自动更新。';
         }
     } catch (err) {
         generatedAtEl.textContent = '暂不可用';
@@ -51,7 +51,7 @@ async function loadHomeSession() {
     try {
         const data = await fetchJson('/api/subscriber/session');
         if (!data.data || !data.data.email) return;
-        portalBtn.textContent = '继续进入我的门户';
+        portalBtn.textContent = '我的门户';
         portalBtn.href = `/portal?email=${encodeURIComponent(data.data.email)}`;
     } catch (err) {
         // The default CTA is enough for logged-out users.
