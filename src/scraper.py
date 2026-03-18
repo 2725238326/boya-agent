@@ -6,15 +6,20 @@ Playwright 爬虫模块 - 抓取博雅课程列表并解析
 import hashlib
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 from loguru import logger
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, Page, BrowserContext, Locator
 
 from src.auth import ensure_logged_in, BYKC_COURSE_URL
 from src.models import Course, get_session
 
 # 浏览器数据持久化目录
 BROWSER_DATA_DIR = "browser_data"
+COURSE_VIEW_CANDIDATES = [
+    ("all", ["\u5168\u90e8\u8bfe\u7a0b"]),
+    ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u8fd1\u671f", "\u5373\u5c06\u5f00\u8bfe"]),
+    ("far", ["\u8fdc\u671f\u8bfe\u7a0b", "\u8fdc\u5e74\u8bfe\u7a0b", "\u8fdc\u671f", "\u8fdc\u5e74"]),
+]
 
 
 async def create_browser_context() -> tuple:
@@ -142,11 +147,11 @@ def _match_column_key(header_text: str) -> Optional[str]:
     return None
 
 
-async def _build_table_column_map(page: Page) -> dict:
+async def _build_table_column_map(target) -> dict:
     column_map = {}
-    headers = await page.query_selector_all("table thead tr th")
+    headers = await target.query_selector_all("thead tr th")
     if not headers:
-        headers = await page.query_selector_all("table tr th")
+        headers = await target.query_selector_all("tr th")
 
     for idx, header in enumerate(headers):
         try:
