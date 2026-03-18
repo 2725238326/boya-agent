@@ -12,6 +12,9 @@ from src.scraper import (
     _cleanup_near_duplicate_courses,
     _find_similar_active_course,
     _is_near_duplicate_triplet,
+    generate_course_id,
+    generate_legacy_course_id,
+    save_courses_to_db,
 )
 
 
@@ -81,6 +84,17 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_course_id_distinguishes_parallel_offerings(self):
+        common = {
+            "name": "北航红船星河宣讲团·周末理论课堂",
+            "start_time": "2026-03-21 15:00",
+            "enroll_start": "2026-03-19 12:00",
+            "teacher": "王政鑫 王葳",
+        }
+        id_a = generate_course_id(location="学院路主M201", campus="学院路校区", **common)
+        id_b = generate_course_id(location="沙河SH3-101", campus="沙河校区", **common)
+        self.assertNotEqual(id_a, id_b)
+
     def test_stale_hour_drift_record_is_not_reused_as_existing_course(self):
         now = datetime.now()
         session = self.Session()
@@ -117,6 +131,85 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             self.assertIsNone(matched)
         finally:
             session.close()
+
+    def test_save_courses_to_db_keeps_parallel_offerings_separate(self):
+        now = datetime.now()
+        legacy_id = generate_legacy_course_id(
+            "课程D",
+            "2026-03-22 19:00",
+            "2026-03-20 12:00",
+            "赵老师",
+        )
+        session = self.Session()
+        try:
+            session.add(
+                Course(
+                    id=legacy_id,
+                    name="课程D",
+                    teacher="赵老师",
+                    location="学院路主M201",
+                    campus="学院路校区",
+                    start_time=datetime(2026, 3, 22, 19, 0),
+                    end_time=datetime(2026, 3, 22, 20, 0),
+                    enroll_start=datetime(2026, 3, 20, 12, 0),
+                    enroll_end=datetime(2026, 3, 22, 18, 0),
+                    capacity=120,
+                    enrolled=120,
+                    last_seen=now,
+                    expired=False,
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        payload = [
+            {
+                "id": generate_course_id("课程D", "2026-03-22 19:00", "2026-03-20 12:00", "赵老师", "学院路主M201", "学院路校区"),
+                "legacy_id": legacy_id,
+                "name": "课程D",
+                "teacher": "赵老师",
+                "location": "学院路主M201",
+                "campus": "学院路校区",
+                "category": "博雅课程-德育",
+                "start_time": "2026-03-22 19:00",
+                "end_time": "2026-03-22 20:00",
+                "enroll_start": "2026-03-20 12:00",
+                "enroll_end": "2026-03-22 18:00",
+                "capacity": 120,
+                "enrolled": 119,
+                "status": "预告",
+            },
+            {
+                "id": generate_course_id("课程D", "2026-03-22 19:00", "2026-03-20 12:00", "赵老师", "沙河SH3-101", "沙河校区"),
+                "legacy_id": legacy_id,
+                "name": "课程D",
+                "teacher": "赵老师",
+                "location": "沙河SH3-101",
+                "campus": "沙河校区",
+                "category": "博雅课程-德育",
+                "start_time": "2026-03-22 19:00",
+                "end_time": "2026-03-22 20:00",
+                "enroll_start": "2026-03-20 12:00",
+                "enroll_end": "2026-03-22 18:00",
+                "capacity": 120,
+                "enrolled": 118,
+                "status": "预告",
+            },
+        ]
+
+        with patch("src.scraper.get_session", side_effect=lambda: self.Session()):
+            new_ids = save_courses_to_db(payload)
+
+        verify = self.Session()
+        try:
+            rows = verify.query(Course).filter(Course.name == "课程D").order_by(Course.location).all()
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(len(new_ids), 1)
+            self.assertEqual(rows[0].remaining, 1)
+            self.assertEqual(rows[1].remaining, 2)
+        finally:
+            verify.close()
 
     def test_cleanup_prefers_snapshot_with_more_remaining_seats(self):
         now = datetime.now()

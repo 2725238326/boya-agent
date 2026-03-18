@@ -42,13 +42,33 @@ async def create_browser_context() -> tuple:
     return pw, browser, context, page
 
 
-def generate_course_id(name: str, start_time: str, enroll_start: str = "", teacher: str = "") -> str:
-    """Generate a stable course ID from course name and time fields."""
+def generate_legacy_course_id(name: str, start_time: str, enroll_start: str = "", teacher: str = "") -> str:
+    """Legacy course ID kept for backward-compatible matching with existing rows."""
     def _norm(v: str) -> str:
         return re.sub(r"\s+", " ", (v or "").strip()).lower()
 
     time_key = (start_time or "").strip() or (enroll_start or "").strip() or (teacher or "").strip()
     raw = f"{_norm(name)}_{_norm(time_key)}_{_norm(teacher)}"
+    return hashlib.md5(raw.encode()).hexdigest()[:16]
+
+
+def generate_course_id(
+    name: str,
+    start_time: str,
+    enroll_start: str = "",
+    teacher: str = "",
+    location: str = "",
+    campus: str = "",
+) -> str:
+    """Generate a stable course ID that distinguishes parallel offerings."""
+    def _norm(v: str) -> str:
+        return re.sub(r"\s+", " ", (v or "").strip()).lower()
+
+    time_key = (start_time or "").strip() or (enroll_start or "").strip() or (teacher or "").strip()
+    raw = (
+        f"{_norm(name)}_{_norm(time_key)}_{_norm(teacher)}_"
+        f"{_norm(location)}_{_norm(campus)}"
+    )
     return hashlib.md5(raw.encode()).hexdigest()[:16]
 
 
@@ -235,6 +255,32 @@ def _find_similar_active_course(session, data: dict, now: datetime) -> Optional[
             return c
 
     return None
+
+
+def _legacy_identity_matches(course: Course, data: dict) -> bool:
+    if (course.name or "").strip() != (data.get("name") or "").strip():
+        return False
+
+    teacher = (data.get("teacher") or "").strip()
+    if teacher and (course.teacher or "").strip() and (course.teacher or "").strip() != teacher:
+        return False
+
+    location = (data.get("location") or "").strip()
+    if location and (course.location or "").strip() and (course.location or "").strip() != location:
+        return False
+
+    campus = (data.get("campus") or "").strip()
+    if campus and (course.campus or "").strip() and (course.campus or "").strip() != campus:
+        return False
+
+    return _is_near_duplicate_triplet(
+        course.start_time,
+        parse_datetime(data.get("start_time", "")),
+        course.enroll_start,
+        parse_datetime(data.get("enroll_start", "")),
+        course.enroll_end,
+        parse_datetime(data.get("enroll_end", "")),
+    )
 
 
 def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
@@ -697,10 +743,19 @@ async def _parse_course_table(page: Page) -> List[dict]:
             capacity_text = _get_cell_text(cell_texts, column_map, "capacity", 8)
             enrolled, capacity = parse_capacity(capacity_text)
 
-            course_id = generate_course_id(name, start_time_str, enroll_start_str, teacher)
+            course_id = generate_course_id(
+                name,
+                start_time_str,
+                enroll_start_str,
+                teacher,
+                location,
+                campus,
+            )
+            legacy_course_id = generate_legacy_course_id(name, start_time_str, enroll_start_str, teacher)
 
             course_data = {
                 "id": course_id,
+                "legacy_id": legacy_course_id,
                 "name": name,
                 "category": category,
                 "location": location,
@@ -773,6 +828,12 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
         for data in courses_data:
             existing = session.query(Course).filter_by(id=data["id"]).first()
             now = datetime.now()
+            if not existing:
+                legacy_id = data.get("legacy_id")
+                if legacy_id and legacy_id != data["id"]:
+                    legacy_existing = session.query(Course).filter_by(id=legacy_id).first()
+                    if legacy_existing and _legacy_identity_matches(legacy_existing, data):
+                        existing = legacy_existing
             if not existing:
                 existing = _find_similar_active_course(session, data, now)
                 if existing:
