@@ -4,20 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>博雅课程推送控制台</title>
-    <meta name="description" content="BUAA 博雅素质课程自动推送智能体控制台">
+    <title>博雅课程推送后台</title>
+    <meta name="description" content="BUAA 博雅课程抓取与提醒系统后台。">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
 <body>
-    <!-- Header -->
     <header class="header">
         <div class="header-inner">
             <div class="logo">
-                <span class="logo-icon">🎓</span>
-                <h1>博雅课程推送控制台</h1>
+                <span class="logo-icon">🛠</span>
+                <h1>博雅课程推送后台</h1>
             </div>
             <div class="header-actions">
                 <div class="status-indicator" id="statusIndicator">
@@ -31,11 +30,10 @@
         </div>
     </header>
 
-    <!-- Quick Dashboard -->
     <div class="dashboard-strip">
         <div class="dashboard-inner">
             <div class="dash-stat">
-                <span class="dash-stat-icon">📊</span>
+                <span class="dash-stat-icon">📚</span>
                 <div class="dash-stat-clickable" onclick="applyAvailableNowFilter()">
                     <span class="dash-stat-value" id="dashTotalCourses">-</span>
                     <span class="dash-stat-label">当前可选</span>
@@ -49,14 +47,14 @@
                 </div>
             </div>
             <div class="dash-stat">
-                <span class="dash-stat-icon">📤</span>
+                <span class="dash-stat-icon">📨</span>
                 <div class="dash-stat-clickable" onclick="applyTodayDeliveredFilter()">
                     <span class="dash-stat-value" id="dashPushed">-</span>
                     <span class="dash-stat-label">今日送达</span>
                 </div>
             </div>
             <div class="dash-stat">
-                <span class="dash-stat-icon">⛔</span>
+                <span class="dash-stat-icon">⏳</span>
                 <div>
                     <span class="dash-stat-value" id="dashExpired">-</span>
                     <span class="dash-stat-label">已过期</span>
@@ -64,15 +62,15 @@
             </div>
             <div class="dash-divider"></div>
             <div class="dash-stat dash-stat-editable" onclick="openIntervalDialog()">
-                <span class="dash-stat-icon">⏱️</span>
+                <span class="dash-stat-icon">⏱</span>
                 <div>
                     <span class="dash-stat-value" id="dashInterval">-</span>
-                    <span class="dash-stat-label">抓取间隔(分)</span>
+                    <span class="dash-stat-label">抓取间隔(分钟)</span>
                 </div>
-                <span class="dash-edit-icon">✏️</span>
+                <span class="dash-edit-icon">✎</span>
             </div>
             <div class="dash-stat">
-                <span class="dash-stat-icon">🕐</span>
+                <span class="dash-stat-icon">🕒</span>
                 <div>
                     <span class="dash-stat-value" id="dashLastRun">-</span>
                     <span class="dash-stat-label">上次运行</span>
@@ -80,14 +78,14 @@
             </div>
             <div class="dash-divider"></div>
             <div class="dash-stat">
-                <span class="dash-stat-icon" id="dashBrowserIcon">🔴</span>
+                <span class="dash-stat-icon" id="dashBrowserIcon">🌐</span>
                 <div>
                     <span class="dash-stat-value" id="dashBrowserStatus">-</span>
                     <span class="dash-stat-label">浏览器</span>
                 </div>
             </div>
             <div class="dash-stat">
-                <span class="dash-stat-icon">📦</span>
+                <span class="dash-stat-icon">🧠</span>
                 <div>
                     <span class="dash-stat-value" id="dashBufferCount">-</span>
                     <span class="dash-stat-label">缓冲区</span>
@@ -96,32 +94,18 @@
         </div>
     </div>
 
-    <!-- Main Content -->
     <main class="main">
-        <!-- Tab Navigation -->
         <nav class="tabs">
-            <button class="tab active" data-tab="courses" onclick="switchTab('courses')">
-                📚 课程列表
-            </button>
-            <button class="tab" data-tab="config" onclick="switchTab('config')">
-                ⚙️ 筛选 & 推送
-            </button>
-            <button class="tab" data-tab="enroll" onclick="switchTab('enroll')">
-                🎯 自动选课
-            </button>
-            <button class="tab" data-tab="subscribers" onclick="switchTab('subscribers')">
-                👥 用户管理
-            </button>
-            <button class="tab" data-tab="logs" onclick="switchTab('logs')">
-                📋 日志
-            </button>
+            <button class="tab active" data-tab="courses" onclick="switchTab('courses')">📚 课程列表</button>
+            <button class="tab" data-tab="config" onclick="switchTab('config')">⚙️ 筛选 & 推送</button>
+            <button class="tab" data-tab="enroll" onclick="switchTab('enroll')">🎯 自动选课</button>
+            <button class="tab" data-tab="subscribers" onclick="switchTab('subscribers')">👥 用户管理</button>
+            <button class="tab" data-tab="logs" onclick="switchTab('logs')">🧾 日志</button>
         </nav>
 
-        <!-- Tab: 课程列表 -->
         <section class="tab-content active" id="tab-courses">
-            <!-- 快速过滤 -->
             <div class="filter-bar">
-                <input type="text" class="input" id="searchInput" placeholder="🔍 搜索课程名称..." oninput="debounceSearch()">
+                <input type="text" class="input" id="searchInput" placeholder="🔎 搜索课程名称..." oninput="debounceSearch()">
                 <select class="select" id="categoryFilter" onchange="loadCourses()">
                     <option value="">全部类别</option>
                 </select>
@@ -158,24 +142,22 @@
             </div>
         </section>
 
-        <!-- Tab: 筛选 & 推送配置 -->
         <section class="tab-content" id="tab-config">
             <div class="config-grid">
-                <!-- 过滤设置卡片 -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>🏷️ 过滤条件</h3>
-                        <span class="card-hint">控制哪些课程会被推送</span>
+                        <h3>🧭 过滤条件</h3>
+                        <span class="card-hint">控制哪些课程会进入提醒链路</span>
                     </div>
                     <div class="card-body">
                         <div class="form-group">
-                            <label>课程类别（点选多个）</label>
+                            <label>课程类别（可多选）</label>
                             <div class="chip-container" id="categoryChips"></div>
                         </div>
                         <div class="form-group row">
                             <label>
                                 仅推送自主签到课程
-                                <span class="form-hint">过滤掉"常规签到"课程</span>
+                                <span class="form-hint">过滤掉常规签到课程</span>
                             </label>
                             <label class="switch">
                                 <input type="checkbox" id="cfgSelfSign" checked>
@@ -185,7 +167,7 @@
                         <div class="form-group row">
                             <label>
                                 严格博雅规则
-                                <span class="form-hint">需同时满足: 非校医院 + 自主签到</span>
+                                <span class="form-hint">同时满足非校医院与自主签到</span>
                             </label>
                             <label class="switch">
                                 <input type="checkbox" id="cfgStrictBoya">
@@ -211,26 +193,25 @@
                     </div>
                 </div>
 
-                <!-- 关键词设置 -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>🔑 关键词过滤</h3>
-                        <span class="card-hint">精确控制推送内容</span>
+                        <h3>🔖 关键词规则</h3>
+                        <span class="card-hint">精细控制课程匹配与排除</span>
                     </div>
                     <div class="card-body">
                         <div class="form-group">
-                            <label>✅ 白名单关键词 <span class="form-hint">课程名必须包含其中之一</span></label>
+                            <label>白名单关键词 <span class="form-hint">课程名命中任意一个即可保留</span></label>
                             <div class="tag-input-group">
-                                <input type="text" class="input" id="whitelistInput" placeholder="输入关键词按 Enter 添加"
+                                <input type="text" class="input" id="whitelistInput" placeholder="输入关键词后按 Enter 添加"
                                     onkeydown="if(event.key==='Enter')addTag('whitelist')">
                                 <button class="btn btn-sm" onclick="addTag('whitelist')">+ 添加</button>
                             </div>
                             <div class="tag-container" id="whitelistTags"></div>
                         </div>
                         <div class="form-group">
-                            <label>🚫 黑名单关键词 <span class="form-hint">包含这些词的课程将被排除</span></label>
+                            <label>黑名单关键词 <span class="form-hint">命中后将从提醒范围中排除</span></label>
                             <div class="tag-input-group">
-                                <input type="text" class="input" id="blacklistInput" placeholder="输入关键词按 Enter 添加"
+                                <input type="text" class="input" id="blacklistInput" placeholder="输入关键词后按 Enter 添加"
                                     onkeydown="if(event.key==='Enter')addTag('blacklist')">
                                 <button class="btn btn-sm" onclick="addTag('blacklist')">+ 添加</button>
                             </div>
@@ -239,11 +220,10 @@
                     </div>
                 </div>
 
-                <!-- 推送设置 -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>📡 推送渠道</h3>
-                        <span class="card-hint">选择接收通知的方式</span>
+                        <h3>📣 推送通道</h3>
+                        <span class="card-hint">选择系统允许使用的通知方式</span>
                     </div>
                     <div class="card-body">
                         <div class="push-channel-grid">
@@ -276,7 +256,7 @@
                         <div class="form-group row">
                             <label>
                                 每日汇总推送
-                                <span class="form-hint">每天定时推送当日课程变化摘要</span>
+                                <span class="form-hint">按固定时间发送当日摘要</span>
                             </label>
                             <label class="switch">
                                 <input type="checkbox" id="cfgDailySummary">
@@ -284,25 +264,24 @@
                             </label>
                         </div>
                         <div class="form-group">
-                            <label>汇总推送时间</label>
+                            <label>汇总发送时间</label>
                             <input type="time" class="input" id="cfgDailySummaryTime" value="21:00">
                         </div>
                     </div>
                 </div>
 
-                <!-- 抓取频率 -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>⏱️ 抓取频率</h3>
+                        <h3>⏱ 抓取频率</h3>
                         <span class="card-hint">调整自动抓取间隔</span>
                     </div>
                     <div class="card-body">
                         <div class="interval-presets">
-                            <button class="interval-btn" onclick="setInterval(5)">5分钟</button>
-                            <button class="interval-btn" onclick="setInterval(10)">10分钟</button>
-                            <button class="interval-btn" onclick="setInterval(30)">30分钟</button>
-                            <button class="interval-btn" onclick="setInterval(60)">1小时</button>
-                            <button class="interval-btn" onclick="setInterval(720)">12小时</button>
+                            <button class="interval-btn" data-minutes="5" onclick="setScrapeIntervalPreset(5)">5分钟</button>
+                            <button class="interval-btn" data-minutes="10" onclick="setScrapeIntervalPreset(10)">10分钟</button>
+                            <button class="interval-btn" data-minutes="30" onclick="setScrapeIntervalPreset(30)">30分钟</button>
+                            <button class="interval-btn" data-minutes="60" onclick="setScrapeIntervalPreset(60)">1小时</button>
+                            <button class="interval-btn" data-minutes="720" onclick="setScrapeIntervalPreset(720)">12小时</button>
                         </div>
                         <div class="form-group">
                             <label>自定义间隔（分钟）</label>
@@ -315,7 +294,6 @@
                     </div>
                 </div>
 
-                <!-- 保存按钮 -->
                 <div class="config-actions">
                     <button class="btn btn-primary btn-lg btn-save" onclick="saveConfig()">
                         💾 保存所有配置
@@ -325,7 +303,6 @@
             </div>
         </section>
 
-        <!-- Tab: 自动选课 -->
         <section class="tab-content" id="tab-enroll">
             <div class="config-grid">
                 <div class="card card-highlight">
@@ -339,7 +316,7 @@
                     <div class="card-body">
                         <div class="warning-banner" id="enrollWarning">
                             <span>⚠️</span>
-                            <p>自动选课将在符合条件时自动提交选课请求。请确认你了解相应的规则和风险。</p>
+                            <p>自动选课会在满足条件时自动提交选课请求。请仅在你确认理解规则和风险后开启。</p>
                         </div>
 
                         <div class="form-group row">
@@ -358,9 +335,9 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label>意愿优先级关键词 <span class="form-hint">排在前面的优先选课，可拖拽排序</span></label>
+                            <label>意愿优先级关键词 <span class="form-hint">支持拖拽排序，越靠前优先级越高</span></label>
                             <div class="tag-input-group">
-                                <input type="text" class="input" id="priorityInput" placeholder="输入后按 Enter 添加"
+                                <input type="text" class="input" id="priorityInput" placeholder="输入关键词后按 Enter 添加"
                                     onkeydown="if(event.key==='Enter')addTag('priority')">
                                 <button class="btn btn-sm" onclick="addTag('priority')">+ 添加</button>
                             </div>
@@ -371,57 +348,57 @@
             </div>
         </section>
 
-        <!-- Tab: 用户管理 -->
         <section class="tab-content" id="tab-subscribers">
             <div class="sub-toolbar">
-                <div class="sub-stats" id="subStats">
-                    <span class="sub-stat-item"><span id="subTotal">-</span> 总用户</span>
-                    <span class="sub-stat-item"><span id="subVerified">-</span> 已验证</span>
-                    <span class="sub-stat-item"><span id="subActive">-</span> 活跃</span>
-                    <span class="sub-stat-item"><span id="subPaused">-</span> 已暂停</span>
-                </div>
-                <div class="sub-actions">
-                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱…"
-                        oninput="filterSubscribers()" style="width:220px;">
-                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
-                        <option value="">全部状态</option>
-                        <option value="active">活跃</option>
-                        <option value="paused">推送暂停</option>
-                        <option value="inactive">已停用</option>
-                        <option value="unverified">未验证</option>
-                    </select>
-                    <button class="btn btn-sm" onclick="loadSubscribers()">🔄 刷新</button>
-                </div>
-            </div>
-
-            <div class="card" style="margin-top:0;">
-                <div class="card-body" style="padding:0;">
-                    <div class="sub-table-wrap">
-                        <table class="log-table sub-table" id="subscribersTable">
-                            <thead>
-                                <tr>
-                                    <th>邮箱</th>
-                                    <th>状态</th>
-                                    <th>偏好</th>
-                                    <th>推送</th>
-                                    <th>7天通知</th>
-                                    <th>注册时间</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="subscribersTbody">
-                                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">加载中…</td></tr>
-                            </tbody>
-                        </table>
+                <div class="sub-stats">
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatTotal">-</span>
+                        <span class="sub-stat-label">总订阅</span>
+                    </div>
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatActive">-</span>
+                        <span class="sub-stat-label">活跃</span>
+                    </div>
+                    <div class="sub-stat-item">
+                        <span class="sub-stat-value" id="subStatPaused">-</span>
+                        <span class="sub-stat-label">已暂停</span>
                     </div>
                 </div>
+                <div class="sub-actions">
+                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱..." oninput="filterSubscribers()">
+                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
+                        <option value="">全部状态</option>
+                        <option value="active">仅活跃</option>
+                        <option value="inactive">仅停用</option>
+                        <option value="paused">仅暂停</option>
+                    </select>
+                    <button class="btn btn-sm btn-accent" onclick="loadSubscribers()">🔄 刷新</button>
+                </div>
+            </div>
+            <div class="sub-table-wrap">
+                <table class="log-table sub-table" id="subscribersTable">
+                    <thead>
+                        <tr>
+                            <th>邮箱</th>
+                            <th>账户状态</th>
+                            <th>推送状态</th>
+                            <th>偏好</th>
+                            <th>7天送达</th>
+                            <th>最近送达</th>
+                            <th>最近访问门户</th>
+                            <th>注册时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subscribersTbody">
+                        <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载中...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </section>
 
-        <!-- Tab: 日志 -->
         <section class="tab-content" id="tab-logs">
             <div class="logs-grid">
-                <!-- 系统状态 -->
                 <div class="card">
                     <div class="card-header">
                         <h3>📊 系统状态</h3>
@@ -466,17 +443,16 @@
                                 <span class="stat-value" id="statBufferUrgent">-</span>
                             </div>
                             <div class="stat-item">
-                                <span class="stat-label">从容缓冲</span>
+                                <span class="stat-label">后续缓冲</span>
                                 <span class="stat-value" id="statBufferSoon">-</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 送达日志 -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>📬 送达日志</h3>
+                        <h3>📤 送达日志</h3>
                         <span class="card-hint" id="pushLogHint">显示最近送达记录</span>
                     </div>
                     <div class="card-body">
@@ -496,7 +472,6 @@
                     </div>
                 </div>
 
-                <!-- 选课日志 -->
                 <div class="card">
                     <div class="card-header">
                         <h3>🎯 选课日志</h3>
@@ -519,62 +494,11 @@
                 </div>
             </div>
         </section>
-
-        <!-- Tab: 用户管理 -->
-        <section class="tab-content" id="tab-subscribers">
-            <div class="sub-toolbar">
-                <div class="sub-stats">
-                    <div class="sub-stat-item">
-                        <span class="sub-stat-value" id="subStatTotal">—</span>
-                        <span class="sub-stat-label">总订阅</span>
-                    </div>
-                    <div class="sub-stat-item">
-                        <span class="sub-stat-value" id="subStatActive">—</span>
-                        <span class="sub-stat-label">活跃</span>
-                    </div>
-                    <div class="sub-stat-item">
-                        <span class="sub-stat-value" id="subStatPaused">—</span>
-                        <span class="sub-stat-label">已暂停</span>
-                    </div>
-                </div>
-                <div class="sub-actions">
-                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱…" oninput="filterSubscribers()">
-                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
-                        <option value="">全部状态</option>
-                        <option value="active">仅活跃</option>
-                        <option value="inactive">仅停用</option>
-                        <option value="paused">仅暂停</option>
-                    </select>
-                    <button class="btn btn-sm btn-accent" onclick="loadSubscribers()">🔄 刷新</button>
-                </div>
-            </div>
-            <div class="sub-table-wrap">
-                <table class="log-table sub-table">
-                    <thead>
-                        <tr>
-                            <th>邮箱</th>
-                            <th>账户状态</th>
-                            <th>推送状态</th>
-                            <th>偏好</th>
-                            <th>7天送达</th>
-                            <th>最近送达</th>
-                            <th>上次打开门户</th>
-                            <th>注册时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="subscribersTbody">
-                        <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
     </main>
 
-    <!-- Interval Quick Edit Modal -->
     <div class="modal-overlay" id="intervalModal" onclick="closeIntervalDialog(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
-            <h3>⏱️ 快速修改抓取间隔</h3>
+            <h3>⏱ 快速修改抓取间隔</h3>
             <div class="modal-presets">
                 <button class="interval-btn" onclick="quickSetInterval(5)">5 分钟</button>
                 <button class="interval-btn" onclick="quickSetInterval(10)">10 分钟</button>
@@ -584,16 +508,15 @@
                 <button class="interval-btn" onclick="quickSetInterval(720)">12 小时</button>
             </div>
             <div class="modal-custom">
-                <input type="number" class="input" id="modalIntervalInput" min="3" max="1440" placeholder="自定义分钟数">
+                <input type="number" class="input" id="modalIntervalInput" min="3" max="1440" placeholder="输入自定义分钟数">
                 <button class="btn btn-primary"
-                    onclick="quickSetInterval(parseInt(document.getElementById('modalIntervalInput').value))">
+                    onclick="quickSetInterval(parseInt(document.getElementById('modalIntervalInput').value, 10))">
                     确定
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Toast 通知 -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>

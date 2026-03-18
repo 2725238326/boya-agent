@@ -1,3 +1,20 @@
+async function fetchJson(url) {
+    const resp = await fetch(url, {
+        headers: { Accept: 'application/json' },
+    });
+
+    const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) {
+        throw new Error(`Non-JSON response: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+        throw new Error(data.error || `Request failed: ${resp.status}`);
+    }
+    return data;
+}
+
 async function loadHomeInsights() {
     const availableEl = document.getElementById('availableCount');
     const activeEl = document.getElementById('activeCount');
@@ -6,15 +23,9 @@ async function loadHomeInsights() {
     const generatedAtEl = document.getElementById('homeGeneratedAt');
 
     try {
-        const resp = await fetch('/api/public/insights', {
-            headers: { 'Accept': 'application/json' },
-        });
-        const data = await resp.json();
-        if (!resp.ok || !data.success || !data.data) {
-            throw new Error(data.error || 'load insights failed');
-        }
+        const data = await fetchJson('/api/public/insights');
+        const payload = data.data || {};
 
-        const payload = data.data;
         availableEl.textContent = payload.available_count ?? '-';
         activeEl.textContent = payload.active_count ?? '-';
         generatedAtEl.textContent = payload.generated_at || '刚刚更新';
@@ -24,12 +35,12 @@ async function loadHomeInsights() {
             nextHintEl.textContent = formatCountdown(payload.next_enroll.seconds_left || 0);
         } else {
             nextNameEl.textContent = '暂无即将开抢课程';
-            nextHintEl.textContent = '系统会在发现近期开抢课程后更新这里';
+            nextHintEl.textContent = '系统会在发现近期开抢课程后更新这里。';
         }
     } catch (err) {
         generatedAtEl.textContent = '暂不可用';
         nextNameEl.textContent = '数据加载失败';
-        nextHintEl.textContent = '请稍后刷新首页重试';
+        nextHintEl.textContent = '请稍后刷新首页重试。';
     }
 }
 
@@ -38,16 +49,12 @@ async function loadHomeSession() {
     if (!portalBtn) return;
 
     try {
-        const resp = await fetch('/api/subscriber/session', {
-            headers: { 'Accept': 'application/json' },
-        });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (!data.success || !data.data || !data.data.email) return;
+        const data = await fetchJson('/api/subscriber/session');
+        if (!data.data || !data.data.email) return;
         portalBtn.textContent = '继续进入我的门户';
         portalBtn.href = `/portal?email=${encodeURIComponent(data.data.email)}`;
     } catch (err) {
-        // Keep the default CTA when the user is not logged in.
+        // The default CTA is enough for logged-out users.
     }
 }
 
@@ -55,11 +62,13 @@ function formatCountdown(secondsLeft) {
     const total = Math.max(0, Number(secondsLeft || 0));
     if (total < 60) return '1 分钟内开抢';
     if (total < 3600) return `${Math.floor(total / 60)} 分钟后开抢`;
+
     if (total < 86400) {
         const hours = Math.floor(total / 3600);
         const minutes = Math.floor((total % 3600) / 60);
         return minutes ? `${hours} 小时 ${minutes} 分后开抢` : `${hours} 小时后开抢`;
     }
+
     const days = Math.floor(total / 86400);
     const hours = Math.floor((total % 86400) / 3600);
     return hours ? `${days} 天 ${hours} 小时后开抢` : `${days} 天后开抢`;

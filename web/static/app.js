@@ -1,100 +1,33 @@
 /**
- * 博雅课程推送控制台 - 前端交互逻辑
+ * 博雅课程推送后台前端逻辑
  */
 
-// ========== 全局状态 ==========
 let currentConfig = {};
 let searchTimeout = null;
-const CONSOLE_TAB_KEY = 'console_active_tab';
 let pushLogsTodayOnly = false;
 let consoleRefreshWatchToken = 0;
+let subscribersAll = [];
 
-// ========== 初始化 ==========
+const CONSOLE_TAB_KEY = 'console_active_tab';
+
 document.addEventListener('DOMContentLoaded', () => {
-    repairConsoleCopy();
     const savedTab = localStorage.getItem(CONSOLE_TAB_KEY);
     if (savedTab) switchTab(savedTab);
+
     loadCourses();
     loadConfig();
     loadStatus();
-    loadCategories();
 
-    // 定时刷新
-    setInterval(loadStatus, 30000);
-    setInterval(loadCourses, 60000);
+    window.setInterval(loadStatus, 30000);
+    window.setInterval(loadCourses, 60000);
 });
 
-function repairConsoleCopy() {
-    document.title = '\u535a\u96c5\u8bfe\u7a0b\u63a8\u9001\u540e\u53f0';
-    const meta = document.querySelector('meta[name="description"]');
-    if (meta) meta.setAttribute('content', 'BUAA \u535a\u96c5\u8bfe\u7a0b\u6293\u53d6\u4e0e\u63d0\u9192\u7cfb\u7edf\u540e\u53f0');
-
-    const logoIcon = document.querySelector('.logo-icon');
-    if (logoIcon) logoIcon.textContent = '\ud83d\udee0';
-    const logoTitle = document.querySelector('.logo h1');
-    if (logoTitle) logoTitle.textContent = '\u535a\u96c5\u8bfe\u7a0b\u63a8\u9001\u540e\u53f0';
-
-    const statusText = document.querySelector('#statusIndicator .status-text');
-    if (statusText) statusText.textContent = '\u52a0\u8f7d\u4e2d...';
-
-    const triggerBtn = document.getElementById('btnTrigger');
-    if (triggerBtn) {
-        triggerBtn.innerHTML = '<span class="btn-icon">\ud83d\udd04</span> \u7acb\u5373\u6293\u53d6';
-    }
-
-    document.querySelectorAll('.dash-stat-label').forEach((el, index) => {
-        const labels = ['\u5f53\u524d\u53ef\u9009', '\u4eca\u65e5\u65b0\u8bfe', '\u4eca\u65e5\u9001\u8fbe', '\u5df2\u8fc7\u671f', '\u6293\u53d6\u95f4\u9694(\u5206\u949f)', '\u4e0a\u6b21\u8fd0\u884c', '\u6d4f\u89c8\u5668', '\u7f13\u51b2\u533a'];
-        if (labels[index]) el.textContent = labels[index];
-    });
-
-    document.querySelectorAll('.dash-stat-icon').forEach((el, index) => {
-        const icons = ['\ud83d\udcda', '\ud83c\udd95', '\ud83d\udce8', '\u23f3', '\u23f1', '\ud83d\udd52', '\ud83c\udf10', '\ud83e\uddf0'];
-        if (icons[index]) el.textContent = icons[index];
-    });
-
-    document.querySelectorAll('.tab').forEach((el, index) => {
-        const labels = ['\ud83d\udcda \u8bfe\u7a0b\u5217\u8868', '\u2699\ufe0f \u7b5b\u9009 & \u63a8\u9001', '\ud83c\udfaf \u81ea\u52a8\u9009\u8bfe', '\ud83d\udc65 \u7528\u6237\u7ba1\u7406', '\ud83e\uddfe \u65e5\u5fd7'];
-        if (labels[index]) el.textContent = labels[index];
-    });
-
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '\ud83d\udd0e \u641c\u7d22\u8bfe\u7a0b\u540d\u79f0...';
-
-    const categoryFilter = document.getElementById('categoryFilter');
-    if (categoryFilter?.options?.[0]) categoryFilter.options[0].textContent = '\u5168\u90e8\u7c7b\u522b';
-
-    const campusFilter = document.getElementById('campusFilter');
-    if (campusFilter?.options?.[0]) campusFilter.options[0].textContent = '\u5168\u90e8\u6821\u533a';
-    if (campusFilter?.options?.[1]) campusFilter.options[1].textContent = '\u6c99\u6cb3\u6821\u533a';
-    if (campusFilter?.options?.[2]) campusFilter.options[2].textContent = '\u5b66\u9662\u8def\u6821\u533a';
-
-    const filterLabels = [
-        ['selfSignFilter', '\u4ec5\u81ea\u4e3b\u7b7e\u5230'],
-        ['showExpiredFilter', '\u663e\u793a\u5df2\u8fc7\u671f'],
-        ['todayNewFilter', '\u4ec5\u4eca\u5929\u65b0\u589e'],
-        ['availableNowFilter', '\u4ec5\u5f53\u524d\u53ef\u9009'],
-        ['waitlistFilter', '\u4ec5\u5df2\u6ee1\u53ef\u8e72'],
-    ];
-    for (const [id, text] of filterLabels) {
-        const input = document.getElementById(id);
-        const label = input?.closest('label')?.querySelector('span');
-        if (label) label.textContent = text;
-    }
-
-    const refreshBtn = document.querySelector('.filter-bar .btn.btn-sm.btn-accent');
-    if (refreshBtn) refreshBtn.textContent = '\ud83d\udd04 \u5237\u65b0\u5217\u8868';
-
-    const loading = document.querySelector('#courseGrid .loading');
-    if (loading) loading.textContent = '\u52a0\u8f7d\u4e2d...';
-}
-
-// ========== Tab 切换 ==========
 function switchTab(tabName) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach((tab) => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.remove('active'));
 
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
+    document.getElementById(`tab-${tabName}`)?.classList.add('active');
     localStorage.setItem(CONSOLE_TAB_KEY, tabName);
 
     if (tabName === 'logs') {
@@ -110,18 +43,18 @@ function switchTab(tabName) {
     }
 }
 
-// ========== API 工具函数 ==========
 async function api(url, options = {}) {
     const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
     try {
         const resp = await fetch(url, {
             headers: {
-                'Accept': 'application/json',
+                Accept: 'application/json',
                 'Content-Type': 'application/json',
                 ...headers,
             },
             ...fetchOptions,
         });
+
         const contentType = (resp.headers.get('content-type') || '').toLowerCase();
         if (contentType.includes('application/json')) {
             const data = await resp.json();
@@ -152,38 +85,39 @@ async function api(url, options = {}) {
         };
     } catch (err) {
         console.error('API Error:', err);
-        showToast('网络请求失败', 'error');
+        if (!suppressErrorToast) {
+            showToast('网络请求失败', 'error');
+        }
         return { success: false, error: err.message };
     }
 }
 
-// ========== 时间格式化 ==========
 function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function formatInterval(minutes) {
-    minutes = parseInt(minutes);
-    if (minutes >= 1440) return Math.round(minutes / 1440) + ' 天';
-    if (minutes >= 60) {
-        const h = Math.floor(minutes / 60);
-        const m = minutes % 60;
-        return m > 0 ? `${h}h${m}m` : `${h} 小时`;
+    const value = parseInt(minutes, 10);
+    if (Number.isNaN(value) || value <= 0) return '-';
+    if (value >= 1440) return `${Math.round(value / 1440)} 天`;
+    if (value >= 60) {
+        const hours = Math.floor(value / 60);
+        const mins = value % 60;
+        return mins > 0 ? `${hours} 小时 ${mins} 分钟` : `${hours} 小时`;
     }
-    return minutes + ' 分钟';
+    return `${value} 分钟`;
 }
 
-// ========== 课程列表 ==========
 async function loadCourses() {
     const grid = document.getElementById('courseGrid');
     if (!grid) return;
 
     const params = new URLSearchParams();
-    const keyword = document.getElementById('searchInput').value;
-    const category = document.getElementById('categoryFilter').value;
-    const campus = document.getElementById('campusFilter').value;
-    const selfSign = document.getElementById('selfSignFilter').checked;
-    const showExpired = document.getElementById('showExpiredFilter').checked;
+    const keyword = document.getElementById('searchInput')?.value || '';
+    const category = document.getElementById('categoryFilter')?.value || '';
+    const campus = document.getElementById('campusFilter')?.value || '';
+    const selfSign = document.getElementById('selfSignFilter')?.checked;
+    const showExpired = document.getElementById('showExpiredFilter')?.checked;
     const todayNew = document.getElementById('todayNewFilter')?.checked;
     const availableNow = document.getElementById('availableNowFilter')?.checked;
     const waitlistOnly = document.getElementById('waitlistFilter')?.checked;
@@ -198,27 +132,28 @@ async function loadCourses() {
     if (waitlistOnly) params.set('waitlist_only', 'true');
 
     const result = await api(`/api/courses?${params.toString()}`);
+    const courses = Array.isArray(result.data) ? result.data : [];
 
-    if (!result.success || !result.data.length) {
-        grid.innerHTML = '<div class="loading">暂无课程数据，点击右上角「立即抓取」开始...</div>';
+    if (!result.success || courses.length === 0) {
+        grid.innerHTML = '<div class="loading">暂无课程数据，可以点击右上角“立即抓取”更新一次。</div>';
         return;
     }
 
-    grid.innerHTML = result.data.map(course => renderCourseCard(course)).join('');
+    grid.innerHTML = courses.map((course) => renderCourseCard(course)).join('');
 }
 
 function renderCourseCard(course) {
     const checkIn = course.check_in_method || course.sign_method || '';
-    const signBadge = checkIn.includes('\u81ea\u4e3b')
-        ? '<span class="badge badge-self-sign">\u2705 \u81ea\u4e3b\u7b7e\u5230</span>'
-        : `<span class="badge badge-not-self-sign">\u2139\ufe0f ${escapeHtml(checkIn || '\u76f4\u63a5\u9009\u8bfe')}</span>`;
+    const signBadge = checkIn.includes('自主')
+        ? '<span class="badge badge-self-sign">✅ 自主签到</span>'
+        : `<span class="badge badge-not-self-sign">ℹ️ ${escapeHtml(checkIn || '直接选课')}</span>`;
     const expiredBadge = course.expired
-        ? '<span class="badge badge-full">\u23f3 \u5df2\u8fc7\u671f</span>'
+        ? '<span class="badge badge-full">⏳ 已过期</span>'
         : '';
 
-    const remaining = course.remaining;
-    const capacity = course.capacity || 1;
-    const fillPercent = Math.min(100, ((course.enrolled || 0) / capacity) * 100);
+    const remaining = Number(course.remaining || 0);
+    const capacity = Number(course.capacity || 1);
+    const fillPercent = Math.min(100, (Number(course.enrolled || 0) / capacity) * 100);
     let fillClass = 'green';
     if (remaining <= 0) fillClass = 'red';
     else if (remaining <= 10) fillClass = 'yellow';
@@ -239,26 +174,26 @@ function renderCourseCard(course) {
             <span class="badge badge-category">${escapeHtml(course.category)}</span>
         </div>
         <div class="course-details">
-            <span class="detail-label">\ud83d\udc68\u200d\ud83c\udfeb \u6559\u5e08</span>
+            <span class="detail-label">👨‍🏫 教师</span>
             <span>${escapeHtml(course.teacher)}</span>
-            <span class="detail-label">\ud83d\udccd \u5730\u70b9</span>
+            <span class="detail-label">📍 地点</span>
             <span>${escapeHtml(course.location)}</span>
-            <span class="detail-label">\ud83c\udfeb \u6821\u533a</span>
+            <span class="detail-label">🏫 校区</span>
             <span>${escapeHtml(course.campus)}</span>
-            <span class="detail-label">\u23f0 \u8bfe\u7a0b</span>
+            <span class="detail-label">⏰ 课程</span>
             <span>${escapeHtml(course.start_time)} ~ ${escapeHtml(course.end_time)}</span>
-            <span class="detail-label">\ud83d\udcdd \u9009\u8bfe</span>
+            <span class="detail-label">📝 选课</span>
             <span>${escapeHtml(course.enroll_start)} ~ ${escapeHtml(course.enroll_end)}</span>
         </div>
         <div class="capacity-bar">
             <div class="capacity-fill ${fillClass}" style="width:${fillPercent}%"></div>
         </div>
         <div class="capacity-text">
-            <span>\u5df2\u9009 ${course.enrolled}/${capacity}</span>
-            <span>\u5269\u4f59 ${remaining} \u4eba</span>
+            <span>已选 ${Number(course.enrolled || 0)}/${capacity}</span>
+            <span>剩余 ${remaining} 人</span>
         </div>
         ${!course.expired ? `<div style="margin-top:8px;text-align:right;">
-            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">\ud83d\udce4 \u63a8\u9001\u6b64\u8bfe\u7a0b</button>
+            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">📤 推送此课程</button>
         </div>` : ''}
     </div>`;
 }
@@ -266,29 +201,16 @@ function renderCourseCard(course) {
 function buildConsoleCourseStatus(course) {
     const remaining = Number(course.remaining || 0);
     const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
-    const now = new Date();
     const timeValue = enrollStart && !Number.isNaN(enrollStart.getTime()) ? enrollStart.getTime() : null;
-    const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
+    const minutesToStart = timeValue == null ? null : Math.floor((timeValue - Date.now()) / 60000);
 
-    if (course.expired) {
-        return '<span class="course-status-pill muted">\u5df2\u8fc7\u671f</span>';
-    }
-    if (remaining <= 0) {
-        return '<span class="course-status-pill wait">\u5df2\u6ee1\u8e72\u9000\u9009</span>';
-    }
-    if (minutesToStart !== null && minutesToStart <= 0) {
-        return '<span class="course-status-pill hot">\u53ef\u7acb\u5373\u5c1d\u8bd5</span>';
-    }
-    if (minutesToStart !== null && minutesToStart <= 180) {
-        return '<span class="course-status-pill soon">\u5373\u5c06\u5f00\u62a2</span>';
-    }
-    if (remaining >= 20) {
-        return '<span class="course-status-pill easy">\u540d\u989d\u8f83\u5145\u8db3</span>';
-    }
-    if (remaining <= 5) {
-        return '<span class="course-status-pill tight">\u540d\u989d\u7d27\u5f20</span>';
-    }
-    return '<span class="course-status-pill normal">\u53ef\u52a0\u5165\u5173\u6ce8</span>';
+    if (course.expired) return '<span class="course-status-pill muted">已过期</span>';
+    if (remaining <= 0) return '<span class="course-status-pill wait">已满可蹲退选</span>';
+    if (minutesToStart !== null && minutesToStart <= 0) return '<span class="course-status-pill hot">可立即尝试</span>';
+    if (minutesToStart !== null && minutesToStart <= 180) return '<span class="course-status-pill soon">即将开抢</span>';
+    if (remaining >= 20) return '<span class="course-status-pill easy">名额较充足</span>';
+    if (remaining <= 5) return '<span class="course-status-pill tight">名额紧张</span>';
+    return '<span class="course-status-pill normal">可加入关注</span>';
 }
 
 function buildConsoleCourseTimingHint(course) {
@@ -298,35 +220,38 @@ function buildConsoleCourseTimingHint(course) {
     const diffMinutes = Math.floor((enrollStart.getTime() - Date.now()) / 60000);
     if (diffMinutes <= 0) {
         const opened = Math.abs(diffMinutes);
-        if (opened < 60) return `\u5df2\u5f00\u9009 ${opened} \u5206\u949f`;
+        if (opened < 60) return `已开选 ${opened} 分钟`;
         const hours = Math.floor(opened / 60);
         const mins = opened % 60;
-        return mins ? `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6 ${mins} \u5206` : `\u5df2\u5f00\u9009 ${hours} \u5c0f\u65f6`;
+        return mins ? `已开选 ${hours} 小时 ${mins} 分` : `已开选 ${hours} 小时`;
     }
 
-    if (diffMinutes < 60) return `${diffMinutes} \u5206\u949f\u540e\u5f00\u62a2`;
+    if (diffMinutes < 60) return `${diffMinutes} 分钟后开抢`;
     if (diffMinutes < 1440) {
         const hours = Math.floor(diffMinutes / 60);
         const mins = diffMinutes % 60;
-        return mins ? `${hours} \u5c0f\u65f6 ${mins} \u5206\u540e\u5f00\u62a2` : `${hours} \u5c0f\u65f6\u540e\u5f00\u62a2`;
+        return mins ? `${hours} 小时 ${mins} 分后开抢` : `${hours} 小时后开抢`;
     }
+
     const days = Math.floor(diffMinutes / 1440);
     const hours = Math.floor((diffMinutes % 1440) / 60);
-    return hours ? `${days} \u5929 ${hours} \u5c0f\u65f6\u540e\u5f00\u62a2` : `${days} \u5929\u540e\u5f00\u62a2`;
+    return hours ? `${days} 天 ${hours} 小时后开抢` : `${days} 天后开抢`;
 }
 
 function debounceSearch() {
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(loadCourses, 400);
+    searchTimeout = window.setTimeout(loadCourses, 400);
 }
 
 function applyTodayNewFilter() {
     const todayNewEl = document.getElementById('todayNewFilter');
-    if (todayNewEl) todayNewEl.checked = true;
     const availableNowEl = document.getElementById('availableNowFilter');
     const waitlistEl = document.getElementById('waitlistFilter');
+
+    if (todayNewEl) todayNewEl.checked = true;
     if (availableNowEl) availableNowEl.checked = false;
     if (waitlistEl) waitlistEl.checked = false;
+
     switchTab('courses');
     loadCourses();
 }
@@ -335,9 +260,11 @@ function applyAvailableNowFilter() {
     const todayNewEl = document.getElementById('todayNewFilter');
     const availableNowEl = document.getElementById('availableNowFilter');
     const waitlistEl = document.getElementById('waitlistFilter');
+
     if (todayNewEl) todayNewEl.checked = false;
     if (availableNowEl) availableNowEl.checked = true;
     if (waitlistEl) waitlistEl.checked = false;
+
     switchTab('courses');
     loadCourses();
 }
@@ -346,10 +273,7 @@ function applyTodayDeliveredFilter() {
     pushLogsTodayOnly = true;
     switchTab('logs');
     loadPushLogs();
-    const logTable = document.getElementById('pushLogTable');
-    if (logTable) {
-        logTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    document.getElementById('pushLogTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function toggleConsoleQuickFilter(mode) {
@@ -359,195 +283,200 @@ function toggleConsoleQuickFilter(mode) {
         loadCourses();
         return;
     }
+
     if (mode === 'available' && availableNowEl.checked) {
         waitlistEl.checked = false;
     }
     if (mode === 'waitlist' && waitlistEl.checked) {
         availableNowEl.checked = false;
     }
+
     loadCourses();
 }
 
-// ========== 类别 ==========
 async function loadCategories() {
     const result = await api('/api/categories');
-    if (!result.success) return;
+    if (!result.success) return [];
 
+    const categories = Array.isArray(result.data) ? result.data : [];
     const select = document.getElementById('categoryFilter');
-    result.data.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        select.appendChild(opt);
-    });
+    if (select) {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">全部类别</option>';
+        categories.forEach((category) => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
+            select.appendChild(option);
+        });
+        if (currentValue) select.value = currentValue;
+    }
+
+    renderCategoryChips(categories, currentConfig.categories || []);
+    return categories;
 }
 
 function renderCategoryChips(categories, selectedCategories) {
     const container = document.getElementById('categoryChips');
-    container.innerHTML = categories.map(cat => {
-        const active = selectedCategories.includes(cat) ? 'active' : '';
-        return `<span class="chip ${active}" onclick="toggleChip(this, '${escapeHtml(cat)}')">${escapeHtml(cat)}</span>`;
+    if (!container) return;
+    container.innerHTML = categories.map((category) => {
+        const active = selectedCategories.includes(category) ? 'active' : '';
+        return `<span class="chip ${active}" onclick="toggleChip(this, '${escapeHtml(category)}')">${escapeHtml(category)}</span>`;
     }).join('');
 }
 
-function toggleChip(el, category) {
-    el.classList.toggle('active');
+function toggleChip(element) {
+    element.classList.toggle('active');
 }
 
 function getSelectedChips() {
-    const chips = document.querySelectorAll('#categoryChips .chip.active');
-    return Array.from(chips).map(c => c.textContent.trim());
+    return Array.from(document.querySelectorAll('#categoryChips .chip.active'))
+        .map((chip) => chip.textContent.trim());
 }
 
-// ========== 配置 ==========
 async function loadConfig() {
     const result = await api('/api/config');
     if (!result.success) return;
 
-    currentConfig = result.data;
-    const c = currentConfig;
+    currentConfig = result.data || {};
+    const config = currentConfig;
 
-    // 过滤设置
-    document.getElementById('cfgSelfSign').checked = c.self_sign_only;
-    const strictEl = document.getElementById('cfgStrictBoya');
-    if (strictEl) strictEl.checked = c.strict_boya_only || false;
-    document.getElementById('cfgMinRemaining').value = c.min_remaining;
-    document.getElementById('minRemainingVal').textContent = c.min_remaining;
-    document.getElementById('cfgCampus').value = c.campus_filter || '';
+    document.getElementById('cfgSelfSign').checked = !!config.self_sign_only;
+    document.getElementById('cfgStrictBoya').checked = !!config.strict_boya_only;
+    document.getElementById('cfgMinRemaining').value = config.min_remaining ?? 1;
+    document.getElementById('minRemainingVal').textContent = config.min_remaining ?? 1;
+    document.getElementById('cfgCampus').value = config.campus_filter || '';
 
-    // 关键词
-    renderTags('whitelist', c.keyword_whitelist || []);
-    renderTags('blacklist', c.keyword_blacklist || []);
+    renderTags('whitelist', config.keyword_whitelist || []);
+    renderTags('blacklist', config.keyword_blacklist || []);
 
-    // 推送
-    document.getElementById('cfgTelegram').checked = c.telegram_enabled;
-    document.getElementById('cfgEmail').checked = c.email_enabled;
-    document.getElementById('cfgRss').checked = c.rss_enabled;
-    const dailyEl = document.getElementById('cfgDailySummary');
-    if (dailyEl) dailyEl.checked = c.daily_summary_enabled || false;
-    const dailyTimeEl = document.getElementById('cfgDailySummaryTime');
-    if (dailyTimeEl) dailyTimeEl.value = c.daily_summary_time || '21:00';
+    document.getElementById('cfgTelegram').checked = !!config.telegram_enabled;
+    document.getElementById('cfgEmail').checked = !!config.email_enabled;
+    document.getElementById('cfgRss').checked = !!config.rss_enabled;
+    document.getElementById('cfgDailySummary').checked = !!config.daily_summary_enabled;
+    document.getElementById('cfgDailySummaryTime').value = config.daily_summary_time || '21:00';
 
-    // 间隔
-    document.getElementById('cfgInterval').value = c.interval_minutes;
-    document.getElementById('intervalVal').textContent = formatInterval(c.interval_minutes);
+    setScrapeIntervalPreset(config.interval_minutes ?? 10);
+    document.getElementById('dashInterval').textContent = config.interval_minutes ?? '-';
 
-    // Dashboard
-    const dashInterval = document.getElementById('dashInterval');
-    if (dashInterval) dashInterval.textContent = c.interval_minutes;
+    document.getElementById('cfgAutoEnroll').checked = !!config.auto_enroll_enabled;
+    document.getElementById('cfgConfirmEnroll').checked = !!config.confirm_before_enroll;
+    document.getElementById('cfgMaxEnroll').value = config.max_auto_enroll_per_day ?? 2;
+    document.getElementById('maxEnrollVal').textContent = config.max_auto_enroll_per_day ?? 2;
+    renderTags('priority', config.priority_keywords || []);
 
-    // 自动选课
-    document.getElementById('cfgAutoEnroll').checked = c.auto_enroll_enabled;
-    document.getElementById('cfgConfirmEnroll').checked = c.confirm_before_enroll;
-    document.getElementById('cfgMaxEnroll').value = c.max_auto_enroll_per_day;
-    document.getElementById('maxEnrollVal').textContent = c.max_auto_enroll_per_day;
-    renderTags('priority', c.priority_keywords || []);
-
-    // 类别芯片
-    const catResult = await api('/api/categories');
-    if (catResult.success) {
-        renderCategoryChips(catResult.data, c.categories || []);
-    }
+    await loadCategories();
 }
 
 async function saveConfig() {
-    const config = {
+    const payload = {
         categories: getSelectedChips(),
         self_sign_only: document.getElementById('cfgSelfSign').checked,
-        strict_boya_only: document.getElementById('cfgStrictBoya')?.checked || false,
-        min_remaining: parseInt(document.getElementById('cfgMinRemaining').value),
+        strict_boya_only: document.getElementById('cfgStrictBoya').checked,
+        min_remaining: parseInt(document.getElementById('cfgMinRemaining').value, 10),
         campus_filter: document.getElementById('cfgCampus').value,
         keyword_whitelist: getTagValues('whitelist'),
         keyword_blacklist: getTagValues('blacklist'),
         telegram_enabled: document.getElementById('cfgTelegram').checked,
         email_enabled: document.getElementById('cfgEmail').checked,
         rss_enabled: document.getElementById('cfgRss').checked,
-        daily_summary_enabled: document.getElementById('cfgDailySummary')?.checked || false,
-        daily_summary_time: document.getElementById('cfgDailySummaryTime')?.value || '21:00',
-        interval_minutes: parseInt(document.getElementById('cfgInterval').value),
+        daily_summary_enabled: document.getElementById('cfgDailySummary').checked,
+        daily_summary_time: document.getElementById('cfgDailySummaryTime').value || '21:00',
+        interval_minutes: parseInt(document.getElementById('cfgInterval').value, 10),
         auto_enroll_enabled: document.getElementById('cfgAutoEnroll').checked,
         priority_keywords: getTagValues('priority'),
         confirm_before_enroll: document.getElementById('cfgConfirmEnroll').checked,
-        max_auto_enroll_per_day: parseInt(document.getElementById('cfgMaxEnroll').value),
+        max_auto_enroll_per_day: parseInt(document.getElementById('cfgMaxEnroll').value, 10),
     };
 
     const result = await api('/api/config', {
         method: 'PUT',
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
     });
 
+    const status = document.getElementById('saveStatus');
     if (result.success) {
-        showToast('✅ 配置已保存，将在下次抓取时生效', 'success');
-        const status = document.getElementById('saveStatus');
-        status.textContent = '✓ 已保存';
+        showToast('配置已保存，将在下一次抓取时生效', 'success');
+        if (status) {
+            status.textContent = '已保存';
+            status.classList.add('show');
+            window.setTimeout(() => status.classList.remove('show'), 3000);
+        }
+        loadConfig();
+        return;
+    }
+
+    showToast(`保存失败: ${result.error || '未知错误'}`, 'error');
+    if (status) {
+        status.textContent = '保存失败';
         status.classList.add('show');
-        setTimeout(() => status.classList.remove('show'), 3000);
-        loadConfig(); // refresh dashboard
-    } else {
-        showToast('❌ 保存失败: ' + result.error, 'error');
+        window.setTimeout(() => status.classList.remove('show'), 3000);
     }
 }
 
-// ========== Interval Presets ==========
-function setInterval(minutes) {
+function setScrapeIntervalPreset(minutes) {
     document.getElementById('cfgInterval').value = minutes;
     document.getElementById('intervalVal').textContent = formatInterval(minutes);
-
-    // Highlight active preset
-    document.querySelectorAll('.interval-presets .interval-btn').forEach(btn => {
-        const val = parseInt(btn.textContent);
-        btn.classList.remove('active');
+    document.querySelectorAll('.interval-presets .interval-btn').forEach((button) => {
+        button.classList.toggle('active', parseInt(button.dataset.minutes || '0', 10) === minutes);
     });
 }
 
-// ========== Interval Quick Edit Modal ==========
 function openIntervalDialog() {
-    document.getElementById('intervalModal').classList.add('active');
+    document.getElementById('intervalModal')?.classList.add('active');
 }
 
 function closeIntervalDialog(event) {
     if (event && event.target !== event.currentTarget) return;
-    document.getElementById('intervalModal').classList.remove('active');
+    document.getElementById('intervalModal')?.classList.remove('active');
 }
 
 async function quickSetInterval(minutes) {
-    if (!minutes || minutes < 3) {
-        showToast('间隔不能小于 3 分钟', 'error');
+    const value = parseInt(minutes, 10);
+    if (!value || value < 3) {
+        showToast('抓取间隔不能小于 3 分钟', 'error');
         return;
     }
+
     const result = await api('/api/config', {
         method: 'PUT',
-        body: JSON.stringify({ interval_minutes: minutes }),
+        body: JSON.stringify({ interval_minutes: value }),
     });
 
     if (result.success) {
-        showToast(`⏱️ 抓取间隔已改为 ${formatInterval(minutes)}`, 'success');
-        closeIntervalDialog({ target: document.getElementById('intervalModal'), currentTarget: document.getElementById('intervalModal') });
+        showToast(`抓取间隔已改为 ${formatInterval(value)}`, 'success');
+        closeIntervalDialog({
+            target: document.getElementById('intervalModal'),
+            currentTarget: document.getElementById('intervalModal'),
+        });
         loadConfig();
         loadStatus();
-    } else {
-        showToast('❌ 修改失败', 'error');
+        return;
     }
+
+    showToast(`修改失败: ${result.error || '未知错误'}`, 'error');
 }
 
-// ========== 自动选课 ==========
 async function toggleAutoEnroll() {
     const result = await api('/api/enroll/toggle', { method: 'POST' });
     if (result.success) {
-        showToast(result.message, 'info');
+        showToast(result.message || '自动选课状态已更新', 'info');
+    } else {
+        showToast(`操作失败: ${result.error || '未知错误'}`, 'error');
+        loadConfig();
     }
 }
 
-// ========== 标签管理 ==========
 function renderTags(type, values) {
     const container = document.getElementById(`${type}Tags`);
-    container.innerHTML = values.map((v, i) => `
-        <span class="tag" draggable="true" data-index="${i}" data-type="${type}">
-            ${escapeHtml(v)}
-            <span class="tag-remove" onclick="removeTag('${type}', ${i})">×</span>
+    if (!container) return;
+
+    container.innerHTML = values.map((value, index) => `
+        <span class="tag" draggable="true" data-index="${index}" data-type="${type}">
+            ${escapeHtml(value)}
+            <span class="tag-remove" onclick="removeTag('${type}', ${index})">×</span>
         </span>
     `).join('');
-
     container.dataset.values = JSON.stringify(values);
 
     if (type === 'priority') {
@@ -557,12 +486,13 @@ function renderTags(type, values) {
 
 function addTag(type) {
     const input = document.getElementById(`${type}Input`);
+    if (!input) return;
+
     const value = input.value.trim();
     if (!value) return;
 
     const container = document.getElementById(`${type}Tags`);
-    const values = JSON.parse(container.dataset.values || '[]');
-
+    const values = JSON.parse(container?.dataset.values || '[]');
     if (!values.includes(value)) {
         values.push(value);
         renderTags(type, values);
@@ -574,120 +504,126 @@ function addTag(type) {
 
 function removeTag(type, index) {
     const container = document.getElementById(`${type}Tags`);
-    const values = JSON.parse(container.dataset.values || '[]');
+    const values = JSON.parse(container?.dataset.values || '[]');
     values.splice(index, 1);
     renderTags(type, values);
 }
 
 function getTagValues(type) {
     const container = document.getElementById(`${type}Tags`);
-    return JSON.parse(container.dataset.values || '[]');
+    return JSON.parse(container?.dataset.values || '[]');
 }
 
-// ========== 拖拽排序 ==========
 function initDragSort(container) {
-    let draggedEl = null;
+    let draggedElement = null;
 
-    container.querySelectorAll('.tag').forEach(tag => {
-        tag.addEventListener('dragstart', (e) => {
-            draggedEl = tag;
+    container.querySelectorAll('.tag').forEach((tag) => {
+        tag.addEventListener('dragstart', () => {
+            draggedElement = tag;
             tag.style.opacity = '0.4';
         });
 
         tag.addEventListener('dragend', () => {
             tag.style.opacity = '1';
-            draggedEl = null;
+            draggedElement = null;
         });
 
-        tag.addEventListener('dragover', (e) => {
-            e.preventDefault();
+        tag.addEventListener('dragover', (event) => {
+            event.preventDefault();
         });
 
-        tag.addEventListener('drop', (e) => {
-            e.preventDefault();
-            if (draggedEl === tag) return;
+        tag.addEventListener('drop', (event) => {
+            event.preventDefault();
+            if (!draggedElement || draggedElement === tag) return;
 
             const values = JSON.parse(container.dataset.values || '[]');
-            const fromIdx = parseInt(draggedEl.dataset.index);
-            const toIdx = parseInt(tag.dataset.index);
+            const fromIndex = parseInt(draggedElement.dataset.index, 10);
+            const toIndex = parseInt(tag.dataset.index, 10);
 
-            const [moved] = values.splice(fromIdx, 1);
-            values.splice(toIdx, 0, moved);
-
+            const [moved] = values.splice(fromIndex, 1);
+            values.splice(toIndex, 0, moved);
             renderTags('priority', values);
         });
     });
 }
 
-// ========== 系统状态 ==========
 async function loadStatus() {
     const result = await api('/api/status');
     if (!result.success) return;
 
-    const d = result.data;
-
-    // Log tab stats
+    const data = result.data || {};
     const el = (id) => document.getElementById(id);
-    if (el('statLastRun')) el('statLastRun').textContent = d.last_run || '尚未运行';
-    if (el('statRunning')) el('statRunning').textContent = d.is_running ? '运行中...' : '空闲';
-    if (el('statTotalRuns')) el('statTotalRuns').textContent = d.total_runs;
-    if (el('statNewCourses')) el('statNewCourses').textContent = d.total_new_courses;
-    if (el('statPushed')) el('statPushed').textContent = d.total_push_emails ?? d.total_pushed;
-    if (el('statDbCourses')) el('statDbCourses').textContent = d.total_courses_in_db || 0;
-    if (el('statExpiredCourses')) el('statExpiredCourses').textContent = d.total_expired_courses || 0;
-    if (el('statBrowserAlive')) el('statBrowserAlive').textContent = d.browser_alive ? '🟢 存活' : '🔴 离线';
-    if (el('statBufferUrgent')) el('statBufferUrgent').textContent = d.push_buffer_urgent || 0;
-    if (el('statBufferSoon')) el('statBufferSoon').textContent = d.push_buffer_soon || 0;
 
-    // Dashboard strip
-    if (el('dashTotalCourses')) el('dashTotalCourses').textContent = d.total_available_courses ?? 0;
-    if (el('dashNewCourses')) el('dashNewCourses').textContent = d.total_new_today ?? 0;
-    if (el('dashPushed')) el('dashPushed').textContent = d.total_delivered_today ?? 0;
-    if (el('dashExpired')) el('dashExpired').textContent = d.total_expired_courses || 0;
-    if (el('dashBrowserStatus')) el('dashBrowserStatus').textContent = d.browser_alive ? '存活' : '离线';
-    if (el('dashBrowserIcon')) el('dashBrowserIcon').textContent = d.browser_alive ? '🟢' : '🔴';
-    if (el('dashBufferCount')) el('dashBufferCount').textContent = (d.push_buffer_urgent || 0) + (d.push_buffer_soon || 0);
+    if (el('statLastRun')) el('statLastRun').textContent = data.last_run || '尚未运行';
+    if (el('statRunning')) el('statRunning').textContent = data.is_running ? '运行中...' : '空闲';
+    if (el('statTotalRuns')) el('statTotalRuns').textContent = data.total_runs ?? 0;
+    if (el('statNewCourses')) el('statNewCourses').textContent = data.total_new_courses ?? 0;
+    if (el('statPushed')) el('statPushed').textContent = data.total_push_emails ?? data.total_pushed ?? 0;
+    if (el('statDbCourses')) el('statDbCourses').textContent = data.total_courses_in_db ?? 0;
+    if (el('statExpiredCourses')) el('statExpiredCourses').textContent = data.total_expired_courses ?? 0;
+    if (el('statBrowserAlive')) el('statBrowserAlive').textContent = data.browser_alive ? '🟢 存活' : '🔴 离线';
+    if (el('statBufferUrgent')) el('statBufferUrgent').textContent = data.push_buffer_urgent ?? 0;
+    if (el('statBufferSoon')) el('statBufferSoon').textContent = data.push_buffer_soon ?? 0;
+
+    if (el('dashTotalCourses')) el('dashTotalCourses').textContent = data.total_available_courses ?? 0;
+    if (el('dashNewCourses')) el('dashNewCourses').textContent = data.total_new_today ?? 0;
+    if (el('dashPushed')) el('dashPushed').textContent = data.total_delivered_today ?? 0;
+    if (el('dashExpired')) el('dashExpired').textContent = data.total_expired_courses ?? 0;
+    if (el('dashBrowserStatus')) el('dashBrowserStatus').textContent = data.browser_alive ? '存活' : '离线';
+    if (el('dashBrowserIcon')) el('dashBrowserIcon').textContent = data.browser_alive ? '🟢' : '🔴';
+    if (el('dashBufferCount')) el('dashBufferCount').textContent = (data.push_buffer_urgent || 0) + (data.push_buffer_soon || 0);
     if (el('dashLastRun')) {
-        const t = d.last_run || '未运行';
-        el('dashLastRun').textContent = t.length > 10 ? t.slice(11, 16) : t;
+        const text = data.last_run || '未运行';
+        el('dashLastRun').textContent = text.length > 10 ? text.slice(11, 16) : text;
     }
 
-    // Header status
     const indicator = document.getElementById('statusIndicator');
-    if (!indicator) return;
-    const dot = indicator.querySelector('.status-dot');
-    const text = indicator.querySelector('.status-text');
+    const dot = indicator?.querySelector('.status-dot');
+    const text = indicator?.querySelector('.status-text');
+    if (!indicator || !dot || !text) return;
 
-    if (d.last_error) {
+    if (data.last_error) {
         dot.classList.add('error');
         text.textContent = '错误';
-    } else if (d.is_running) {
+    } else if (data.is_running) {
         dot.classList.remove('error');
         text.textContent = '抓取中...';
     } else {
         dot.classList.remove('error');
-        text.textContent = d.last_success ? '运行正常' : '等待首次运行';
+        text.textContent = data.last_success ? '运行正常' : '等待首次运行';
     }
 }
 
-// ========== 日志 ==========
 async function loadPushLogs() {
     const result = await api('/api/logs/push');
     if (!result.success) return;
 
     const tbody = document.querySelector('#pushLogTable tbody');
+    const hint = document.getElementById('pushLogHint');
     if (!tbody) return;
-    if (!result.data.length) {
+
+    let logs = Array.isArray(result.data) ? result.data : [];
+    if (pushLogsTodayOnly) {
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        logs = logs.filter((log) => String(log.pushed_at || '').startsWith(today));
+        if (hint) hint.textContent = '当前只显示今天的送达记录';
+    } else if (hint) {
+        hint.textContent = '显示最近送达记录';
+    }
+
+    if (logs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无送达日志</td></tr>';
         return;
     }
-    tbody.innerHTML = result.data.map(log => `
+
+    tbody.innerHTML = logs.map((log) => `
         <tr>
             <td>${escapeHtml(log.pushed_at)}</td>
             <td>${escapeHtml(log.push_type)}</td>
             <td>${escapeHtml(log.course_id)}</td>
             <td class="${log.success ? 'success-badge' : 'fail-badge'}">
-                ${log.success ? '✅ 已送达' : '❌ 发送失败'}
+                ${log.success ? '已送达' : '发送失败'}
             </td>
         </tr>
     `).join('');
@@ -699,27 +635,30 @@ async function loadEnrollLogs() {
 
     const tbody = document.querySelector('#enrollLogTable tbody');
     if (!tbody) return;
-    if (!result.data.length) {
+
+    const logs = Array.isArray(result.data) ? result.data : [];
+    if (logs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无选课日志</td></tr>';
         return;
     }
-    tbody.innerHTML = result.data.map(log => `
+
+    tbody.innerHTML = logs.map((log) => `
         <tr>
             <td>${escapeHtml(log.attempted_at)}</td>
             <td>${escapeHtml(log.course_name)}</td>
             <td class="${log.success ? 'success-badge' : 'fail-badge'}">
-                ${log.success ? '✅ 成功' : '❌ 失败'}
+                ${log.success ? '成功' : '失败'}
             </td>
             <td>${escapeHtml(log.message || '')}</td>
         </tr>
     `).join('');
 }
 
-// ========== 手动推送指定课程 ==========
-async function manualPush(courseId, btnEl) {
-    if (!confirm('确认要手动推送此课程给所有订阅者吗？')) return;
-    btnEl.disabled = true;
-    btnEl.textContent = '推送中…';
+async function manualPush(courseId, button) {
+    if (!window.confirm('确认要把这门课程手动推送给所有订阅用户吗？')) return;
+
+    button.disabled = true;
+    button.textContent = '推送中...';
 
     const result = await api('/api/manual-push', {
         method: 'POST',
@@ -728,273 +667,25 @@ async function manualPush(courseId, btnEl) {
     });
 
     if (result.success) {
-        showToast(`发送完成: ${result.message || ''}`, 'success');
-        btnEl.textContent = '✓ 已发送';
-    } else {
-        showToast('发送失败: ' + (result.error || ''), 'error');
-        btnEl.disabled = false;
-        btnEl.textContent = '📤 推送此课程';
-    }
-}
-
-// ========== 手动触发 ==========
-async function triggerScrape() {
-    const btn = document.getElementById('btnTrigger');
-    if (!btn) return;
-    const originalHtml = btn.innerHTML;
-    const requestedAt = Date.now();
-    btn.classList.add('loading');
-    btn.disabled = true;
-    btn.textContent = '\u6293\u53d6\u4e2d...';
-
-    const result = await api('/api/trigger', {
-        method: 'POST',
-        suppressErrorToast: true,
-    });
-    if (result.success) {
-        if (result.joined_existing) {
-            showToast(result.message || '\u540e\u53f0\u5df2\u6709\u6293\u53d6\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
-        } else {
-            showToast(result.message || '\u5df2\u5f00\u59cb\u540e\u53f0\u6293\u53d6\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u5237\u65b0', 'info');
-        }
-        void waitForConsoleRefresh(requestedAt);
-    } else {
-        showToast('\u6293\u53d6\u5931\u8d25: ' + (result.error || ''), 'error');
-    }
-
-    btn.disabled = false;
-    btn.classList.remove('loading');
-    btn.innerHTML = originalHtml;
-}
-
-async function waitForConsoleRefresh(requestedAt) {
-    const deadline = Date.now() + 180000;
-    const threshold = requestedAt - 5000;
-
-    while (Date.now() < deadline) {
-        await sleep(2500);
-        const statusRes = await api('/api/status', { suppressErrorToast: true });
-        if (!statusRes.success) continue;
-
-        const data = statusRes.data || {};
-        if (data.is_running) continue;
-
-        const lastSuccess = data.last_success
-            ? new Date(String(data.last_success).replace(' ', 'T')).getTime()
-            : 0;
-        const lastRun = data.last_run
-            ? new Date(String(data.last_run).replace(' ', 'T')).getTime()
-            : 0;
-
-        if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
-            await loadStatus();
-            await loadCourses();
-            showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
-            return;
-        }
-    }
-
-    showToast('\u540e\u53f0\u4ecd\u5728\u6293\u53d6\uff0c\u5b8c\u6210\u540e\u4f1a\u5728\u5217\u8868\u4e2d\u81ea\u52a8\u663e\u793a\u6700\u65b0\u7ed3\u679c', 'info');
-}
-
-// ========== Toast 通知 ==========
-function showToast(message, type = 'info') {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-
-    setTimeout(() => {
-        toast.style.animation = 'toastOut 0.3s ease forwards';
-        setTimeout(() => toast.remove(), 300);
-    }, 4000);
-}
-
-// ========== 用户管理 ==========
-let _subscribersAll = [];
-
-async function loadSubscribers() {
-    const tbody = document.getElementById('subscribersTbody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载中…</td></tr>';
-
-    const result = await api('/api/subscribers');
-    if (!result.success) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">加载失败</td></tr>';
+        showToast(`发送完成 ${result.message || ''}`.trim(), 'success');
+        button.textContent = '已发送';
         return;
     }
 
-    _subscribersAll = result.data || [];
-
-    const total = _subscribersAll.length;
-    const active = _subscribersAll.filter(s => s.active && !s.push_is_paused).length;
-    const paused = _subscribersAll.filter(s => s.push_is_paused).length;
-    const el = (id) => document.getElementById(id);
-    if (el('subStatTotal'))  el('subStatTotal').textContent  = total;
-    if (el('subStatActive')) el('subStatActive').textContent = active;
-    if (el('subStatPaused')) el('subStatPaused').textContent = paused;
-
-    filterSubscribers();
-}
-
-function filterSubscribers() {
-    const keyword = (document.getElementById('subSearchInput')?.value || '').toLowerCase();
-    const status  = document.getElementById('subStatusFilter')?.value || '';
-    let list = _subscribersAll;
-    if (keyword) list = list.filter(s => s.email.toLowerCase().includes(keyword));
-    if (status === 'active')   list = list.filter(s => s.active && !s.push_is_paused);
-    else if (status === 'inactive') list = list.filter(s => !s.active);
-    else if (status === 'paused')   list = list.filter(s => s.push_is_paused);
-    renderSubscribers(list);
-}
-
-function renderSubscribers(list) {
-    const tbody = document.getElementById('subscribersTbody');
-    if (!tbody) return;
-
-    if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">无匹配用户</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = list.map(s => {
-        let accountBadge;
-        if (!s.active) accountBadge = '<span class="sub-badge inactive">已停用</span>';
-        else if (s.verification_status === 'unverified') accountBadge = '<span class="sub-badge unverified">待验证</span>';
-        else accountBadge = '<span class="sub-badge active">已启用</span>';
-
-        const campus   = s.campus_filter ? escapeHtml(s.campus_filter) : '全部';
-        const catCount = Array.isArray(s.categories) && s.categories.length ? `${s.categories.length}类` : '全部';
-        const selfSign = s.self_sign_only ? '自主签到' : '全部课';
-        const pref     = `${campus} · ${catCount} · ${selfSign}`;
-
-        let pushState = '<span class="sub-badge inactive">关闭</span>';
-        if (s.active && s.push_is_paused) {
-            const until = s.push_paused_until ? `至 ${escapeHtml(s.push_paused_until.slice(5, 16))}` : '已暂停';
-            pushState = `<div><span class="sub-badge paused">已暂停</span><div class="sub-meta">${until}</div></div>`;
-        } else if (s.active) {
-            pushState = '<span class="sub-badge normal">正常发送</span>';
-        }
-
-        const delivered7d = s.deliveries_7d != null ? s.deliveries_7d : '—';
-        const lastDelivered = s.last_delivered_at ? escapeHtml(s.last_delivered_at.slice(5, 16)) : '—';
-        const portalSeen  = s.last_portal_seen_at ? escapeHtml(s.last_portal_seen_at.slice(5, 16)) : '—';
-        const regTime     = s.created_at ? escapeHtml(s.created_at.slice(0, 10)) : '—';
-
-        const pauseBtn  = s.push_is_paused
-            ? `<button class="sub-op-btn success" onclick="adminClearPause(${s.id})">恢复推送</button>`
-            : '';
-        const toggleBtn = s.active
-            ? `<button class="sub-op-btn danger"  onclick="adminToggleSubscriber(${s.id}, true)">停用</button>`
-            : `<button class="sub-op-btn success" onclick="adminToggleSubscriber(${s.id}, false)">启用</button>`;
-
-        return `<tr>
-            <td class="sub-email">${escapeHtml(s.email)}</td>
-            <td>${accountBadge}</td>
-            <td>${pushState}</td>
-            <td class="sub-pref">${escapeHtml(pref)}</td>
-            <td>${delivered7d}</td>
-            <td class="sub-time">${lastDelivered}</td>
-            <td class="sub-time">${portalSeen}</td>
-            <td class="sub-time">${regTime}</td>
-            <td><div class="sub-op-group">${pauseBtn}${toggleBtn}</div></td>
-        </tr>`;
-    }).join('');
-}
-
-async function adminToggleSubscriber(subId, currentActive) {
-    const action = currentActive ? '停用' : '启用';
-    if (!confirm(`确认要${action}该用户吗？`)) return;
-    const result = await api(`/api/admin/subscriber/${subId}/toggle-active`, { method: 'POST' });
-    if (result.success) {
-        showToast(`✅ 已${action}`, 'success');
-        loadSubscribers();
-    } else {
-        showToast('操作失败: ' + (result.error || ''), 'error');
-    }
-}
-
-async function adminClearPause(subId) {
-    const result = await api(`/api/admin/subscriber/${subId}/clear-pause`, { method: 'POST' });
-    if (result.success) {
-        showToast('✅ 已恢复推送', 'success');
-        loadSubscribers();
-    } else {
-        showToast('操作失败: ' + (result.error || ''), 'error');
-    }
-}
-
-// ========== 工具函数 ==========
-function escapeHtml(text) {
-    if (!text) return '';
-    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-    return String(text).replace(/[&<>"']/g, m => map[m]);
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Override the earlier helper so HTML error pages no longer explode on resp.json().
-async function api(url, options = {}) {
-    const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
-    try {
-        const resp = await fetch(url, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                ...headers,
-            },
-            ...fetchOptions,
-        });
-
-        const contentType = (resp.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            const data = await resp.json();
-            if (!resp.ok && data && typeof data === 'object') {
-                data.success = false;
-                if (!data.error) data.error = `\u8bf7\u6c42\u5931\u8d25 (${resp.status})`;
-            }
-            return data;
-        }
-
-        const rawText = await resp.text();
-        const bodyPreview = String(rawText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-        const statusLabel = `${resp.status}${resp.statusText ? ` ${resp.statusText}` : ''}`.trim();
-        console.error('Non-JSON API response:', {
-            url,
-            status: resp.status,
-            contentType,
-            bodyPreview,
-        });
-        if (!suppressErrorToast) {
-            showToast('\u63a5\u53e3\u8fd4\u56de\u5f02\u5e38\u9875\u9762\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5', 'error');
-        }
-        return {
-            success: false,
-            error: `\u63a5\u53e3\u8fd4\u56de\u4e86\u975e JSON \u54cd\u5e94 (${statusLabel || 'unknown'})`,
-            status: resp.status,
-            bodyPreview,
-        };
-    } catch (err) {
-        console.error('API Error:', err);
-        if (!suppressErrorToast) {
-            showToast('\u7f51\u7edc\u8bf7\u6c42\u5931\u8d25', 'error');
-        }
-        return { success: false, error: err.message };
-    }
+    showToast(`发送失败: ${result.error || '未知错误'}`, 'error');
+    button.disabled = false;
+    button.textContent = '📤 推送此课程';
 }
 
 async function triggerScrape() {
-    const btn = document.getElementById('btnTrigger');
-    if (!btn) return;
+    const button = document.getElementById('btnTrigger');
+    if (!button) return;
 
-    const originalHtml = btn.innerHTML;
+    const originalHtml = button.innerHTML;
     const requestedAt = Date.now();
-    btn.classList.add('loading');
-    btn.disabled = true;
-    btn.textContent = '\u6293\u53d6\u4e2d...';
+    button.classList.add('loading');
+    button.disabled = true;
+    button.textContent = '抓取中...';
 
     const result = await api('/api/trigger', {
         method: 'POST',
@@ -1003,19 +694,19 @@ async function triggerScrape() {
 
     if (result.success) {
         if (result.joined_existing) {
-            showToast(result.message || '\u540e\u53f0\u5df2\u6709\u6293\u53d6\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
+            showToast(result.message || '后台已有抓取任务，正在为你同步最新结果', 'info');
         } else {
-            showToast(result.message || '\u5df2\u5f00\u59cb\u540e\u53f0\u6293\u53d6\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u5237\u65b0', 'info');
+            showToast(result.message || '已开始后台抓取课程，稍后自动刷新', 'info');
         }
         const watchToken = ++consoleRefreshWatchToken;
         void waitForConsoleRefresh(requestedAt, watchToken);
     } else {
-        showToast('\u6293\u53d6\u5931\u8d25: ' + (result.error || ''), 'error');
+        showToast(`抓取失败: ${result.error || '未知错误'}`, 'error');
     }
 
-    btn.disabled = false;
-    btn.classList.remove('loading');
-    btn.innerHTML = originalHtml;
+    button.disabled = false;
+    button.classList.remove('loading');
+    button.innerHTML = originalHtml;
 }
 
 async function waitForConsoleRefresh(requestedAt, watchToken) {
@@ -1026,10 +717,10 @@ async function waitForConsoleRefresh(requestedAt, watchToken) {
         await sleep(2500);
         if (watchToken !== consoleRefreshWatchToken) return;
 
-        const statusRes = await api('/api/status', { suppressErrorToast: true });
-        if (!statusRes.success) continue;
+        const statusResult = await api('/api/status', { suppressErrorToast: true });
+        if (!statusResult.success) continue;
 
-        const data = statusRes.data || {};
+        const data = statusResult.data || {};
         if (data.is_running) continue;
 
         const lastSuccess = data.last_success
@@ -1042,12 +733,151 @@ async function waitForConsoleRefresh(requestedAt, watchToken) {
         if ((lastSuccess && lastSuccess >= threshold) || (lastRun && lastRun >= threshold)) {
             await loadStatus();
             await loadCourses();
-            showToast('\u6293\u53d6\u5b8c\u6210\uff0c\u8bfe\u7a0b\u5217\u8868\u5df2\u5237\u65b0', 'success');
+            showToast('抓取完成，课程列表已刷新', 'success');
             return;
         }
     }
 
     if (watchToken === consoleRefreshWatchToken) {
-        showToast('\u540e\u53f0\u4ecd\u5728\u6293\u53d6\uff0c\u5b8c\u6210\u540e\u4f1a\u5728\u5217\u8868\u4e2d\u81ea\u52a8\u663e\u793a\u6700\u65b0\u7ed3\u679c', 'info');
+        showToast('后台仍在抓取，完成后列表会自动显示最新结果', 'info');
     }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    window.setTimeout(() => {
+        toast.style.animation = 'toastOut 0.3s ease forwards';
+        window.setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+async function loadSubscribers() {
+    const tbody = document.getElementById('subscribersTbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载中...</td></tr>';
+    const result = await api('/api/subscribers');
+
+    if (!result.success) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载失败</td></tr>';
+        return;
+    }
+
+    subscribersAll = Array.isArray(result.data) ? result.data : [];
+
+    document.getElementById('subStatTotal').textContent = subscribersAll.length;
+    document.getElementById('subStatActive').textContent = subscribersAll.filter((item) => item.active && !item.push_is_paused).length;
+    document.getElementById('subStatPaused').textContent = subscribersAll.filter((item) => item.push_is_paused).length;
+
+    filterSubscribers();
+}
+
+function filterSubscribers() {
+    const keyword = (document.getElementById('subSearchInput')?.value || '').toLowerCase();
+    const status = document.getElementById('subStatusFilter')?.value || '';
+
+    let list = subscribersAll;
+    if (keyword) list = list.filter((item) => String(item.email || '').toLowerCase().includes(keyword));
+    if (status === 'active') list = list.filter((item) => item.active && !item.push_is_paused);
+    else if (status === 'inactive') list = list.filter((item) => !item.active);
+    else if (status === 'paused') list = list.filter((item) => item.push_is_paused);
+
+    renderSubscribers(list);
+}
+
+function renderSubscribers(list) {
+    const tbody = document.getElementById('subscribersTbody');
+    if (!tbody) return;
+
+    if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">没有匹配的用户</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = list.map((subscriber) => {
+        let accountBadge;
+        if (!subscriber.active) accountBadge = '<span class="sub-badge inactive">已停用</span>';
+        else if (subscriber.verification_status === 'unverified') accountBadge = '<span class="sub-badge unverified">待验证</span>';
+        else accountBadge = '<span class="sub-badge active">已启用</span>';
+
+        const campus = subscriber.campus_filter ? escapeHtml(subscriber.campus_filter) : '全部';
+        const categoryCount = Array.isArray(subscriber.categories) && subscriber.categories.length
+            ? `${subscriber.categories.length} 类`
+            : '全部';
+        const selfSign = subscriber.self_sign_only ? '自主签到' : '全部课程';
+        const preference = `${campus} / ${categoryCount} / ${selfSign}`;
+
+        let pushState = '<span class="sub-badge inactive">关闭</span>';
+        if (subscriber.active && subscriber.push_is_paused) {
+            const until = subscriber.push_paused_until
+                ? `至 ${escapeHtml(String(subscriber.push_paused_until).slice(5, 16))}`
+                : '已暂停';
+            pushState = `<div><span class="sub-badge paused">已暂停</span><div class="sub-meta">${until}</div></div>`;
+        } else if (subscriber.active) {
+            pushState = '<span class="sub-badge normal">正常发送</span>';
+        }
+
+        const delivered7d = subscriber.deliveries_7d != null ? subscriber.deliveries_7d : '-';
+        const lastDelivered = subscriber.last_delivered_at ? escapeHtml(String(subscriber.last_delivered_at).slice(5, 16)) : '-';
+        const portalSeen = subscriber.last_portal_seen_at ? escapeHtml(String(subscriber.last_portal_seen_at).slice(5, 16)) : '-';
+        const createdAt = subscriber.created_at ? escapeHtml(String(subscriber.created_at).slice(0, 10)) : '-';
+
+        const pauseButton = subscriber.push_is_paused
+            ? `<button class="sub-op-btn success" onclick="adminClearPause(${subscriber.id})">恢复推送</button>`
+            : '';
+        const toggleButton = subscriber.active
+            ? `<button class="sub-op-btn danger" onclick="adminToggleSubscriber(${subscriber.id}, true)">停用</button>`
+            : `<button class="sub-op-btn success" onclick="adminToggleSubscriber(${subscriber.id}, false)">启用</button>`;
+
+        return `
+        <tr>
+            <td class="sub-email">${escapeHtml(subscriber.email)}</td>
+            <td>${accountBadge}</td>
+            <td>${pushState}</td>
+            <td class="sub-pref">${escapeHtml(preference)}</td>
+            <td>${delivered7d}</td>
+            <td class="sub-time">${lastDelivered}</td>
+            <td class="sub-time">${portalSeen}</td>
+            <td class="sub-time">${createdAt}</td>
+            <td><div class="sub-op-group">${pauseButton}${toggleButton}</div></td>
+        </tr>`;
+    }).join('');
+}
+
+async function adminToggleSubscriber(subscriberId, currentActive) {
+    const action = currentActive ? '停用' : '启用';
+    if (!window.confirm(`确认要${action}这个用户吗？`)) return;
+
+    const result = await api(`/api/admin/subscriber/${subscriberId}/toggle-active`, { method: 'POST' });
+    if (result.success) {
+        showToast(`已${action}`, 'success');
+        loadSubscribers();
+        return;
+    }
+
+    showToast(`操作失败: ${result.error || '未知错误'}`, 'error');
+}
+
+async function adminClearPause(subscriberId) {
+    const result = await api(`/api/admin/subscriber/${subscriberId}/clear-pause`, { method: 'POST' });
+    if (result.success) {
+        showToast('已恢复推送', 'success');
+        loadSubscribers();
+        return;
+    }
+
+    showToast(`操作失败: ${result.error || '未知错误'}`, 'error');
+}
+
+function escapeHtml(text) {
+    if (text == null) return '';
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, (char) => map[char]);
 }

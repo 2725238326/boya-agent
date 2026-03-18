@@ -1,27 +1,23 @@
 """
-BUAA 博雅课程自动推送智能体 - 入口文件
-启动 APScheduler 定时任务 + Flask Web 控制台
+BUAA 博雅课程提醒系统入口。
+负责初始化数据库、启动 Flask 与调度器，并执行首次抓取。
 """
 
+import asyncio
 import os
 import sys
+import threading
 
-# 确保项目根目录在 sys.path 中，解决 `from src.xxx import` 路径问题
+from dotenv import load_dotenv
+from loguru import logger
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import asyncio
-import threading
-from loguru import logger
-from dotenv import load_dotenv
-
-# 加载环境变量
 load_dotenv()
-# 也尝试从 config 目录加载
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
+load_dotenv(os.path.join(PROJECT_ROOT, "config", ".env"))
 
-# 配置日志
 logger.remove()
 logger.add(
     sys.stderr,
@@ -36,58 +32,50 @@ logger.add(
 )
 
 from src.models import init_db
-from src.scheduler import start_scheduler, run_scrape_task, set_runtime_loop
+from src.scheduler import close_browser, run_scrape_task, set_runtime_loop, start_scheduler
 from web.app import app
 
 
 def run_flask():
-    """在子线程中运行 Flask"""
+    """在子线程中运行 Flask Web 服务。"""
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "5000"))
-    logger.info(f"Web 控制台启动: http://{host}:{port}")
+    logger.info(f"Web 服务启动: http://{host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
 async def main():
-    """主入口"""
+    """主入口。"""
     logger.info("=" * 60)
-    logger.info("  BUAA 博雅课程自动推送智能体 启动")
+    logger.info("BUAA 博雅课程提醒系统启动")
     logger.info("=" * 60)
 
-    # 初始化数据库
     init_db()
     logger.info("数据库初始化完成")
 
-    # 获取调度间隔
     interval = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "10"))
 
-    # 检查是否是单次运行模式
     if "--once" in sys.argv:
-        logger.info("单次运行模式")
+        logger.info("以单次运行模式执行")
         await run_scrape_task()
         logger.info("单次运行完成")
         return
 
-    # 启动 Flask（子线程）
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # 启动调度器
     set_runtime_loop(asyncio.get_running_loop())
     start_scheduler(interval_minutes=interval)
 
-    # 首次立即运行一次
     logger.info("执行首次抓取任务...")
     await run_scrape_task()
 
-    # 保持运行
-    logger.info("系统已就绪，等待定时任务触发...")
+    logger.info("系统已就绪，等待定时任务触发")
     try:
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
-        logger.info("收到中断信号，正在关闭...")
-        from src.scheduler import close_browser
+        logger.info("收到中断信号，正在关闭浏览器资源...")
         await close_browser()
 
 
