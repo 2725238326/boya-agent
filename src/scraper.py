@@ -16,9 +16,23 @@ from src.models import Course, get_session
 # 浏览器数据持久化目录
 BROWSER_DATA_DIR = "browser_data"
 COURSE_VIEW_CANDIDATES = [
-    ("all", ["\u5168\u90e8\u8bfe\u7a0b"]),
+    ("all", ["\u5168\u90e8\u8bfe\u7a0b", "\u5168\u90e8"]),
     ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u8fd1\u671f", "\u5373\u5c06\u5f00\u8bfe"]),
-    ("far", ["\u8fdc\u671f\u8bfe\u7a0b", "\u8fdc\u5e74\u8bfe\u7a0b", "\u8fdc\u671f", "\u8fdc\u5e74"]),
+    (
+        "far",
+        [
+            "\u8fdc\u671f\u8bfe\u7a0b",
+            "\u8fdc\u5e74\u8bfe\u7a0b",
+            "\u8fdc\u671f",
+            "\u8fdc\u5e74",
+            "\u9884\u544a\u8bfe\u7a0b",
+            "\u9884\u544a",
+            "\u672a\u5f00\u8bfe",
+            "\u672a\u5f00\u59cb\u8bfe\u7a0b",
+            "\u5f85\u5f00\u8bfe",
+            "\u5f85\u5f00\u8bfe\u7a0b",
+        ],
+    ),
 ]
 
 
@@ -439,7 +453,7 @@ async def _ensure_session_with_retry(page: Page, stage: str, retries: int = 2) -
 async def _wait_course_tables_ready(page: Page) -> bool:
     """Wait until at least one table is present and the page has settled."""
     try:
-        await page.wait_for_selector("table", timeout=15000)
+        await page.wait_for_selector("table:visible", timeout=15000)
         await page.wait_for_timeout(1200)
         return True
     except Exception:
@@ -501,6 +515,40 @@ async def _activate_course_view(page: Page, aliases: List[str]) -> bool:
         if await _try_click_view_alias(page, alias):
             return True
     return False
+
+
+async def _collect_current_view_courses(
+    page: Page,
+    include_details: bool,
+    view_name: str,
+) -> List[dict]:
+    """Scrape every page in the currently active course view."""
+    courses: List[dict] = []
+    page_no = 1
+
+    while True:
+        if not await _ensure_session_with_retry(page, f"{view_name} 第{page_no}页"):
+            logger.error(f"视图[{view_name}] 会话恢复失败，停止抓取该视图")
+            break
+
+        page_courses = await _parse_visible_course_tables(page)
+        logger.info(f"视图[{view_name}] 第 {page_no} 页解析到 {len(page_courses)} 门课程")
+
+        if page_courses:
+            if include_details:
+                page_courses = await _enrich_with_details(page, page_courses)
+            else:
+                for course in page_courses:
+                    course.pop("__row_index", None)
+                    course.pop("__table_index", None)
+            courses.extend(page_courses)
+
+        has_next = await _go_to_next_page(page)
+        if not has_next:
+            break
+        page_no += 1
+
+    return courses
 
 
 def _merge_scraped_course(base: dict, incoming: dict) -> dict:
@@ -597,7 +645,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
 
         # 等待课程表格加载
         try:
-            await page.wait_for_selector("table", timeout=15000)
+            await page.wait_for_selector("table:visible", timeout=15000)
             logger.info("课程表格已加载")
         except Exception:
             logger.warning("等待表格超时，保存 HTML 用于调试...")
@@ -606,26 +654,17 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
                 f.write(html)
             return []
 
-        # 逐页解析并抓取详情，避免分页后详情链接错位
-        while True:
-            if not await _ensure_session_with_retry(page, "分页抓取中"):
-                logger.error("会话恢复失败，停止抓取")
-                break
+        current_view_courses = await _collect_current_view_courses(page, include_details, "default")
+        courses.extend(current_view_courses)
 
-            page_courses = await _parse_course_table(page)
-            logger.info(f"当前页解析到 {len(page_courses)} 条课程")
+        for view_key, aliases in COURSE_VIEW_CANDIDATES:
+            activated = await _activate_course_view(page, aliases)
+            if not activated:
+                logger.info(f"视图[{view_key}] 未找到可切换入口，跳过")
+                continue
 
-            if page_courses:
-                if include_details:
-                    page_courses = await _enrich_with_details(page, page_courses)
-                else:
-                    for course in page_courses:
-                        course.pop("__row_index", None)
-                courses.extend(page_courses)
-
-            has_next = await _go_to_next_page(page)
-            if not has_next:
-                break
+            view_courses = await _collect_current_view_courses(page, include_details, view_key)
+            courses.extend(view_courses)
 
     except Exception as e:
         logger.error(f"抓取课程列表失败: {e}")
@@ -635,8 +674,9 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
             pass
         raise
 
-    logger.info(f"共抓取到 {len(courses)} 条课程")
-    return courses
+    deduped_courses = _dedupe_scraped_courses(courses)
+    logger.info(f"共抓取到 {len(courses)} 条课程，去重后 {len(deduped_courses)} 条")
+    return deduped_courses
 
 
 async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
@@ -648,11 +688,13 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
     for i, course in enumerate(courses):
         try:
             row_index = course.get("__row_index")
+            table_index = course.get("__table_index", 0)
             if row_index is None:
                 logger.warning(f"课程[{i}] 缺少行索引，跳过详情抓取")
                 continue
 
-            row = page.locator("table tbody tr").nth(row_index)
+            visible_tables = page.locator("table:visible")
+            row = visible_tables.nth(table_index).locator("tbody tr").nth(row_index)
             detail_link = row.locator('a:has-text("详细介绍"), td:has-text("详细介绍") a')
             if await detail_link.count() == 0:
                 logger.debug(f"课程[{i}] 未找到详细介绍链接")
@@ -710,7 +752,7 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
                 await page.go_back()
             await page.wait_for_timeout(2000)
             await page.wait_for_load_state("networkidle", timeout=15000)
-            await page.wait_for_selector("table", timeout=15000)
+            await page.wait_for_selector("table:visible", timeout=15000)
 
         except Exception as e:
             logger.warning(f"抓取课程[{i}]详情失败: {e}")
@@ -729,26 +771,42 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
     logger.info("详情抓取完成")
     for course in courses:
         course.pop("__row_index", None)
+        course.pop("__table_index", None)
     return courses
 
 
-async def _parse_course_table(page: Page) -> List[dict]:
-    """解析当前页面的课程表格"""
+async def _parse_visible_course_tables(page: Page) -> List[dict]:
+    """Parse all visible course tables on the current page."""
+    tables = await _get_visible_course_tables(page)
+    if not tables:
+        logger.warning("当前页面未找到可见课程表格")
+        return []
+
     courses = []
-    column_map = await _build_table_column_map(page)
+    for table_index, table in tables:
+        courses.extend(await _parse_course_table(table, table_index))
+    return _dedupe_scraped_courses(courses)
 
-    # 获取所有课程行（跳过表头）
-    rows = await page.query_selector_all("table tbody tr")
 
-    for row_index, row in enumerate(rows):
+async def _parse_course_table(table: Locator, table_index: int) -> List[dict]:
+    """解析单个课程表格"""
+    courses = []
+    column_map = await _build_table_column_map(table)
+    rows = table.locator("tbody tr")
+    row_count = await rows.count()
+
+    for row_index in range(row_count):
         try:
-            cells = await row.query_selector_all("td")
-            if len(cells) < 8:
+            row = rows.nth(row_index)
+            cells = row.locator("td")
+            cell_count = await cells.count()
+            if cell_count < 8:
                 continue
 
             # 提取各列文本
             cell_texts = []
-            for cell in cells:
+            for cell_idx in range(cell_count):
+                cell = cells.nth(cell_idx)
                 text = await cell.inner_text()
                 cell_texts.append(text.strip())
 
@@ -886,6 +944,7 @@ async def _parse_course_table(page: Page) -> List[dict]:
                 "open_group": open_group,
                 "has_homework": has_homework,
                 "__row_index": row_index,
+                "__table_index": table_index,
             }
             courses.append(course_data)
 
@@ -905,19 +964,20 @@ async def _go_to_next_page(page: Page) -> bool:
             'button:has-text("下一页"), '
             'li:has-text("下一页") a'
         )
-        if await next_btn.count() > 0:
-            # 检查是否禁用
-            first_btn = next_btn.first
-            classes = await first_btn.get_attribute("class") or ""
-            is_disabled = await first_btn.is_disabled() or "disabled" in classes
+        count = await next_btn.count()
+        for idx in range(count):
+            candidate = next_btn.nth(idx)
+            if not await candidate.is_visible():
+                continue
+            classes = await candidate.get_attribute("class") or ""
+            is_disabled = await candidate.is_disabled() or "disabled" in classes
             if not is_disabled:
-                await first_btn.click()
+                await candidate.click()
                 await page.wait_for_timeout(3000)
                 await page.wait_for_load_state("networkidle", timeout=10000)
                 logger.info("已翻到下一页")
                 return True
-            else:
-                logger.info("已到最后一页")
+            logger.info("已到最后一页")
     except Exception as e:
         logger.debug(f"翻页操作: {e}")
     return False

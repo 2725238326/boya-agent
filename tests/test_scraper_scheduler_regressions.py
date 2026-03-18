@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from src.models import Base, Course
 from src.scraper import (
     _cleanup_near_duplicate_courses,
+    _dedupe_scraped_courses,
     _find_similar_active_course,
     _is_near_duplicate_triplet,
     generate_course_id,
@@ -256,6 +257,57 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             self.assertEqual(rows[0].remaining, 1)
         finally:
             session.close()
+
+    def test_dedupe_scraped_courses_preserves_preview_snapshot_from_other_view(self):
+        course_id = generate_course_id(
+            "课程预告A",
+            "2026-03-28 14:30",
+            "2026-03-23 18:00",
+            "许天宇",
+            "学院路校区主M202",
+            "全部校区",
+        )
+        rows = [
+            {
+                "id": course_id,
+                "name": "课程预告A",
+                "category": "博雅课程-劳动教育",
+                "location": "学院路校区主M202",
+                "teacher": "许天宇",
+                "start_time": "2026-03-28 14:30",
+                "end_time": "2026-03-28 15:45",
+                "enroll_start": "2026-03-23 18:00",
+                "enroll_end": "2026-03-28 12:00",
+                "capacity": 0,
+                "enrolled": 0,
+                "status": "",
+                "__row_index": 0,
+                "__table_index": 0,
+            },
+            {
+                "id": course_id,
+                "name": "课程预告A",
+                "category": "博雅课程-劳动教育",
+                "location": "学院路校区主M202",
+                "teacher": "许天宇",
+                "start_time": "2026-03-28 14:30",
+                "end_time": "2026-03-28 15:45",
+                "enroll_start": "2026-03-23 18:00",
+                "enroll_end": "2026-03-28 12:00",
+                "capacity": 250,
+                "enrolled": 0,
+                "status": "预告",
+                "__row_index": 3,
+                "__table_index": 1,
+            },
+        ]
+
+        deduped = _dedupe_scraped_courses(rows)
+
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(deduped[0]["status"], "预告")
+        self.assertEqual(deduped[0]["capacity"], 250)
+        self.assertEqual(deduped[0]["enrolled"], 0)
 
     def test_sync_course_lifecycle_marks_expired_instead_of_deleting(self):
         now = datetime.now()
