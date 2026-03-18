@@ -523,6 +523,7 @@ def send_login_email(to_email: str, login_url: str) -> bool:
     return retry_ok
 
 
+'''
 def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
     """发送邮箱验证邮件。"""
     code_digits = len(verify_code or "")
@@ -588,6 +589,91 @@ def send_service_update_email(to_email: str, home_url: str, portal_url: str, sub
 {_email_link_fallback(home_url, "如果按钮无法打开，请复制下面的首页地址到系统浏览器：")}"""
 
     html = _email_shell("站点入口更新通知", body, eyebrow="服务调整")
+    ok = _send_raw_email(to_email, "站点入口更新：现在直接访问 buaaboya.top 即可", html, from_kind="notify")
+    if ok:
+        logger.info(f"站点调整通知邮件已发送: {to_email}")
+    return ok
+
+
+'''
+
+
+def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
+    """发送邮箱验证码邮件。"""
+    code_digits = len(verify_code or "")
+    guide_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 14px;">
+  <p style="margin:0 0 10px; font-size:13px; color:{_EMAIL_TEXT}; font-weight:700;">推荐使用方式</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.75;">
+    直接回到
+    <a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top/subscribe</a>
+    ，输入下方的 {code_digits} 位验证码完成验证。<br>
+    验证完成后即可进入课程门户，后续再设置校区、类别和签到偏好即可。
+  </p>
+</td></tr></table>"""
+
+    code_panel = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="margin:0 0 18px; background:#f8fafc; border:1px solid {_EMAIL_HAIRLINE}; border-radius:24px;">
+<tr><td style="padding:18px 18px 16px; text-align:center;">
+  <p style="margin:0 0 8px; font-size:12px; color:{_EMAIL_MUTED}; letter-spacing:0.08em;">本次验证码</p>
+  <p style="margin:0 0 8px; font-size:30px; letter-spacing:0.24em; font-weight:800; color:{_EMAIL_TEXT};">{verify_code}</p>
+  <p style="margin:0; font-size:13px; color:{_EMAIL_MUTED}; line-height:1.7;">
+    如果邮件里的按钮打不开，也没关系，回到订阅页输入这个验证码即可完成验证。
+  </p>
+</td></tr></table>"""
+
+    verification_panel_body = (
+        f"建议优先回到订阅页，输入这封邮件里的 {code_digits} 位验证码完成验证。"
+        "邮件里的链接保留为备用方式。"
+    )
+
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  欢迎使用 BUAA 博雅课程提醒。为了确认这个邮箱可用，请先完成一次邮箱验证。
+</p>
+{_email_info_panel("验证邮箱", "推荐直接输入验证码", verification_panel_body)}
+{guide_panel}
+{_email_primary_button(subscribe_url, "打开订阅页输入验证码")}
+{code_panel}
+{_email_link_fallback(subscribe_url, "如果按钮无法打开，请复制下面的订阅页地址到系统浏览器：")}
+{_email_link_fallback(verify_url, "备用方式：如果你更习惯直接使用验证链接，也可以复制下面这条链接到系统浏览器：")}"""
+
+    html = _email_shell("验证你的邮箱", body, eyebrow="邮箱验证")
+    ok = _send_raw_email(to_email, "验证你的博雅课程提醒订阅", html, from_kind="verify")
+    if ok:
+        logger.info(f"验证码邮件已发送: {to_email}")
+    return ok
+
+
+def send_service_update_email(to_email: str, home_url: str, portal_url: str, subscribe_url: str) -> bool:
+    """发送站点入口调整通知邮件。"""
+    entry_panel_body = f"""
+  <p style="margin:0 0 8px;">你现在可以直接访问
+    <a href="{home_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">buaaboya.top</a>。
+  </p>
+  <p style="margin:0 0 8px;">原有订阅设置、提醒偏好和账户数据都已保留，不需要重新注册。</p>
+  <p style="margin:0;">如果你之前已经在当前浏览器登录过，通常可以继续保持登录状态；如果没有保留，从首页进入后重新获取一次登录邮件即可。</p>
+"""
+
+    quick_links_body = f"""
+  <p style="margin:0 0 8px;">首页：<a href="{home_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">{home_url}</a></p>
+  <p style="margin:0 0 8px;">个人门户：<a href="{portal_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">{portal_url}</a></p>
+  <p style="margin:0;">邮箱订阅页：<a href="{subscribe_url}" style="color:{_EMAIL_ACCENT}; text-decoration:none; font-weight:700;">{subscribe_url}</a></p>
+"""
+
+    body = f"""
+<p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
+  我们对博雅课程提醒站点做了一次入口整理。现在直接访问 <strong>buaaboya.top</strong> 就可以进入首页，不需要再记额外入口。
+</p>
+{_email_info_panel("入口调整", "现在从首页进入更方便", entry_panel_body)}
+{_email_primary_button(home_url, "打开博雅课程提醒首页")}
+{_email_info_panel("常用入口", "你可以这样继续使用", quick_links_body)}
+{_email_link_fallback(home_url, "如果按钮无法打开，请复制下面的首页地址到系统浏览器：")}"""
+
+    html = _email_shell("站点入口调整通知", body, eyebrow="服务调整")
     ok = _send_raw_email(to_email, "站点入口更新：现在直接访问 buaaboya.top 即可", html, from_kind="notify")
     if ok:
         logger.info(f"站点调整通知邮件已发送: {to_email}")
