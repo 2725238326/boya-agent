@@ -226,6 +226,12 @@ def _find_similar_active_course(session, data: dict, now: datetime) -> Optional[
             c.enroll_end,
             new_enroll_end,
         ):
+            logger.info(
+                "Reuse near-duplicate course instead of inserting new row: "
+                f"existing={c.id}, name={c.name}, start={c.start_time}, "
+                f"enroll_start={c.enroll_start}, incoming_start={new_start}, "
+                f"incoming_enroll_start={new_enroll_start}"
+            )
             return c
 
     return None
@@ -286,12 +292,21 @@ def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
             keep.enroll_start = keep.enroll_start or drop.enroll_start
             keep.enroll_end = keep.enroll_end or drop.enroll_end
 
-            # Preserve the freshest seat snapshot. Using max(enrolled) here would
-            # incorrectly turn a just-reopened course back into "full" when merged
-            # with an older duplicate record.
-            if (keep.capacity or 0) <= 0 and (drop.capacity or 0) > 0:
-                keep.capacity = drop.capacity or 0
-                keep.enrolled = drop.enrolled or 0
+            keep_capacity = keep.capacity or 0
+            drop_capacity = drop.capacity or 0
+            keep_enrolled = keep.enrolled or 0
+            drop_enrolled = drop.enrolled or 0
+            keep_remaining = max(0, keep_capacity - keep_enrolled)
+            drop_remaining = max(0, drop_capacity - drop_enrolled)
+
+            # Prefer the snapshot with more remaining seats. This keeps a newly
+            # reopened course from being flattened back into a stale full record
+            # when two duplicate rows are merged in the same scrape window.
+            if drop_remaining > keep_remaining:
+                keep.capacity = drop_capacity
+                keep.enrolled = drop_enrolled
+            else:
+                keep.capacity = max(keep_capacity, drop_capacity)
 
             keep.last_seen = max(keep.last_seen or now, drop.last_seen or now)
 
@@ -751,6 +766,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     session = get_session()
     new_course_ids = []
     _reopened_course_ids = []
+    reused_similar_rows = 0
 
     try:
         now = datetime.now()
@@ -759,6 +775,8 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
             now = datetime.now()
             if not existing:
                 existing = _find_similar_active_course(session, data, now)
+                if existing:
+                    reused_similar_rows += 1
             enroll_end_dt = parse_datetime(data.get("enroll_end", ""))
             is_expired = bool(enroll_end_dt and enroll_end_dt < now)
 
@@ -833,8 +851,9 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
         _cleanup_near_duplicate_courses(session, now)
         session.commit()
         extra = f", {len(_reopened_course_ids)} 门退课捡漏" if _reopened_course_ids else ""
+        similar_extra = f", {reused_similar_rows} 条近重复记录复用旧课程" if reused_similar_rows else ""
         logger.info(f"数据库更新完成: {len(new_course_ids)} 条新课程, "
-                     f"{len(courses_data) - len(new_course_ids)} 条已有课程已更新{extra}")
+                     f"{len(courses_data) - len(new_course_ids)} 条已有课程已更新{similar_extra}{extra}")
     except Exception as e:
         session.rollback()
         logger.error(f"保存课程到数据库失败: {e}")

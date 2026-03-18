@@ -897,36 +897,38 @@ def _configure_daily_summary_job():
 
 def _sync_course_lifecycle():
     """
-    同步课程生命周期：选课结束超过 30 分钟 → 直接删除（数据库 + 推送缓冲区）
-    无需先标记 expired，到期即删。
+    同步课程生命周期：选课结束超过 30 分钟 → 标记为 expired，并从推送缓冲区移除。
+    长期清理由 cleanup_old_courses 统一处理，避免已结束课程被立即删库后失去排查上下文。
     """
     session = get_session()
     try:
         now = datetime.now()
         cutoff = now - timedelta(minutes=30)
 
-        # 查找选课已结束超过 30 分钟的课程
-        dead_courses = (
+        ended_courses = (
             session.query(Course)
             .filter(Course.enroll_end != None)  # noqa: E711
             .filter(Course.enroll_end < cutoff)
             .all()
         )
 
-        if not dead_courses:
+        if not ended_courses:
             return
 
-        dead_ids = {c.id for c in dead_courses}
+        ended_ids = {c.id for c in ended_courses}
 
-        # 从推送缓冲区移除
         for key in _push_buffer:
-            _push_buffer[key] = [cid for cid in _push_buffer[key] if cid not in dead_ids]
+            _push_buffer[key] = [cid for cid in _push_buffer[key] if cid not in ended_ids]
 
-        # 删除数据库记录
-        for course in dead_courses:
-            session.delete(course)
+        newly_expired = 0
+        for course in ended_courses:
+            if not course.expired:
+                newly_expired += 1
+            course.expired = True
+
         session.commit()
-        logger.info(f"已删除 {len(dead_courses)} 门选课已结束 30 分钟以上的课程")
+        if newly_expired:
+            logger.info(f"已标记 {newly_expired} 门选课已结束 30 分钟以上的课程为过期")
 
     except Exception as e:
         session.rollback()
