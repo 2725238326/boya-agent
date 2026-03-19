@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta
 import sys
 import types
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from src.models import Base, Course
 from src.scraper import (
     _cleanup_near_duplicate_courses,
+    _collect_current_view_courses,
     _dedupe_scraped_courses,
     _find_similar_active_course,
     _is_near_duplicate_triplet,
@@ -343,6 +344,22 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             self.assertNotIn("ended-course", scheduler._push_buffer["soon"])
         finally:
             verify.close()
+
+
+class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_collect_current_view_courses_stops_after_consecutive_empty_pages(self):
+        page = object()
+
+        with (
+            patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
+            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[[], []])),
+            patch("src.scraper._enrich_with_details", new=AsyncMock()),
+            patch("src.scraper._go_to_next_page", new=AsyncMock(return_value=True)) as next_page_mock,
+        ):
+            courses = await _collect_current_view_courses(page, include_details=False, view_name="default")
+
+        self.assertEqual(courses, [])
+        self.assertEqual(next_page_mock.await_count, 1)
 
 
 if __name__ == "__main__":
