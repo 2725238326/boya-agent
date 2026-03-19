@@ -2,21 +2,99 @@ name: Deploy to Server
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run syntax checks
+        run: python -m py_compile web/app.py src/scheduler.py src/scraper.py src/models.py
+
+      - name: Run regression tests
+        run: python -m unittest tests.test_scraper_scheduler_regressions
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+          HEALTHCHECK_URL: ${{ secrets.SERVER_HEALTHCHECK_URL }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
+          envs: DEPLOY_BRANCH,APP_DIR,SERVICE_NAME,HEALTHCHECK_URL
           script: |
-            cd /home/boya-agent
-            git pull origin main
-            sudo systemctl restart boya-agent
-            echo "✅ Deploy complete at $(date)"
+            set -euo pipefail
+
+            APP_DIR="${APP_DIR:-/home/ubuntu/boya-agent}"
+            SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
+            HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/api/status}"
+
+            cd "$APP_DIR"
+
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "Server worktree is dirty; aborting deploy to avoid an unsafe git pull."
+              git status --short
+              exit 1
+            fi
+
+            git fetch --prune origin
+
+            if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+              git switch "$DEPLOY_BRANCH"
+            else
+              git switch -c "$DEPLOY_BRANCH" --track "origin/$DEPLOY_BRANCH"
+            fi
+
+            git merge --ff-only "origin/$DEPLOY_BRANCH"
+
+            if [ ! -d venv ]; then
+              python3 -m venv venv
+            fi
+
+            ./venv/bin/pip install -r requirements.txt
+            ./venv/bin/python -m py_compile web/app.py src/scheduler.py src/scraper.py src/models.py
+
+            sudo systemctl restart "$SERVICE_NAME"
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              if curl --fail --silent --show-error "$HEALTHCHECK_URL" >/tmp/boya-healthcheck.json; then
+                echo "Health check passed on attempt $attempt."
+                cat /tmp/boya-healthcheck.json
+                echo
+                echo "Deploy complete at $(date)"
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "Health check failed after restart."
+            sudo systemctl status "$SERVICE_NAME" --no-pager || true
+            sudo journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+            exit 1
