@@ -421,6 +421,7 @@ function renderCourseCard(course, isFull = false) {
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
     const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">\u5df2\u6ee1</span>' : '';
     const heatBadge = buildPortalHeatBadge(course);
+    const badgeRow = [fullBadge, heatBadge, signBadge].filter(Boolean).join('');
     const statusBadge = buildPortalCourseStatus(course);
     const timingHint = buildPortalCourseTimingHint(course);
     const goAction = buildPortalCoursePrimaryAction(course);
@@ -429,9 +430,7 @@ function renderCourseCard(course, isFull = false) {
     <div class="${cardClass}">
         <div class="portal-card-top">
             <span class="portal-course-name">${escapeHtml(course.name)}</span>
-            ${fullBadge}
-            ${heatBadge}
-            ${signBadge}
+            ${badgeRow ? `<div class="portal-card-badges">${badgeRow}</div>` : ''}
         </div>
         ${statusBadge ? `<div class="portal-card-status-row">${statusBadge}</div>` : ''}
         ${timingHint ? `<div class="portal-card-timing-hint">${timingHint}</div>` : ''}
