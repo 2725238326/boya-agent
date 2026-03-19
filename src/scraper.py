@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Response
 
-from src.auth import ensure_logged_in, BYKC_COURSE_URL
+from src.auth import ensure_logged_in, BYKC_COURSE_URL, BYKC_HOME_URL
 from src.models import Course, get_session
 
 # 浏览器数据持久化目录
@@ -1420,57 +1420,97 @@ def _drop_finished_course_snapshots(courses: List[dict]) -> List[dict]:
     return active_courses
 
 
+def _is_course_select_url(url: str) -> bool:
+    return "/system/course-select" in (url or "")
+
+
+async def _refresh_course_list(page: Page) -> bool:
+    if await _click_visible_text_control(page, ["刷新列表", "刷新"]):
+        await _wait_course_tables_ready(page)
+        logger.info("Refreshed course list via explicit refresh control")
+        return True
+
+    try:
+        await page.reload(wait_until="networkidle", timeout=20000)
+        await page.wait_for_timeout(1200)
+        logger.info("Reloaded current course-select page")
+        return True
+    except Exception as e:
+        logger.debug(f"Refresh course list failed: {e}")
+        return False
+
+
+async def _open_course_select_page(page: Page) -> bool:
+    if _is_course_select_url(page.url):
+        logger.info(f"复用当前选课页: {page.url}")
+        if not await _ensure_session_with_retry(page, "复用选课页"):
+            return False
+        await _refresh_course_list(page)
+        return await _wait_course_tables_ready(page)
+
+    try:
+        logger.info(f"直接导航到选课页: {BYKC_COURSE_URL}")
+        await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30000)
+        await page.wait_for_timeout(2000)
+        if not await _ensure_session_with_retry(page, "直达选课页后"):
+            return False
+        if await _wait_course_tables_ready(page):
+            return True
+    except Exception as e:
+        logger.warning(f"直接进入选课页失败，回退到首页菜单导航: {e}")
+
+    logger.info(f"导航到博雅首页: {BYKC_HOME_URL}")
+    await page.goto(BYKC_HOME_URL, wait_until="networkidle", timeout=30000)
+    await page.wait_for_timeout(3000)
+
+    if not await _ensure_session_with_retry(page, "进入首页后"):
+        logger.error("会话恢复失败")
+        return False
+
+    logger.info("展开「我的课程」菜单...")
+    try:
+        my_course_menu = page.locator('li:has-text("我的课程"), span:has-text("我的课程")')
+        if await my_course_menu.count() > 0:
+            await my_course_menu.first.click()
+            await page.wait_for_timeout(1500)
+            logger.info("已点击「我的课程」")
+    except Exception as e:
+        logger.warning(f"展开菜单失败: {e}")
+
+    logger.info("点击「选择课程」...")
+    try:
+        select_menu = page.locator('li[href="/system/course-select"], a[href="/system/course-select"]')
+        if await select_menu.count() == 0:
+            select_menu = page.locator('li:has-text("选择课程"):visible, span:has-text("选择课程"):visible')
+
+        if await select_menu.count() > 0:
+            await select_menu.first.click()
+            await page.wait_for_timeout(5000)
+            await page.wait_for_load_state("networkidle", timeout=15000)
+            logger.info(f"已点击「选择课程」，当前 URL: {page.url}")
+        else:
+            logger.warning("未找到「选择课程」菜单项")
+            return False
+    except Exception as e:
+        logger.warning(f"点击选择课程失败: {e}")
+        return False
+
+    return await _wait_course_tables_ready(page)
+
+
 async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
     """
-    from src.auth import BYKC_HOME_URL
     courses = []
     response_recorder = _JsonResponseRecorder(page)
 
     try:
         os.makedirs("logs", exist_ok=True)
         response_recorder.start()
-        # ====== 导航到博雅首页（SPA 不支持直接 URL 跳转子页面）======
-        logger.info(f"导航到博雅首页: {BYKC_HOME_URL}")
-        await page.goto(BYKC_HOME_URL, wait_until="networkidle", timeout=30000)
-        await page.wait_for_timeout(3000)
-
-        # ====== 会话守护 ======
-        if not await _ensure_session_with_retry(page, "进入首页后"):
-            logger.error("会话恢复失败")
+        if not await _open_course_select_page(page):
+            logger.error("无法进入选择课程页面")
             return []
-
-        # ====== 通过菜单导航到选课页面 ======
-        # 步骤 1: 展开「我的课程」父菜单
-        logger.info("展开「我的课程」菜单...")
-        try:
-            my_course_menu = page.locator('li:has-text("我的课程"), span:has-text("我的课程")')
-            if await my_course_menu.count() > 0:
-                await my_course_menu.first.click()
-                await page.wait_for_timeout(1500)
-                logger.info("已点击「我的课程」")
-        except Exception as e:
-            logger.warning(f"展开菜单失败: {e}")
-
-        # 步骤 2: 点击「选择课程」子菜单（通过 href 属性精确定位）
-        logger.info("点击「选择课程」...")
-        try:
-            # 优先用 href 定位（最精确）
-            select_menu = page.locator('li[href="/system/course-select"], a[href="/system/course-select"]')
-            if await select_menu.count() == 0:
-                # 展开后子菜单应该可见了，用 visible 文本定位
-                select_menu = page.locator('li:has-text("选择课程"):visible, span:has-text("选择课程"):visible')
-            
-            if await select_menu.count() > 0:
-                await select_menu.first.click()
-                await page.wait_for_timeout(5000)
-                await page.wait_for_load_state("networkidle", timeout=15000)
-                logger.info(f"已点击「选择课程」，当前 URL: {page.url}")
-            else:
-                logger.warning("未找到「选择课程」菜单项")
-        except Exception as e:
-            logger.warning(f"点击选择课程失败: {e}")
 
         # 截图
         await page.screenshot(path="logs/scrape_page.png", full_page=True)

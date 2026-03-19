@@ -514,6 +514,84 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         finally:
             verify.close()
 
+    def test_load_active_enrollment_targets_excludes_finished_courses(self):
+        now = datetime.now()
+        session = self.Session()
+        try:
+            session.add(
+                Course(
+                    id="active-open",
+                    name="进行中的课程",
+                    campus="全部校区",
+                    enroll_start=now - timedelta(minutes=10),
+                    enroll_end=now + timedelta(hours=1),
+                    end_time=now + timedelta(minutes=30),
+                    capacity=200,
+                    enrolled=183,
+                    expired=False,
+                )
+            )
+            session.add(
+                Course(
+                    id="active-finished",
+                    name="已经下课的课程",
+                    campus="全部校区",
+                    enroll_start=now - timedelta(minutes=10),
+                    enroll_end=now + timedelta(hours=1),
+                    end_time=now - timedelta(minutes=1),
+                    capacity=200,
+                    enrolled=190,
+                    expired=False,
+                )
+            )
+            session.commit()
+
+            rows = scheduler._load_active_enrollment_targets(session)
+        finally:
+            session.close()
+
+        self.assertEqual([row.id for row in rows], ["active-open"])
+
+    def test_load_hot_watch_targets_detects_nearly_full_course(self):
+        now = datetime.now()
+        session = self.Session()
+        try:
+            session.add(
+                Course(
+                    id="hot-course",
+                    name="热点课",
+                    campus="全部校区",
+                    enroll_start=now - timedelta(minutes=20),
+                    enroll_end=now + timedelta(hours=2),
+                    end_time=now + timedelta(hours=3),
+                    capacity=200,
+                    enrolled=183,
+                    expired=False,
+                    last_seen=now - timedelta(seconds=40),
+                )
+            )
+            session.add(
+                Course(
+                    id="cool-course",
+                    name="普通课",
+                    campus="全部校区",
+                    enroll_start=now - timedelta(minutes=20),
+                    enroll_end=now + timedelta(hours=2),
+                    end_time=now + timedelta(hours=3),
+                    capacity=200,
+                    enrolled=80,
+                    expired=False,
+                    last_seen=now - timedelta(seconds=40),
+                )
+            )
+            session.commit()
+
+            hot_rows = scheduler._load_hot_watch_targets(session)
+        finally:
+            session.close()
+
+        self.assertEqual([row.id for row in hot_rows], ["hot-course"])
+
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
     def test_build_course_row_payload_handles_preview_row(self):

@@ -79,7 +79,9 @@ ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECON
 ACTIVE_ENROLL_JUST_STARTED_MINUTES = max(5, int(os.getenv("ACTIVE_ENROLL_JUST_STARTED_MINUTES", "15")))
 ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_MIN_REMAINING", "8")))
 HOT_COURSE_REMAINING_THRESHOLD = max(1, int(os.getenv("HOT_COURSE_REMAINING_THRESHOLD", "3")))
-HOT_COURSE_STALE_SECONDS = max(30, int(os.getenv("HOT_COURSE_STALE_SECONDS", "90")))
+HOT_COURSE_FILL_RATIO = min(0.98, max(0.6, float(os.getenv("HOT_COURSE_FILL_RATIO", "0.82"))))
+HOT_COURSE_WATCH_SECONDS = max(10, int(os.getenv("HOT_COURSE_WATCH_SECONDS", "15")))
+HOT_COURSE_STALE_SECONDS = max(HOT_COURSE_WATCH_SECONDS, int(os.getenv("HOT_COURSE_STALE_SECONDS", "25")))
 
 
 # ═══════════════════════════════════════════════════════
@@ -250,6 +252,36 @@ def _load_active_enrollment_targets(session):
     )
 
 
+def _course_fill_ratio(course) -> float:
+    capacity = max(0, int(course.capacity or 0))
+    if capacity <= 0:
+        return 0.0
+    enrolled = max(0, int(course.enrolled or 0))
+    return min(1.0, enrolled / capacity)
+
+
+def _is_hot_course(course, now: datetime) -> bool:
+    if course.expired:
+        return False
+    if course.enroll_start and course.enroll_start > now:
+        return False
+    if course.enroll_end and course.enroll_end < now:
+        return False
+    if course.end_time and course.end_time <= now:
+        return False
+    if int(course.capacity or 0) <= 0:
+        return False
+    if course.remaining <= HOT_COURSE_REMAINING_THRESHOLD:
+        return True
+    return _course_fill_ratio(course) >= HOT_COURSE_FILL_RATIO
+
+
+def _load_hot_watch_targets(session):
+    now = datetime.now()
+    active_courses = _load_active_enrollment_targets(session)
+    return [course for course in active_courses if _is_hot_course(course, now)]
+
+
 def _should_push_active_enrollment(course, now: datetime) -> bool:
     if course.remaining <= 0:
         return False
@@ -298,6 +330,32 @@ async def monitor_active_enrollment_courses():
         if not active_courses:
             return
         logger.info(f"已开选课程高频巡检: active={len(active_courses)}")
+    finally:
+        session.close()
+
+    await run_scrape_task(mode="quick")
+
+
+async def monitor_hot_courses():
+    if run_status["is_running"]:
+        return
+
+    now = datetime.now()
+    session = get_session()
+    try:
+        hot_courses = _load_hot_watch_targets(session)
+        if not hot_courses:
+            return
+
+        freshest_seen = max((course.last_seen or datetime.min) for course in hot_courses)
+        stale_seconds = max(0, int((now - freshest_seen).total_seconds())) if freshest_seen != datetime.min else HOT_COURSE_STALE_SECONDS
+        if stale_seconds < HOT_COURSE_STALE_SECONDS:
+            return
+
+        logger.info(
+            f"热点课程高频巡检: hot={len(hot_courses)}, stale={stale_seconds}s, "
+            f"threshold={HOT_COURSE_STALE_SECONDS}s"
+        )
     finally:
         session.close()
 
@@ -877,6 +935,13 @@ def start_scheduler(interval_minutes: int = 3):
         replace_existing=True,
         max_instances=1,
     )
+    scheduler.add_job(
+        monitor_hot_courses,
+        trigger=IntervalTrigger(seconds=HOT_COURSE_WATCH_SECONDS),
+        id="hot_course_watch_task",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     # 🟡 近期缓冲区 flush（每 3 小时）
     scheduler.add_job(
@@ -910,7 +975,7 @@ def start_scheduler(interval_minutes: int = 3):
     scheduler.start()
     logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
                 f"近期汇总=每{URGENT_DIGEST_MINUTES}分钟, 新课摘要=每{SOON_DIGEST_MINUTES}分钟, "
-                f"开选巡检=每{ACTIVE_ENROLL_SCRAPE_SECONDS}秒")
+                f"开选巡检=每{ACTIVE_ENROLL_SCRAPE_SECONDS}秒, 热点巡检=每{HOT_COURSE_WATCH_SECONDS}秒")
 
 
 def update_scheduler_interval(interval_minutes: int):
