@@ -420,6 +420,7 @@ function renderCourseCard(course, isFull = false) {
 
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
     const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">\u5df2\u6ee1</span>' : '';
+    const heatBadge = buildPortalHeatBadge(course);
     const statusBadge = buildPortalCourseStatus(course);
     const timingHint = buildPortalCourseTimingHint(course);
     const goAction = buildPortalCoursePrimaryAction(course);
@@ -429,6 +430,7 @@ function renderCourseCard(course, isFull = false) {
         <div class="portal-card-top">
             <span class="portal-course-name">${escapeHtml(course.name)}</span>
             ${fullBadge}
+            ${heatBadge}
             ${signBadge}
         </div>
         ${statusBadge ? `<div class="portal-card-status-row">${statusBadge}</div>` : ''}
@@ -478,13 +480,21 @@ function getPortalCourseAgeSeconds(course) {
 }
 
 function isPortalCourseHot(course) {
-    const remaining = Number(course.remaining || 0);
-    return remaining > 0 && remaining <= 3;
+    return Boolean(course && course.is_hot_course);
 }
 
 function isPortalCourseStale(course) {
     const ageSeconds = getPortalCourseAgeSeconds(course);
     return ageSeconds !== null && ageSeconds >= 90;
+}
+
+function buildPortalHeatBadge(course) {
+    if (!isPortalCourseHot(course) || course.expired) return '';
+    const fillPercent = Math.round(Number(course.fill_percent || 0));
+    const detail = course.hot_reason === 'remaining'
+        ? `\u5269\u4f59 ${Number(course.remaining || 0)} \u4eba`
+        : `\u70ed\u5ea6 ${fillPercent}%`;
+    return `<span class="portal-badge portal-badge-hot">${detail}</span>`;
 }
 
 function buildPortalCourseStatus(course) {
@@ -493,18 +503,22 @@ function buildPortalCourseStatus(course) {
     const now = new Date();
     const timeValue = enrollStart && !Number.isNaN(enrollStart.getTime()) ? enrollStart.getTime() : null;
     const minutesToStart = timeValue == null ? null : Math.floor((timeValue - now.getTime()) / 60000);
+    const isHot = isPortalCourseHot(course);
 
     if (course.expired) {
         return '<span class="portal-status-pill muted">\u5df2\u8fc7\u671f</span>';
     }
     if (remaining <= 0) {
-        return '<span class="portal-status-pill wait">\u5df2\u6ee1\u8e72\u9000\u9009</span>';
+        return `<span class="portal-status-pill wait">${isHot ? '\u5df2\u6ee1\u9ad8\u9891\u76ef\u76d8' : '\u5df2\u6ee1\u8e72\u9000\u9009'}</span>`;
     }
-    if (isPortalCourseStale(course) && isPortalCourseHot(course)) {
+    if (isPortalCourseStale(course) && isHot) {
         return '<span class="portal-status-pill warn">\u540d\u989d\u53d8\u5316\u5feb</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 0) {
-        return '<span class="portal-status-pill hot">\u53ef\u7acb\u5373\u5c1d\u8bd5</span>';
+        return `<span class="portal-status-pill hot">${isHot ? '\u70ed\u70b9\u53ef\u7acb\u5373\u5c1d\u8bd5' : '\u53ef\u7acb\u5373\u5c1d\u8bd5'}</span>`;
+    }
+    if (isHot) {
+        return '<span class="portal-status-pill hot">\u70ed\u70b9\u91cd\u70b9\u5de1\u68c0</span>';
     }
     if (minutesToStart !== null && minutesToStart <= 180) {
         return '<span class="portal-status-pill soon">\u5373\u5c06\u5f00\u62a2</span>';

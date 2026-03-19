@@ -1194,6 +1194,12 @@ body.portal-body {
     color: var(--portal-danger);
 }
 
+.portal-badge-hot {
+    background: rgba(255, 149, 0, 0.12);
+    color: var(--portal-warning);
+    border: 1px solid rgba(255, 149, 0, 0.18);
+}
+
 .portal-card-actions {
     margin-top: 16px;
     display: flex;

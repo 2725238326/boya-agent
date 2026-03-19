@@ -9,6 +9,8 @@ from sqlalchemy import inspect, text
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from src.course_state import get_hot_reason, is_enrollment_open, is_hot_course, course_fill_ratio
+
 DATABASE_PATH = "boya_agent.db"
 
 Base = declarative_base()
@@ -70,6 +72,8 @@ class Course(Base):
         seconds_since_last_seen = None
         if self.last_seen:
             seconds_since_last_seen = max(0, int((now - self.last_seen).total_seconds()))
+        fill_ratio = course_fill_ratio(self)
+        hot_reason = get_hot_reason(self, now)
         return {
             "id": self.id,
             "name": self.name,
@@ -85,10 +89,15 @@ class Course(Base):
             "capacity": self.capacity,
             "enrolled": self.enrolled,
             "remaining": self.remaining,
+            "fill_ratio": round(fill_ratio, 4),
+            "fill_percent": round(fill_ratio * 100, 1),
             "status": self.status,
             "campus": self.campus,
             "check_in_method": self.check_in_method,
             "is_enrollable": self.is_enrollable,
+            "enrollment_open": is_enrollment_open(self, now),
+            "is_hot_course": is_hot_course(self, now),
+            "hot_reason": hot_reason,
             "pushed": self.pushed,
             "expired": self.expired,
             "first_seen": self.first_seen.strftime("%Y-%m-%d %H:%M") if self.first_seen else "",

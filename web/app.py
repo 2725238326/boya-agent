@@ -26,8 +26,11 @@ from src.models import (
     get_session,
     init_db,
 )
+from src.course_state import HOT_COURSE_FILL_RATIO, HOT_COURSE_REMAINING_THRESHOLD, is_hot_course
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
 from src.scheduler import (
+    BROWSER_HARD_MAX_SCRAPE_RUNS,
+    BROWSER_MAX_SCRAPE_RUNS,
     get_run_status,
     queue_scrape_task,
     run_scrape_task,
@@ -618,13 +621,16 @@ def api_status():
 
     session = get_session()
     try:
-        status["total_courses_in_db"] = session.query(Course).count()
-        status["total_available_courses"] = (
+        active_courses = (
             session.query(Course)
             .filter(Course.expired == False)  # noqa: E712
-            .filter((Course.capacity - Course.enrolled) > 0)
-            .count()
+            .all()
         )
+        status["total_courses_in_db"] = session.query(Course).count()
+        status["total_available_courses"] = sum(1 for course in active_courses if course.remaining > 0)
+        status["hot_watch_course_count"] = sum(1 for course in active_courses if is_hot_course(course, now))
+        status["hot_course_fill_ratio"] = HOT_COURSE_FILL_RATIO
+        status["hot_course_remaining_threshold"] = HOT_COURSE_REMAINING_THRESHOLD
         status["total_new_today"] = session.query(Course).filter(Course.first_seen >= today_start).count()
         status["total_delivered_today"] = (
             session.query(NotificationEvent)
@@ -649,6 +655,9 @@ def api_status():
         pass
 
     status["browser_alive"] = browser_alive
+    status["browser_scrape_runs"] = int(_browser_state.get("scrape_runs", 0))
+    status["browser_recycle_threshold"] = BROWSER_MAX_SCRAPE_RUNS
+    status["browser_hard_recycle_threshold"] = BROWSER_HARD_MAX_SCRAPE_RUNS
     status["push_buffer_urgent"] = len(_push_buffer.get("urgent", []))
     status["push_buffer_soon"] = len(_push_buffer.get("soon", []))
 

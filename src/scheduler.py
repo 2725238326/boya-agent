@@ -21,6 +21,11 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 from src.models import Course, PushLog, get_session, init_db, FilterConfig
+from src.course_state import (
+    HOT_COURSE_FILL_RATIO,
+    HOT_COURSE_REMAINING_THRESHOLD,
+    is_hot_course,
+)
 from src.scraper import assess_scrape_health, create_browser_context, scrape_courses, save_courses_to_db
 from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
@@ -61,7 +66,12 @@ _active_scrape_task = None
 _active_scrape_task_lock = None
 _submitted_scrape_future = None
 _submitted_scrape_lock = threading.Lock()
-BROWSER_MAX_SCRAPE_RUNS = max(5, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "25")))
+BROWSER_MAX_SCRAPE_RUNS = max(20, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "80")))
+BROWSER_HARD_MAX_SCRAPE_RUNS = max(
+    BROWSER_MAX_SCRAPE_RUNS,
+    int(os.getenv("BROWSER_HARD_MAX_SCRAPE_RUNS", str(max(140, BROWSER_MAX_SCRAPE_RUNS * 2)))),
+)
+BROWSER_DEFER_RECYCLE_WHEN_HOT = (os.getenv("BROWSER_DEFER_RECYCLE_WHEN_HOT", "true").strip().lower() not in {"0", "false", "no"})
 
 # ── 推送缓冲区 ──────────────────────────────────────────
 # 按紧急级别缓冲课程 ID
@@ -78,8 +88,6 @@ SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
 ACTIVE_ENROLL_JUST_STARTED_MINUTES = max(5, int(os.getenv("ACTIVE_ENROLL_JUST_STARTED_MINUTES", "15")))
 ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_MIN_REMAINING", "8")))
-HOT_COURSE_REMAINING_THRESHOLD = max(1, int(os.getenv("HOT_COURSE_REMAINING_THRESHOLD", "3")))
-HOT_COURSE_FILL_RATIO = min(0.98, max(0.6, float(os.getenv("HOT_COURSE_FILL_RATIO", "0.82"))))
 HOT_COURSE_WATCH_SECONDS = max(10, int(os.getenv("HOT_COURSE_WATCH_SECONDS", "15")))
 HOT_COURSE_STALE_SECONDS = max(HOT_COURSE_WATCH_SECONDS, int(os.getenv("HOT_COURSE_STALE_SECONDS", "25")))
 
@@ -154,6 +162,22 @@ async def close_browser():
     _browser_state = {"pw": None, "browser": None, "context": None, "page": None, "scrape_runs": 0}
 
 
+def _should_defer_browser_recycle(scrape_runs: int) -> bool:
+    if not BROWSER_DEFER_RECYCLE_WHEN_HOT:
+        return False
+    if scrape_runs >= BROWSER_HARD_MAX_SCRAPE_RUNS:
+        return False
+
+    session = get_session()
+    try:
+        return bool(_load_hot_watch_targets(session))
+    except Exception as e:
+        logger.debug(f"hot-watch recycle check failed: {e}")
+        return False
+    finally:
+        session.close()
+
+
 async def _ensure_browser(force_recreate: bool = False):
     """Ensure a healthy Playwright page bound to the main runtime loop."""
     global _browser_state
@@ -163,9 +187,16 @@ async def _ensure_browser(force_recreate: bool = False):
     if page and not force_recreate:
         try:
             _ = page.url
-            if _browser_state.get("scrape_runs", 0) < BROWSER_MAX_SCRAPE_RUNS:
+            scrape_runs = int(_browser_state.get("scrape_runs", 0))
+            if scrape_runs < BROWSER_MAX_SCRAPE_RUNS:
                 return page
-            logger.info(f"browser recycled after {_browser_state['scrape_runs']} runs")
+            if _should_defer_browser_recycle(scrape_runs):
+                logger.info(
+                    f"browser recycle deferred at {scrape_runs} runs because hot courses are under watch "
+                    f"(hard limit={BROWSER_HARD_MAX_SCRAPE_RUNS})"
+                )
+                return page
+            logger.info(f"browser recycled after {scrape_runs} runs")
         except Exception:
             page_invalid = True
             logger.warning("browser page became invalid, recreating")
@@ -252,28 +283,13 @@ def _load_active_enrollment_targets(session):
     )
 
 
-def _course_fill_ratio(course) -> float:
-    capacity = max(0, int(course.capacity or 0))
-    if capacity <= 0:
-        return 0.0
-    enrolled = max(0, int(course.enrolled or 0))
-    return min(1.0, enrolled / capacity)
-
-
 def _is_hot_course(course, now: datetime) -> bool:
-    if course.expired:
-        return False
-    if course.enroll_start and course.enroll_start > now:
-        return False
-    if course.enroll_end and course.enroll_end < now:
-        return False
-    if course.end_time and course.end_time <= now:
-        return False
-    if int(course.capacity or 0) <= 0:
-        return False
-    if course.remaining <= HOT_COURSE_REMAINING_THRESHOLD:
-        return True
-    return _course_fill_ratio(course) >= HOT_COURSE_FILL_RATIO
+    return is_hot_course(
+        course,
+        now,
+        remaining_threshold=HOT_COURSE_REMAINING_THRESHOLD,
+        fill_ratio_threshold=HOT_COURSE_FILL_RATIO,
+    )
 
 
 def _load_hot_watch_targets(session):
@@ -975,7 +991,8 @@ def start_scheduler(interval_minutes: int = 3):
     scheduler.start()
     logger.info(f"定时调度已启动: 抓取间隔={interval_minutes}分钟, "
                 f"近期汇总=每{URGENT_DIGEST_MINUTES}分钟, 新课摘要=每{SOON_DIGEST_MINUTES}分钟, "
-                f"开选巡检=每{ACTIVE_ENROLL_SCRAPE_SECONDS}秒, 热点巡检=每{HOT_COURSE_WATCH_SECONDS}秒")
+                f"开选巡检=每{ACTIVE_ENROLL_SCRAPE_SECONDS}秒, 热点巡检=每{HOT_COURSE_WATCH_SECONDS}秒, "
+                f"浏览器回收阈值={BROWSER_MAX_SCRAPE_RUNS}/{BROWSER_HARD_MAX_SCRAPE_RUNS}")
 
 
 def update_scheduler_interval(interval_minutes: int):

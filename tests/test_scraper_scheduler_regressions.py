@@ -592,6 +592,38 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
         self.assertEqual([row.id for row in hot_rows], ["hot-course"])
 
+    def test_course_to_dict_exposes_hot_watch_metadata(self):
+        now = datetime.now()
+        course = Course(
+            id="hot-json",
+            name="热点展示课",
+            campus="全部校区",
+            enroll_start=now - timedelta(minutes=10),
+            enroll_end=now + timedelta(hours=1),
+            end_time=now + timedelta(hours=2),
+            capacity=200,
+            enrolled=183,
+            expired=False,
+            last_seen=now - timedelta(seconds=18),
+        )
+
+        payload = course.to_dict()
+
+        self.assertTrue(payload["is_hot_course"])
+        self.assertEqual(payload["hot_reason"], "fill_ratio")
+        self.assertTrue(payload["enrollment_open"])
+        self.assertGreater(payload["fill_percent"], 90)
+
+    def test_should_defer_browser_recycle_when_hot_courses_exist(self):
+        fake_session = type("FakeSession", (), {"close": lambda self: None})()
+        with patch.object(scheduler, "get_session", return_value=fake_session), \
+             patch.object(scheduler, "_load_hot_watch_targets", return_value=[object()]):
+            self.assertTrue(scheduler._should_defer_browser_recycle(scheduler.BROWSER_MAX_SCRAPE_RUNS))
+
+        with patch.object(scheduler, "get_session", return_value=fake_session), \
+             patch.object(scheduler, "_load_hot_watch_targets", return_value=[]):
+            self.assertFalse(scheduler._should_defer_browser_recycle(scheduler.BROWSER_MAX_SCRAPE_RUNS))
+
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
     def test_build_course_row_payload_handles_preview_row(self):

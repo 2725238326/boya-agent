@@ -142,11 +142,25 @@ async function loadCourses() {
     grid.innerHTML = courses.map((course) => renderCourseCard(course)).join('');
 }
 
+function isConsoleCourseHot(course) {
+    return Boolean(course && course.is_hot_course);
+}
+
+function buildConsoleHeatBadge(course) {
+    if (!isConsoleCourseHot(course) || course.expired) return '';
+    const fillPercent = Math.round(Number(course.fill_percent || 0));
+    const detail = course.hot_reason === 'remaining'
+        ? `剩余 ${Number(course.remaining || 0)} 人`
+        : `热度 ${fillPercent}%`;
+    return `<span class="badge badge-hot-watch">热点盯盘 · ${detail}</span>`;
+}
+
 function renderCourseCard(course) {
     const checkIn = course.check_in_method || course.sign_method || '';
     const signBadge = checkIn.includes('自主')
         ? '<span class="badge badge-self-sign">✅ 自主签到</span>'
         : `<span class="badge badge-not-self-sign">ℹ️ ${escapeHtml(checkIn || '直接选课')}</span>`;
+    const hotBadge = buildConsoleHeatBadge(course);
     const expiredBadge = course.expired
         ? '<span class="badge badge-full">⏳ 已过期</span>'
         : '';
@@ -165,6 +179,7 @@ function renderCourseCard(course) {
     <div class="course-card${course.expired ? ' expired' : ''}">
         <div class="card-top">
             <span class="course-name">${escapeHtml(course.name)}</span>
+            ${hotBadge}
             ${signBadge}
             ${expiredBadge}
         </div>
@@ -203,10 +218,12 @@ function buildConsoleCourseStatus(course) {
     const enrollStart = course.enroll_start ? new Date(String(course.enroll_start).replace(' ', 'T')) : null;
     const timeValue = enrollStart && !Number.isNaN(enrollStart.getTime()) ? enrollStart.getTime() : null;
     const minutesToStart = timeValue == null ? null : Math.floor((timeValue - Date.now()) / 60000);
+    const isHot = isConsoleCourseHot(course);
 
     if (course.expired) return '<span class="course-status-pill muted">已过期</span>';
-    if (remaining <= 0) return '<span class="course-status-pill wait">已满可蹲退选</span>';
-    if (minutesToStart !== null && minutesToStart <= 0) return '<span class="course-status-pill hot">可立即尝试</span>';
+    if (remaining <= 0) return `<span class="course-status-pill wait">${isHot ? '已满高频盯盘' : '已满可蹲退选'}</span>`;
+    if (minutesToStart !== null && minutesToStart <= 0) return `<span class="course-status-pill hot">${isHot ? '热点可立即尝试' : '可立即尝试'}</span>`;
+    if (isHot) return '<span class="course-status-pill hot">热点重点巡检</span>';
     if (minutesToStart !== null && minutesToStart <= 180) return '<span class="course-status-pill soon">即将开抢</span>';
     if (remaining >= 20) return '<span class="course-status-pill easy">名额较充足</span>';
     if (remaining <= 5) return '<span class="course-status-pill tight">名额紧张</span>';
