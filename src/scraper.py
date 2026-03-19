@@ -3,13 +3,14 @@ Playwright 爬虫模块 - 抓取博雅课程列表并解析
 由于博雅系统 API 返回加密 JSON，使用 Playwright 直接读取渲染后的 DOM
 """
 
+import asyncio
 import hashlib
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
-from playwright.async_api import async_playwright, Page, BrowserContext, Locator
+from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Response
 
 from src.auth import ensure_logged_in, BYKC_COURSE_URL
 from src.models import Course, get_session
@@ -36,6 +37,34 @@ COURSE_VIEW_CANDIDATES = [
     ),
 ]
 MAX_PAGES_PER_VIEW = 25
+MIN_FAST_PATH_ROWS = max(3, int(os.getenv("SCRAPER_MIN_FAST_PATH_ROWS", "5")))
+SCRAPE_HEALTH_MIN_BASELINE = max(5, int(os.getenv("SCRAPE_HEALTH_MIN_BASELINE", "10")))
+SCRAPE_HEALTH_MIN_ROWS = max(3, int(os.getenv("SCRAPE_HEALTH_MIN_ROWS", "5")))
+SCRAPE_HEALTH_RATIO = min(1.0, max(0.1, float(os.getenv("SCRAPE_HEALTH_RATIO", "0.35"))))
+
+NETWORK_FIELD_ALIASES = {
+    "name": ["name", "courseName", "course_name", "title", "课程名称", "课程名", "kcmc"],
+    "category": ["category", "courseType", "course_type", "typeName", "课程类别", "类别", "kclb"],
+    "location": ["location", "address", "place", "classroom", "room", "地点", "dd"],
+    "teacher": ["teacher", "teacherName", "teacher_name", "lecturer", "教师", "js"],
+    "college": ["college", "academy", "school", "学院", "xy"],
+    "start_time": ["startTime", "start_time", "beginTime", "begin_time", "开始时间", "开始", "kssj"],
+    "end_time": ["endTime", "end_time", "finishTime", "finish_time", "结束时间", "结束", "jssj"],
+    "enroll_start": ["enrollStart", "enroll_start", "selectStart", "signupStart", "选课开始", "报名开始"],
+    "enroll_end": ["enrollEnd", "enroll_end", "selectEnd", "signupEnd", "选课结束", "选课截止", "报名截止"],
+    "status": ["status", "courseStatus", "状态", "zt"],
+    "sign_method": ["signMethod", "sign_method", "selectMode", "选课方式"],
+    "campus": ["campus", "campusName", "校区"],
+    "open_college": ["openCollege", "open_college", "开放学院"],
+    "open_grade": ["openGrade", "open_grade", "开放年级"],
+    "open_group": ["openGroup", "open_group", "开放人群", "开放对象", "人群"],
+    "has_homework": ["hasHomework", "homework", "作业", "课程作业"],
+    "check_in_method": ["checkInMethod", "check_in_method", "签到方式"],
+    "description": ["description", "courseDesc", "desc", "课程介绍", "简介"],
+    "organizer": ["organizer", "owner", "组织者", "负责单位"],
+    "capacity": ["capacity", "total", "limit", "maxNum", "max_num", "人数上限", "容量"],
+    "enrolled": ["enrolled", "selected", "selectedNum", "selected_num", "已选人数", "已选", "人数"],
+}
 
 
 async def create_browser_context() -> tuple:
@@ -61,6 +90,222 @@ async def create_browser_context() -> tuple:
     )
     page = await context.new_page()
     return pw, browser, context, page
+
+
+def _normalize_field_key(text: str) -> str:
+    return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", (text or "")).lower()
+
+
+def _normalize_scalar(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    if isinstance(value, str):
+        return re.sub(r"\s+", " ", value).strip()
+    if isinstance(value, dict):
+        for key in ("label", "name", "text", "title", "value"):
+            if key in value:
+                return _normalize_scalar(value.get(key))
+        return ""
+    if isinstance(value, list):
+        parts = [_normalize_scalar(item) for item in value]
+        return "\n".join(part for part in parts if part)
+    return str(value).strip()
+
+
+def _safe_int_from_scalar(value: Any) -> int:
+    text = _normalize_scalar(value)
+    if not text:
+        return 0
+    match = re.search(r"-?\d+", text)
+    if not match:
+        return 0
+    return int(match.group(0))
+
+
+def _pick_network_value(item: dict, field_name: str) -> Any:
+    normalized = {_normalize_field_key(str(key)): value for key, value in item.items()}
+    for alias in NETWORK_FIELD_ALIASES.get(field_name, []):
+        alias_key = _normalize_field_key(alias)
+        if alias_key in normalized:
+            return normalized[alias_key]
+    return None
+
+
+def _walk_json_nodes(node: Any, depth: int = 0):
+    if depth > 7:
+        return
+    yield node
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _walk_json_nodes(value, depth + 1)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk_json_nodes(value, depth + 1)
+
+
+def _looks_like_course_item(item: dict) -> bool:
+    keys = {_normalize_field_key(str(key)) for key in item.keys()}
+    score = 0
+    for alias_group in ("name", "start_time", "enroll_start", "teacher", "location", "status", "capacity"):
+        for alias in NETWORK_FIELD_ALIASES.get(alias_group, []):
+            if _normalize_field_key(alias) in keys:
+                score += 1
+                break
+    return score >= 2
+
+
+def _normalize_course_from_network(item: dict) -> Optional[dict]:
+    name = _normalize_scalar(_pick_network_value(item, "name"))
+    if not name:
+        return None
+
+    category = _normalize_scalar(_pick_network_value(item, "category"))
+    location = _normalize_scalar(_pick_network_value(item, "location"))
+    teacher = _normalize_scalar(_pick_network_value(item, "teacher"))
+    college = _normalize_scalar(_pick_network_value(item, "college"))
+    start_time = _normalize_scalar(_pick_network_value(item, "start_time"))
+    end_time = _normalize_scalar(_pick_network_value(item, "end_time"))
+    enroll_start = _normalize_scalar(_pick_network_value(item, "enroll_start"))
+    enroll_end = _normalize_scalar(_pick_network_value(item, "enroll_end"))
+    status = _normalize_scalar(_pick_network_value(item, "status"))
+    sign_method = _normalize_scalar(_pick_network_value(item, "sign_method"))
+    campus = _normalize_scalar(_pick_network_value(item, "campus"))
+    open_college = _normalize_scalar(_pick_network_value(item, "open_college"))
+    open_grade = _normalize_scalar(_pick_network_value(item, "open_grade"))
+    open_group = _normalize_scalar(_pick_network_value(item, "open_group"))
+    has_homework = _normalize_scalar(_pick_network_value(item, "has_homework"))
+    check_in_method = _normalize_scalar(_pick_network_value(item, "check_in_method"))
+    description = _normalize_scalar(_pick_network_value(item, "description"))
+    organizer = _normalize_scalar(_pick_network_value(item, "organizer"))
+
+    capacity_raw = _pick_network_value(item, "capacity")
+    enrolled_raw = _pick_network_value(item, "enrolled")
+    capacity_text = _normalize_scalar(capacity_raw)
+    enrolled_text = _normalize_scalar(enrolled_raw)
+
+    if capacity_text and "/" in capacity_text:
+        enrolled, capacity = parse_capacity(capacity_text)
+    elif enrolled_text and "/" in enrolled_text and not capacity_text:
+        enrolled, capacity = parse_capacity(enrolled_text)
+    else:
+        enrolled = _safe_int_from_scalar(enrolled_raw)
+        capacity = _safe_int_from_scalar(capacity_raw)
+
+    if not (start_time or enroll_start or campus or capacity or status):
+        return None
+
+    course_id = generate_course_id(name, start_time, enroll_start, teacher, location, campus)
+    legacy_course_id = generate_legacy_course_id(name, start_time, enroll_start, teacher)
+    return {
+        "id": course_id,
+        "legacy_id": legacy_course_id,
+        "name": name,
+        "category": category,
+        "location": location,
+        "teacher": teacher,
+        "college": college,
+        "start_time": start_time,
+        "end_time": end_time,
+        "enroll_start": enroll_start,
+        "enroll_end": enroll_end,
+        "sign_method": sign_method,
+        "capacity": capacity,
+        "enrolled": enrolled,
+        "status": status,
+        "campus": campus,
+        "open_college": open_college,
+        "open_grade": open_grade,
+        "open_group": open_group,
+        "has_homework": has_homework,
+        "check_in_method": check_in_method,
+        "description": description,
+        "organizer": organizer,
+        "__row_index": None,
+        "__table_index": 0,
+        "__source": "network",
+    }
+
+
+def _extract_courses_from_network_payload(payload: Any) -> List[dict]:
+    courses: List[dict] = []
+    seen_ids = set()
+    for node in _walk_json_nodes(payload):
+        if not isinstance(node, list) or not node:
+            continue
+        if not all(isinstance(item, dict) for item in node):
+            continue
+        sample_matches = sum(1 for item in node[:8] if _looks_like_course_item(item))
+        if sample_matches < max(1, min(2, len(node))):
+            continue
+
+        for item in node:
+            course = _normalize_course_from_network(item)
+            if not course:
+                continue
+            cid = course.get("id")
+            if cid and cid not in seen_ids:
+                seen_ids.add(cid)
+                courses.append(course)
+    return courses
+
+
+class _JsonResponseRecorder:
+    def __init__(self, page: Page):
+        self.page = page
+        self.payloads: List[Tuple[str, Any]] = []
+        self._tasks: List[asyncio.Task] = []
+
+    def start(self) -> None:
+        self.page.on("response", self._handle_response)
+
+    async def stop(self) -> None:
+        try:
+            self.page.remove_listener("response", self._handle_response)
+        except Exception:
+            pass
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    def _handle_response(self, response: Response) -> None:
+        url = response.url or ""
+        if response.status >= 400:
+            return
+        resource_type = ""
+        try:
+            resource_type = response.request.resource_type
+        except Exception:
+            pass
+        if resource_type not in {"fetch", "xhr"} and not any(token in url.lower() for token in ("api", "query", "list", "course")):
+            return
+        self._tasks.append(asyncio.create_task(self._consume_response(response)))
+
+    async def _consume_response(self, response: Response) -> None:
+        try:
+            headers = await response.all_headers()
+            content_type = (headers.get("content-type") or "").lower()
+            if "json" not in content_type and "javascript" not in content_type and "text/plain" not in content_type:
+                return
+            payload = await response.json()
+        except Exception:
+            return
+        self.payloads.append((response.url, payload))
+
+    def extract_courses(self) -> List[dict]:
+        courses: List[dict] = []
+        for url, payload in self.payloads:
+            try:
+                extracted = _extract_courses_from_network_payload(payload)
+            except Exception as e:
+                logger.debug(f"解析网络课程数据失败: {url} -> {e}")
+                continue
+            if extracted:
+                logger.info(f"网络响应命中 {len(extracted)} 条课程: {url}")
+                courses.extend(extracted)
+        return _dedupe_scraped_courses(courses)
 
 
 def generate_legacy_course_id(name: str, start_time: str, enroll_start: str = "", teacher: str = "") -> str:
@@ -1053,9 +1298,11 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
     """
     from src.auth import BYKC_HOME_URL
     courses = []
+    response_recorder = _JsonResponseRecorder(page)
 
     try:
         os.makedirs("logs", exist_ok=True)
+        response_recorder.start()
         # ====== 导航到博雅首页（SPA 不支持直接 URL 跳转子页面）======
         logger.info(f"导航到博雅首页: {BYKC_HOME_URL}")
         await page.goto(BYKC_HOME_URL, wait_until="networkidle", timeout=30000)
@@ -1145,7 +1392,13 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
         except Exception:
             pass
         raise
+    finally:
+        await response_recorder.stop()
 
+    network_courses = response_recorder.extract_courses()
+    if network_courses:
+        logger.info(f"网络层补充 {len(network_courses)} 条课程")
+        courses = list(network_courses) + courses
     deduped_courses = _dedupe_scraped_courses(courses)
     logger.info(f"共抓取到 {len(courses)} 条课程，去重后 {len(deduped_courses)} 条")
     return deduped_courses
@@ -1250,7 +1503,7 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
 async def _parse_visible_course_tables(page: Page) -> List[dict]:
     """Parse all visible course tables on the current page."""
     fast_path_courses = await _extract_visible_course_rows_via_dom(page)
-    if fast_path_courses and len(fast_path_courses) >= 5:
+    if fast_path_courses and len(fast_path_courses) >= MIN_FAST_PATH_ROWS:
         return _dedupe_scraped_courses(fast_path_courses)
     if fast_path_courses:
         logger.info(f"DOM 快路径仅抓到 {len(fast_path_courses)} 条课程，补跑 Locator 兜底")
@@ -1471,6 +1724,56 @@ async def _go_to_next_page(page: Page) -> bool:
     except Exception as e:
         logger.debug(f"翻页操作: {e}")
     return False
+
+
+def assess_scrape_health(courses_data: List[dict]) -> dict:
+    """Check whether the current scrape snapshot is plausible enough to write."""
+    now = datetime.now()
+    session = get_session()
+    try:
+        db_active_count = (
+            session.query(Course)
+            .filter(Course.expired == False)  # noqa: E712
+            .count()
+        )
+    finally:
+        session.close()
+
+    scraped_count = len(courses_data)
+    future_or_open_count = 0
+    available_count = 0
+    preview_count = 0
+    for course in courses_data:
+        enroll_end = parse_datetime(course.get("enroll_end", ""))
+        enroll_start = parse_datetime(course.get("enroll_start", ""))
+        if not enroll_end or enroll_end >= now:
+            future_or_open_count += 1
+        remaining = max(0, int(course.get("capacity") or 0) - int(course.get("enrolled") or 0))
+        if remaining > 0:
+            available_count += 1
+        status_text = (course.get("status") or "").strip()
+        if "预告" in status_text or "未开" in status_text or (enroll_start and enroll_start > now):
+            preview_count += 1
+
+    minimum_expected = max(
+        SCRAPE_HEALTH_MIN_ROWS,
+        int(db_active_count * SCRAPE_HEALTH_RATIO) if db_active_count else 0,
+    )
+    suspiciously_low = (
+        db_active_count >= SCRAPE_HEALTH_MIN_BASELINE
+        and scraped_count < minimum_expected
+        and scraped_count < db_active_count - 3
+    )
+
+    return {
+        "healthy": not suspiciously_low,
+        "db_active_count": db_active_count,
+        "scraped_count": scraped_count,
+        "future_or_open_count": future_or_open_count,
+        "available_count": available_count,
+        "preview_count": preview_count,
+        "minimum_expected": minimum_expected,
+    }
 
 
 def save_courses_to_db(courses_data: List[dict]) -> List[str]:

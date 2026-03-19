@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.models import Base, Course
 from src.scraper import (
+    _extract_courses_from_network_payload,
     _build_course_row_payload,
     _cleanup_near_duplicate_courses,
     _collect_current_view_courses,
@@ -16,6 +17,7 @@ from src.scraper import (
     _find_similar_active_course,
     _is_near_duplicate_triplet,
     _parse_visible_course_tables,
+    assess_scrape_health,
     generate_course_id,
     generate_legacy_course_id,
     save_courses_to_db,
@@ -311,6 +313,89 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertEqual(deduped[0]["status"], "预告")
         self.assertEqual(deduped[0]["capacity"], 250)
         self.assertEqual(deduped[0]["enrolled"], 0)
+
+    def test_extract_courses_from_network_payload_normalizes_course_rows(self):
+        payload = {
+            "data": {
+                "rows": [
+                    {
+                        "courseName": "课程网络A",
+                        "courseType": "博雅课程-德育",
+                        "teacherName": "郭老师",
+                        "location": "学院路主M201",
+                        "campusName": "全部校区",
+                        "startTime": "2026-03-21 15:00",
+                        "endTime": "2026-03-21 16:00",
+                        "enrollStart": "2026-03-19 12:00",
+                        "enrollEnd": "2026-03-21 15:00",
+                        "status": "预告",
+                        "selectedNum": 0,
+                        "maxNum": 200,
+                    }
+                ]
+            }
+        }
+
+        rows = _extract_courses_from_network_payload(payload)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], "课程网络A")
+        self.assertEqual(rows[0]["capacity"], 200)
+        self.assertEqual(rows[0]["enrolled"], 0)
+        self.assertEqual(rows[0]["campus"], "全部校区")
+
+    def test_assess_scrape_health_blocks_suspiciously_sparse_snapshot(self):
+        session = self.Session()
+        now = datetime.now()
+        try:
+            for index in range(20):
+                session.add(
+                    Course(
+                        id=f"healthy-{index}",
+                        name=f"课程{index}",
+                        campus="全部校区",
+                        enroll_start=now + timedelta(hours=1),
+                        enroll_end=now + timedelta(days=1),
+                        capacity=100,
+                        enrolled=0,
+                        expired=False,
+                    )
+                )
+            session.commit()
+        finally:
+            session.close()
+
+        sparse_rows = [
+            {
+                "id": "sparse-1",
+                "name": "课程预告A",
+                "campus": "全部校区",
+                "start_time": "2026-03-28 14:30",
+                "enroll_start": "2026-03-23 18:00",
+                "enroll_end": "2026-03-28 12:00",
+                "capacity": 250,
+                "enrolled": 0,
+                "status": "预告",
+            },
+            {
+                "id": "sparse-2",
+                "name": "课程预告B",
+                "campus": "全部校区",
+                "start_time": "2026-03-29 14:30",
+                "enroll_start": "2026-03-24 18:00",
+                "enroll_end": "2026-03-29 12:00",
+                "capacity": 200,
+                "enrolled": 0,
+                "status": "预告",
+            },
+        ]
+
+        with patch("src.scraper.get_session", side_effect=lambda: self.Session()):
+            health = assess_scrape_health(sparse_rows)
+
+        self.assertFalse(health["healthy"])
+        self.assertEqual(health["db_active_count"], 20)
+        self.assertEqual(health["scraped_count"], 2)
 
     def test_sync_course_lifecycle_marks_expired_instead_of_deleting(self):
         now = datetime.now()

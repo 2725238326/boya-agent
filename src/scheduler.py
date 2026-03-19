@@ -20,7 +20,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 from src.models import Course, PushLog, get_session, init_db, FilterConfig
-from src.scraper import create_browser_context, scrape_courses, save_courses_to_db
+from src.scraper import assess_scrape_health, create_browser_context, scrape_courses, save_courses_to_db
 from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
 from src.push.email_push import send_email_notification, send_enroll_reminder_email
@@ -42,6 +42,7 @@ run_status = {
     "total_push_courses": 0,
     "is_running": False,
     "last_error": None,
+    "last_scrape_health": None,
     "last_daily_summary": None,
 }
 
@@ -351,11 +352,56 @@ async def _run_scrape_task_impl(mode: str = "full"):
 
         scraped_count = len(courses_data)
         if not courses_data:
+            scrape_health = assess_scrape_health([])
+            run_status["last_scrape_health"] = scrape_health
+            if not scrape_health["healthy"]:
+                msg = (
+                    "scrape returned no courses and was blocked as suspicious: "
+                    f"db_active={scrape_health['db_active_count']}, "
+                    f"min_expected={scrape_health['minimum_expected']}"
+                )
+                run_status["last_error"] = msg
+                logger.error(msg)
+                _consecutive_failures += 1
+                await _check_and_alert_failures()
+                return _scrape_result(False, msg, scraped_count=0, new_courses=0, mode=mode, scrape_health=scrape_health)
+
             logger.info("no courses scraped")
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return _scrape_result(True, "scrape succeeded but returned no courses", scraped_count=0, new_courses=0, mode=mode)
+            return _scrape_result(
+                True,
+                "scrape succeeded but returned no courses",
+                scraped_count=0,
+                new_courses=0,
+                mode=mode,
+                scrape_health=scrape_health,
+            )
+
+        scrape_health = assess_scrape_health(courses_data)
+        run_status["last_scrape_health"] = scrape_health
+        if not scrape_health["healthy"]:
+            msg = (
+                "scrape snapshot blocked as suspiciously sparse: "
+                f"scraped={scrape_health['scraped_count']}, "
+                f"db_active={scrape_health['db_active_count']}, "
+                f"min_expected={scrape_health['minimum_expected']}, "
+                f"available={scrape_health['available_count']}, "
+                f"preview={scrape_health['preview_count']}"
+            )
+            run_status["last_error"] = msg
+            logger.error(msg)
+            _consecutive_failures += 1
+            await _check_and_alert_failures()
+            return _scrape_result(
+                False,
+                msg,
+                scraped_count=scraped_count,
+                new_courses=0,
+                mode=mode,
+                scrape_health=scrape_health,
+            )
 
         new_course_ids = save_courses_to_db(courses_data)
         _sync_course_lifecycle()
@@ -398,7 +444,15 @@ async def _run_scrape_task_impl(mode: str = "full"):
             run_status["last_success"] = datetime.now()
             run_status["last_error"] = None
             _consecutive_failures = 0
-            return _scrape_result(True, msg, scraped_count=scraped_count, new_courses=0, pushed=reopened_pushed + active_pushed, mode=mode)
+            return _scrape_result(
+                True,
+                msg,
+                scraped_count=scraped_count,
+                new_courses=0,
+                pushed=reopened_pushed + active_pushed,
+                mode=mode,
+                scrape_health=run_status.get("last_scrape_health"),
+            )
 
         logger.info(f"found {len(new_course_ids)} new courses")
 
@@ -414,7 +468,15 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 run_status["last_success"] = datetime.now()
                 run_status["last_error"] = None
                 _consecutive_failures = 0
-                return _scrape_result(True, "scrape succeeded, new courses found, but all were filtered out", scraped_count=scraped_count, new_courses=len(new_course_ids), passed_courses=0, mode=mode)
+                return _scrape_result(
+                    True,
+                    "scrape succeeded, new courses found, but all were filtered out",
+                    scraped_count=scraped_count,
+                    new_courses=len(new_course_ids),
+                    passed_courses=0,
+                    mode=mode,
+                    scrape_health=run_status.get("last_scrape_health"),
+                )
 
             logger.info(f"{len(passed_courses)} courses passed filters")
             immediate_courses = []
@@ -460,6 +522,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
             urgent_buffer=len(_push_buffer['urgent']),
             soon_buffer=len(_push_buffer['soon']),
             mode=mode,
+            scrape_health=run_status.get("last_scrape_health"),
         )
 
     except Exception as e:
