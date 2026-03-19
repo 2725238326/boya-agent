@@ -51,11 +51,26 @@ jobs:
           script: |
             set -euo pipefail
 
-            APP_DIR="${APP_DIR:-/home/ubuntu/boya-agent}"
+            APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
             HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/api/status}"
 
+            echo "Deploy branch: $DEPLOY_BRANCH"
+            echo "App dir: $APP_DIR"
+            echo "Service: $SERVICE_NAME"
+            echo "Healthcheck: $HEALTHCHECK_URL"
+
+            if [ ! -d "$APP_DIR" ]; then
+              echo "Configured APP_DIR does not exist: $APP_DIR"
+              exit 1
+            fi
+
             cd "$APP_DIR"
+
+            if [ ! -d .git ]; then
+              echo "Configured APP_DIR is not a git repository: $APP_DIR"
+              exit 1
+            fi
 
             if [ -n "$(git status --porcelain)" ]; then
               echo "Server worktree is dirty; aborting deploy to avoid an unsafe git pull."
