@@ -4,6 +4,7 @@ Playwright 爬虫模块 - 抓取博雅课程列表并解析
 """
 
 import hashlib
+import os
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -182,6 +183,158 @@ async def _build_table_column_map(target) -> dict:
 def _get_cell_text(cell_texts: List[str], column_map: dict, key: str, fallback_idx: int) -> str:
     idx = column_map.get(key, fallback_idx)
     return cell_texts[idx] if idx < len(cell_texts) else ""
+
+
+def _build_column_map_from_headers(headers: List[str]) -> dict:
+    column_map = {}
+    for idx, header_text in enumerate(headers):
+        key = _match_column_key(header_text)
+        if key and key not in column_map:
+            column_map[key] = idx
+    return column_map
+
+
+def _build_course_row_payload(
+    cell_texts: List[str],
+    column_map: dict,
+    row_index: int,
+    table_index: int,
+) -> Optional[dict]:
+    if len(cell_texts) < 6:
+        return None
+
+    status_text = _get_cell_text(cell_texts, column_map, "status", 0)
+    name = _get_cell_text(cell_texts, column_map, "name", 1)
+    category = _get_cell_text(cell_texts, column_map, "category", 2)
+    name = (name or "").strip()
+    if not name:
+        return None
+
+    # 课程信息列：包含地点、教师、学院等（多行）
+    course_info = _get_cell_text(cell_texts, column_map, "info", 3)
+    location = ""
+    teacher = ""
+    college = ""
+    for line in course_info.split("\n"):
+        line = line.strip()
+        if line.startswith("地点"):
+            location = line.replace("地点：", "").replace("地点:", "").strip()
+        elif line.startswith("教师"):
+            teacher = line.replace("教师：", "").replace("教师:", "").strip()
+        elif line.startswith("学院"):
+            college = line.replace("学院：", "").replace("学院:", "").strip()
+
+    # 课程时间列：开始和结束
+    time_info = _get_cell_text(cell_texts, column_map, "time", 4)
+    start_time_str = ""
+    end_time_str = ""
+    for line in time_info.split("\n"):
+        line = line.strip()
+        if "开始" in line:
+            start_time_str = _extract_value_after_colon(line)
+        elif "结束" in line:
+            end_time_str = _extract_value_after_colon(line)
+    if not start_time_str or not end_time_str:
+        dt_tokens = _extract_datetime_tokens(time_info)
+        if dt_tokens:
+            start_time_str = start_time_str or dt_tokens[0]
+            if len(dt_tokens) > 1:
+                end_time_str = end_time_str or dt_tokens[1]
+
+    # 开放群体列：校区、学院、年级等
+    group_info = _get_cell_text(cell_texts, column_map, "group", 5)
+    campus = ""
+    open_college = ""
+    open_grade = ""
+    open_group = ""
+    for line in group_info.split("\n"):
+        line = line.strip()
+        if line.startswith("校区"):
+            campus = line.replace("校区：", "").replace("校区:", "").strip()
+        elif line.startswith("学院"):
+            open_college = line.replace("学院：", "").replace("学院:", "").strip()
+        elif line.startswith("年级"):
+            open_grade = line.replace("年级：", "").replace("年级:", "").strip()
+        elif line.startswith("人群"):
+            open_group = line.replace("人群：", "").replace("人群:", "").strip()
+
+    # 选课时间列
+    enroll_info = _get_cell_text(cell_texts, column_map, "enroll", 6)
+    sign_method = ""
+    enroll_start_str = ""
+    enroll_end_str = ""
+    for line in enroll_info.split("\n"):
+        line = line.strip()
+        normalized = line.replace(" ", "")
+        value = _extract_value_after_colon(line)
+
+        if "选课方式" in normalized:
+            sign_method = value
+            continue
+
+        if "退选" in normalized:
+            continue
+
+        if any(key in normalized for key in ["选课开始", "报名开始", "开始时间"]):
+            enroll_start_str = value
+            continue
+
+        if any(key in normalized for key in ["选课截止", "选课结束", "报名截止", "截止时间"]):
+            enroll_end_str = value
+            continue
+
+        if "选课时间" in normalized:
+            dt_tokens = _extract_datetime_tokens(value)
+            if dt_tokens:
+                enroll_start_str = dt_tokens[0]
+                if len(dt_tokens) > 1:
+                    enroll_end_str = dt_tokens[1]
+            continue
+    if not enroll_start_str or not enroll_end_str:
+        dt_tokens = _extract_datetime_tokens(enroll_info)
+        if dt_tokens:
+            enroll_start_str = enroll_start_str or dt_tokens[0]
+            if len(dt_tokens) > 1:
+                enroll_end_str = enroll_end_str or dt_tokens[1]
+
+    has_homework = _get_cell_text(cell_texts, column_map, "homework", 7)
+    capacity_text = _get_cell_text(cell_texts, column_map, "capacity", 8)
+    enrolled, capacity = parse_capacity(capacity_text)
+
+    course_id = generate_course_id(
+        name,
+        start_time_str,
+        enroll_start_str,
+        teacher,
+        location,
+        campus,
+    )
+    legacy_course_id = generate_legacy_course_id(name, start_time_str, enroll_start_str, teacher)
+
+    return {
+        "id": course_id,
+        "legacy_id": legacy_course_id,
+        "name": name,
+        "category": category,
+        "location": location,
+        "teacher": teacher,
+        "college": college,
+        "start_time": start_time_str,
+        "end_time": end_time_str,
+        "enroll_start": enroll_start_str,
+        "enroll_end": enroll_end_str,
+        "sign_method": sign_method,
+        "capacity": capacity,
+        "enrolled": enrolled,
+        "status": status_text,
+        "campus": campus,
+        "open_college": open_college,
+        "open_grade": open_grade,
+        "open_group": open_group,
+        "has_homework": has_homework,
+        "__row_index": row_index,
+        "__table_index": table_index,
+    }
 
 
 def _minutes_diff(left: Optional[datetime], right: Optional[datetime]) -> Optional[int]:
@@ -479,6 +632,157 @@ async def _get_visible_course_tables(page: Page) -> List[Tuple[int, Locator]]:
     return result
 
 
+async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
+    """Fast-path DOM extraction done inside the browser to reduce round-trips."""
+    try:
+        extracted = await page.evaluate(
+            """
+            () => {
+              const clean = (value) => (value || "")
+                .replace(/\\u00a0/g, " ")
+                .replace(/\\s+/g, " ")
+                .trim();
+
+              const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                if (!style) return false;
+                if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+                  return false;
+                }
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              };
+
+              const expandHeaderTexts = (row) => {
+                const texts = [];
+                for (const cell of Array.from(row.children)) {
+                  if (!cell.matches("th,td")) continue;
+                  const text = clean(cell.innerText || cell.textContent);
+                  const colspan = Math.max(1, parseInt(cell.getAttribute("colspan") || "1", 10) || 1);
+                  for (let i = 0; i < colspan; i += 1) {
+                    texts.push(text);
+                  }
+                }
+                return texts;
+              };
+
+              const buildBodyRows = (tbodyRows) => {
+                const carry = [];
+                const rows = [];
+
+                const fillCarry = (rowTexts, cursorRef) => {
+                  while (carry[cursorRef.value]) {
+                    rowTexts[cursorRef.value] = carry[cursorRef.value].text;
+                    carry[cursorRef.value].remaining -= 1;
+                    if (carry[cursorRef.value].remaining <= 0) {
+                      delete carry[cursorRef.value];
+                    }
+                    cursorRef.value += 1;
+                  }
+                };
+
+                tbodyRows.forEach((row, rowIndex) => {
+                  if (!isVisible(row)) return;
+                  const rowTexts = [];
+                  const cursorRef = { value: 0 };
+                  fillCarry(rowTexts, cursorRef);
+
+                  for (const cell of Array.from(row.children)) {
+                    if (!cell.matches("td,th")) continue;
+                    while (rowTexts[cursorRef.value] !== undefined) {
+                      cursorRef.value += 1;
+                      fillCarry(rowTexts, cursorRef);
+                    }
+
+                    const text = clean(cell.innerText || cell.textContent);
+                    const colspan = Math.max(1, parseInt(cell.getAttribute("colspan") || "1", 10) || 1);
+                    const rowspan = Math.max(1, parseInt(cell.getAttribute("rowspan") || "1", 10) || 1);
+
+                    for (let i = 0; i < colspan; i += 1) {
+                      rowTexts[cursorRef.value + i] = text;
+                      if (rowspan > 1) {
+                        carry[cursorRef.value + i] = { text, remaining: rowspan - 1 };
+                      }
+                    }
+
+                    cursorRef.value += colspan;
+                    fillCarry(rowTexts, cursorRef);
+                  }
+
+                  fillCarry(rowTexts, cursorRef);
+
+                  const normalized = Array.from(
+                    { length: rowTexts.length },
+                    (_, index) => clean(rowTexts[index])
+                  );
+                  rows.push({ row_index: rowIndex, cells: normalized });
+                });
+
+                return rows;
+              };
+
+              const visibleTables = Array.from(document.querySelectorAll("table")).filter(isVisible);
+              const payload = [];
+
+              visibleTables.forEach((table, tableIndex) => {
+                const theadRows = Array.from(table.querySelectorAll("thead tr")).filter(isVisible);
+                const headerRow = theadRows[theadRows.length - 1]
+                  || Array.from(table.querySelectorAll("tr")).find((row) => isVisible(row) && row.querySelector("th"));
+                if (!headerRow) {
+                  return;
+                }
+
+                const headers = expandHeaderTexts(headerRow);
+                if (!headers.length) {
+                  return;
+                }
+
+                const tbodyRows = Array.from(table.querySelectorAll("tbody tr"));
+                if (!tbodyRows.length) {
+                  return;
+                }
+
+                const rows = buildBodyRows(tbodyRows);
+                rows.forEach((row) => {
+                  payload.push({
+                    table_index: tableIndex,
+                    row_index: row.row_index,
+                    headers,
+                    cells: row.cells,
+                  });
+                });
+              });
+
+              return payload;
+            }
+            """
+        )
+    except Exception as e:
+        logger.debug(f"DOM 课程表提取失败，回退到 Locator 逐行解析: {e}")
+        return []
+
+    courses: List[dict] = []
+    for item in extracted or []:
+        headers = item.get("headers") or []
+        cells = item.get("cells") or []
+        column_map = _build_column_map_from_headers(headers)
+        if "name" not in column_map or ("enroll" not in column_map and "time" not in column_map):
+            continue
+        payload = _build_course_row_payload(
+            cells,
+            column_map,
+            int(item.get("row_index") or 0),
+            int(item.get("table_index") or 0),
+        )
+        if payload:
+            courses.append(payload)
+
+    if courses:
+        logger.info(f"浏览器内 DOM 提取命中 {len(courses)} 条课程行")
+    return courses
+
+
 async def _try_click_view_alias(page: Page, alias: str) -> bool:
     selectors = [
         f'button:has-text("{alias}")',
@@ -545,6 +849,71 @@ async def _click_visible_text_control(page: Page, labels: List[str]) -> bool:
                 except Exception:
                     continue
     return False
+
+
+async def _reset_course_filters(page: Page) -> bool:
+    """Best-effort reset for sticky search/select conditions on the course page."""
+    if await _click_visible_text_control(page, ["重置", "清空", "全部重置", "全部清空"]):
+        await _wait_course_tables_ready(page)
+        logger.info("Reset course filters via explicit reset control")
+        return True
+
+    try:
+        changed = await page.evaluate(
+            """
+            () => {
+              const visible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                if (!style) return false;
+                if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+                  return false;
+                }
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              };
+
+              let changed = false;
+              for (const input of Array.from(document.querySelectorAll('input[type="text"], input[type="search"], textarea'))) {
+                if (!visible(input)) continue;
+                const hint = `${input.placeholder || ""} ${input.name || ""} ${input.id || ""} ${input.className || ""}`;
+                if (!/[搜查课名关键检索]/.test(hint)) continue;
+                if (input.value) {
+                  input.value = "";
+                  input.dispatchEvent(new Event("input", { bubbles: true }));
+                  input.dispatchEvent(new Event("change", { bubbles: true }));
+                  changed = true;
+                }
+              }
+
+              for (const select of Array.from(document.querySelectorAll("select"))) {
+                if (!visible(select)) continue;
+                const options = Array.from(select.options || []);
+                const target = options.find((option) => /全部|不限|请选择/.test((option.textContent || "").trim()));
+                if (!target) continue;
+                if (select.value !== target.value) {
+                  select.value = target.value;
+                  select.dispatchEvent(new Event("change", { bubbles: true }));
+                  changed = true;
+                }
+              }
+
+              return changed;
+            }
+            """
+        )
+    except Exception as e:
+        logger.debug(f"重置课程筛选条件失败: {e}")
+        return False
+
+    if not changed:
+        return False
+
+    await page.wait_for_timeout(1200)
+    if await _click_visible_text_control(page, ["查询", "搜索", "检索", "刷新列表", "刷新"]):
+        await _wait_course_tables_ready(page)
+    logger.info("Reset course filters via DOM fallback")
+    return True
 
 
 async def _go_to_first_page(page: Page) -> bool:
@@ -686,6 +1055,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
     courses = []
 
     try:
+        os.makedirs("logs", exist_ok=True)
         # ====== 导航到博雅首页（SPA 不支持直接 URL 跳转子页面）======
         logger.info(f"导航到博雅首页: {BYKC_HOME_URL}")
         await page.goto(BYKC_HOME_URL, wait_until="networkidle", timeout=30000)
@@ -742,6 +1112,8 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
                 f.write(html)
             return []
 
+        await _reset_course_filters(page)
+
         scraped_any_view = False
         for view_key, aliases in COURSE_VIEW_CANDIDATES:
             activated = await _activate_course_view(page, aliases)
@@ -752,6 +1124,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
                     logger.info(f"视图[{view_key}] 未找到可切换入口，跳过")
                     continue
 
+            await _reset_course_filters(page)
             await _go_to_first_page(page)
             view_courses = await _collect_current_view_courses(page, include_details, view_key if activated else "default")
             if view_courses:
@@ -760,6 +1133,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
 
         if not scraped_any_view:
             logger.warning("未成功切换到任何显式课程视图，尝试抓取当前页面默认视图")
+            await _reset_course_filters(page)
             await _go_to_first_page(page)
             current_view_courses = await _collect_current_view_courses(page, include_details, "default-fallback")
             courses.extend(current_view_courses)
@@ -875,12 +1249,18 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
 
 async def _parse_visible_course_tables(page: Page) -> List[dict]:
     """Parse all visible course tables on the current page."""
+    fast_path_courses = await _extract_visible_course_rows_via_dom(page)
+    if fast_path_courses and len(fast_path_courses) >= 5:
+        return _dedupe_scraped_courses(fast_path_courses)
+    if fast_path_courses:
+        logger.info(f"DOM 快路径仅抓到 {len(fast_path_courses)} 条课程，补跑 Locator 兜底")
+
     tables = await _get_visible_course_tables(page)
     if not tables:
         logger.warning("当前页面未找到可见课程表格")
-        return []
+        return _dedupe_scraped_courses(fast_path_courses)
 
-    courses = []
+    courses = list(fast_path_courses)
     for table_index, table in tables:
         courses.extend(await _parse_course_table(table, table_index))
     return _dedupe_scraped_courses(courses)
@@ -898,7 +1278,7 @@ async def _parse_course_table(table: Locator, table_index: int) -> List[dict]:
             row = rows.nth(row_index)
             cells = row.locator("td")
             cell_count = await cells.count()
-            if cell_count < 8:
+            if cell_count < 6:
                 continue
 
             # 提取各列文本
@@ -907,6 +1287,10 @@ async def _parse_course_table(table: Locator, table_index: int) -> List[dict]:
                 cell = cells.nth(cell_idx)
                 text = await cell.inner_text()
                 cell_texts.append(text.strip())
+            course_data = _build_course_row_payload(cell_texts, column_map, row_index, table_index)
+            if course_data:
+                courses.append(course_data)
+            continue
 
             # 优先根据表头识别列，识别失败时再回退到旧索引。
             status_text = _get_cell_text(cell_texts, column_map, "status", 0)

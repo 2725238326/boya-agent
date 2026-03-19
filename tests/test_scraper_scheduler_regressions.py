@@ -9,11 +9,13 @@ from sqlalchemy.orm import sessionmaker
 
 from src.models import Base, Course
 from src.scraper import (
+    _build_course_row_payload,
     _cleanup_near_duplicate_courses,
     _collect_current_view_courses,
     _dedupe_scraped_courses,
     _find_similar_active_course,
     _is_near_duplicate_triplet,
+    _parse_visible_course_tables,
     generate_course_id,
     generate_legacy_course_id,
     save_courses_to_db,
@@ -347,6 +349,37 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
+    def test_build_course_row_payload_handles_preview_row(self):
+        headers = ["状态", "课程名称", "课程类别", "检索信息", "课程时间", "全局检索", "选课信息", "作业", "人数", "操作"]
+        column_map = {}
+        for idx, text in enumerate(headers):
+            from src.scraper import _match_column_key
+            key = _match_column_key(text)
+            if key and key not in column_map:
+                column_map[key] = idx
+
+        row = [
+            "预告",
+            "“承雷锋志，启支教行”——蓝协支教系列项目分享会",
+            "博雅课程-劳动教育",
+            "地点：学院路校区主M202\n教师：许天宇\n学院：校团委",
+            "开始：2026-03-28 14:30\n结束：2026-03-28 15:45",
+            "校区：全部校区\n学院：全部学院\n年级：全部年级\n人群：全部人群",
+            "选课方式：直接选课\n选课开始：2026-03-23 18:00\n选课结束：2026-03-28 12:00\n退选截止：2026-03-28 12:00",
+            "无作业",
+            "0/250",
+            "详细介绍",
+        ]
+
+        payload = _build_course_row_payload(row, column_map, row_index=0, table_index=0)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["status"], "预告")
+        self.assertEqual(payload["capacity"], 250)
+        self.assertEqual(payload["enrolled"], 0)
+        self.assertEqual(payload["campus"], "全部校区")
+        self.assertEqual(payload["enroll_start"], "2026-03-23 18:00")
+
     async def test_collect_current_view_courses_stops_after_empty_page_retry(self):
         page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
 
@@ -360,6 +393,81 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(courses, [])
         self.assertEqual(next_page_mock.await_count, 0)
+
+    async def test_parse_visible_course_tables_prefers_dom_fast_path(self):
+        page = types.SimpleNamespace()
+        dom_rows = []
+        for index in range(5):
+            preview_id = generate_course_id(
+                f"课程预告A-{index}",
+                f"2026-03-28 1{index}:30",
+                "2026-03-23 18:00",
+                "许天宇",
+                "学院路校区主M202",
+                "全部校区",
+            )
+            dom_rows.append(
+                {
+                    "id": preview_id,
+                    "name": f"课程预告A-{index}",
+                    "category": "博雅课程-劳动教育",
+                    "location": "学院路校区主M202",
+                    "teacher": "许天宇",
+                    "start_time": f"2026-03-28 1{index}:30",
+                    "end_time": f"2026-03-28 1{index}:45",
+                    "enroll_start": "2026-03-23 18:00",
+                    "enroll_end": "2026-03-28 12:00",
+                    "capacity": 250,
+                    "enrolled": 0,
+                    "status": "预告",
+                    "__row_index": index,
+                    "__table_index": 0,
+                }
+            )
+
+        with (
+            patch(
+                "src.scraper._extract_visible_course_rows_via_dom",
+                new=AsyncMock(return_value=dom_rows)),
+            patch("src.scraper._get_visible_course_tables", new=AsyncMock()) as visible_tables_mock,
+        ):
+            rows = await _parse_visible_course_tables(page)
+
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(rows[0]["capacity"], 250)
+        self.assertEqual(visible_tables_mock.await_count, 0)
+
+    async def test_parse_visible_course_tables_runs_fallback_when_fast_path_is_sparse(self):
+        page = types.SimpleNamespace()
+        dom_row = {
+            "id": "dom-only",
+            "name": "课程预告A",
+            "category": "博雅课程-劳动教育",
+            "location": "学院路校区主M202",
+            "teacher": "许天宇",
+            "start_time": "2026-03-28 14:30",
+            "end_time": "2026-03-28 15:45",
+            "enroll_start": "2026-03-23 18:00",
+            "enroll_end": "2026-03-28 12:00",
+            "capacity": 250,
+            "enrolled": 0,
+            "status": "预告",
+            "__row_index": 0,
+            "__table_index": 0,
+        }
+        locator_row = dict(dom_row)
+        locator_row["id"] = "locator-only"
+        locator_row["name"] = "课程预告B"
+
+        with (
+            patch("src.scraper._extract_visible_course_rows_via_dom", new=AsyncMock(return_value=[dom_row])),
+            patch("src.scraper._get_visible_course_tables", new=AsyncMock(return_value=[(0, object())])),
+            patch("src.scraper._parse_course_table", new=AsyncMock(return_value=[locator_row])) as parse_table_mock,
+        ):
+            rows = await _parse_visible_course_tables(page)
+
+        self.assertEqual({row["id"] for row in rows}, {"dom-only", "locator-only"})
+        self.assertEqual(parse_table_mock.await_count, 1)
 
 
 if __name__ == "__main__":
