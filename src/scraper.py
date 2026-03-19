@@ -404,21 +404,43 @@ def _match_column_key(header_text: str) -> Optional[str]:
     return None
 
 
-async def _build_table_column_map(target) -> dict:
-    column_map = {}
-    headers = await target.query_selector_all("thead tr th")
-    if not headers:
-        headers = await target.query_selector_all("tr th")
+async def _extract_header_rows_from_table(target) -> List[List[str]]:
+    header_rows: List[List[str]] = []
+    rows = target.locator("thead tr, tr")
+    row_count = min(await rows.count(), 6)
 
-    for idx, header in enumerate(headers):
+    for row_index in range(row_count):
+        row = rows.nth(row_index)
         try:
-            key = _match_column_key(await header.inner_text())
-            if key and key not in column_map:
-                column_map[key] = idx
+            cells = row.locator("th, td")
+            cell_count = await cells.count()
+            if not cell_count:
+                continue
+
+            texts: List[str] = []
+            for cell_index in range(cell_count):
+                cell = cells.nth(cell_index)
+                text = re.sub(r"\s+", " ", await cell.inner_text()).strip()
+                colspan_attr = await cell.get_attribute("colspan")
+                try:
+                    colspan = max(1, int(colspan_attr or "1"))
+                except Exception:
+                    colspan = 1
+                for _ in range(colspan):
+                    texts.append(text)
+
+            if texts:
+                header_rows.append(texts)
         except Exception:
             continue
 
-    return column_map
+    return header_rows
+
+
+async def _build_table_column_map(target) -> dict:
+    header_rows = await _extract_header_rows_from_table(target)
+    headers = _select_best_header_row(header_rows)
+    return _build_column_map_from_headers(headers)
 
 
 def _get_cell_text(cell_texts: List[str], column_map: dict, key: str, fallback_idx: int) -> str:
@@ -1008,25 +1030,66 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
                 return rows;
               };
 
+              const scoreHeaderRow = (headers) => {
+                const normalize = (value) => (value || "").replace(/[\\s:：]+/g, "");
+                const aliasMap = {
+                  status: ["状态"],
+                  name: ["课程名称", "课程名"],
+                  category: ["课程类别", "类别"],
+                  info: ["课程信息", "信息"],
+                  time: ["课程时间", "上课时间", "时间"],
+                  group: ["开放群体", "开放对象"],
+                  enroll: ["选课时间", "报名时间", "选课信息"],
+                  homework: ["课程作业", "作业"],
+                  capacity: ["课程人数", "人数"],
+                  action: ["操作"],
+                };
+
+                const keys = [];
+                for (const headerText of headers) {
+                  const normalized = normalize(headerText);
+                  if (!normalized) continue;
+                  for (const [key, aliases] of Object.entries(aliasMap)) {
+                    if (aliases.some((alias) => normalized.includes(normalize(alias)))) {
+                      if (!keys.includes(key)) {
+                        keys.push(key);
+                      }
+                    }
+                  }
+                }
+
+                let score = keys.length;
+                if (keys.includes("name")) score += 3;
+                if (keys.includes("time")) score += 2;
+                if (keys.includes("enroll")) score += 2;
+                if (keys.includes("capacity")) score += 1;
+                if (keys.includes("status")) score += 1;
+                return score;
+              };
+
               const visibleTables = Array.from(document.querySelectorAll("table")).filter(isVisible);
               const payload = [];
 
               visibleTables.forEach((table, tableIndex) => {
                 const theadRows = Array.from(table.querySelectorAll("thead tr")).filter(isVisible);
-                const headerRow = theadRows[theadRows.length - 1]
-                  || Array.from(table.querySelectorAll("tr")).find((row) => isVisible(row) && row.querySelector("th"));
-                if (!headerRow) {
-                  return;
-                }
-
-                const headerRows = theadRows.length
-                  ? theadRows.map((row) => expandHeaderTexts(row))
-                  : [expandHeaderTexts(headerRow)];
+                const allVisibleRows = Array.from(table.querySelectorAll("tr")).filter(isVisible).slice(0, 6);
+                const headerRows = (theadRows.length ? theadRows : allVisibleRows)
+                  .map((row) => expandHeaderTexts(row))
+                  .filter((row) => row.length > 0);
                 if (!headerRows.length) {
                   return;
                 }
 
-                const tbodyRows = Array.from(table.querySelectorAll("tbody tr"));
+                const bestScore = Math.max(...headerRows.map((row) => scoreHeaderRow(row)), 0);
+                if (bestScore <= 0) {
+                  return;
+                }
+
+                let tbodyRows = Array.from(table.querySelectorAll("tbody tr"));
+                if (!tbodyRows.length) {
+                  const allRows = Array.from(table.querySelectorAll("tr")).filter(isVisible);
+                  tbodyRows = allRows.slice(Math.min(headerRows.length, allRows.length));
+                }
                 if (!tbodyRows.length) {
                   return;
                 }
