@@ -34,6 +34,8 @@ COURSE_VIEW_CANDIDATES = [
         ],
     ),
 ]
+MAX_EMPTY_PAGES_PER_VIEW = 2
+MAX_PAGES_PER_VIEW = 25
 
 
 async def create_browser_context() -> tuple:
@@ -517,6 +519,26 @@ async def _activate_course_view(page: Page, aliases: List[str]) -> bool:
     return False
 
 
+async def _capture_visible_course_table_signature(page: Page) -> str:
+    """Build a compact signature of the currently visible course tables."""
+    tables = await _get_visible_course_tables(page)
+    if not tables:
+        return "no-visible-course-table"
+
+    chunks: List[str] = []
+    for _, table in tables[:2]:
+        try:
+            text = re.sub(r"\s+", " ", await table.inner_text()).strip()
+        except Exception:
+            continue
+        if text:
+            chunks.append(text[:240])
+
+    if not chunks:
+        return f"visible-course-tables:{len(tables)}"
+    return f"visible-course-tables:{len(tables)}|" + "||".join(chunks)
+
+
 async def _collect_current_view_courses(
     page: Page,
     include_details: bool,
@@ -525,8 +547,13 @@ async def _collect_current_view_courses(
     """Scrape every page in the currently active course view."""
     courses: List[dict] = []
     page_no = 1
+    empty_page_streak = 0
 
     while True:
+        if page_no > MAX_PAGES_PER_VIEW:
+            logger.warning(f"视图[{view_name}] 超过 {MAX_PAGES_PER_VIEW} 页，停止翻页以避免死循环")
+            break
+
         if not await _ensure_session_with_retry(page, f"{view_name} 第{page_no}页"):
             logger.error(f"视图[{view_name}] 会话恢复失败，停止抓取该视图")
             break
@@ -535,6 +562,7 @@ async def _collect_current_view_courses(
         logger.info(f"视图[{view_name}] 第 {page_no} 页解析到 {len(page_courses)} 门课程")
 
         if page_courses:
+            empty_page_streak = 0
             if include_details:
                 page_courses = await _enrich_with_details(page, page_courses)
             else:
@@ -542,6 +570,13 @@ async def _collect_current_view_courses(
                     course.pop("__row_index", None)
                     course.pop("__table_index", None)
             courses.extend(page_courses)
+        else:
+            empty_page_streak += 1
+            if empty_page_streak >= MAX_EMPTY_PAGES_PER_VIEW:
+                logger.warning(
+                    f"视图[{view_name}] 连续 {empty_page_streak} 页没有可见课程表格，停止翻页"
+                )
+                break
 
         has_next = await _go_to_next_page(page)
         if not has_next:
@@ -958,6 +993,8 @@ async def _parse_course_table(table: Locator, table_index: int) -> List[dict]:
 async def _go_to_next_page(page: Page) -> bool:
     """尝试翻到下一页，返回是否成功"""
     try:
+        before_signature = await _capture_visible_course_table_signature(page)
+
         # 截图中可见「上一页」「1」「下一页」按钮
         next_btn = page.locator(
             'a:has-text("下一页"), '
@@ -969,12 +1006,18 @@ async def _go_to_next_page(page: Page) -> bool:
             candidate = next_btn.nth(idx)
             if not await candidate.is_visible():
                 continue
-            classes = await candidate.get_attribute("class") or ""
-            is_disabled = await candidate.is_disabled() or "disabled" in classes
+            classes = (await candidate.get_attribute("class") or "").lower()
+            aria_disabled = (await candidate.get_attribute("aria-disabled") or "").lower() == "true"
+            disabled_attr = await candidate.get_attribute("disabled") is not None
+            is_disabled = await candidate.is_disabled() or aria_disabled or disabled_attr or "disabled" in classes
             if not is_disabled:
                 await candidate.click()
                 await page.wait_for_timeout(3000)
                 await page.wait_for_load_state("networkidle", timeout=10000)
+                after_signature = await _capture_visible_course_table_signature(page)
+                if after_signature == before_signature:
+                    logger.warning("下一页点击后课程表格没有变化，停止翻页以避免死循环")
+                    return False
                 logger.info("已翻到下一页")
                 return True
             logger.info("已到最后一页")
