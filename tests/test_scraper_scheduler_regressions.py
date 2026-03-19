@@ -347,8 +347,8 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_collect_current_view_courses_stops_after_consecutive_empty_pages(self):
-        page = object()
+    async def test_collect_current_view_courses_stops_after_empty_page_retry(self):
+        page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
 
         with (
             patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
@@ -359,7 +359,7 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
             courses = await _collect_current_view_courses(page, include_details=False, view_name="default")
 
         self.assertEqual(courses, [])
-        self.assertEqual(next_page_mock.await_count, 1)
+        self.assertEqual(next_page_mock.await_count, 0)
 
 
 if __name__ == "__main__":

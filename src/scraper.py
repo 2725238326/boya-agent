@@ -34,7 +34,6 @@ COURSE_VIEW_CANDIDATES = [
         ],
     ),
 ]
-MAX_EMPTY_PAGES_PER_VIEW = 2
 MAX_PAGES_PER_VIEW = 25
 
 
@@ -519,6 +518,56 @@ async def _activate_course_view(page: Page, aliases: List[str]) -> bool:
     return False
 
 
+async def _click_visible_text_control(page: Page, labels: List[str]) -> bool:
+    selectors = [
+        "button",
+        "a",
+        "[role=\"button\"]",
+        "li",
+        "span",
+    ]
+    for label in labels:
+        for selector in selectors:
+            locator = page.locator(f'{selector}:has-text("{label}")')
+            count = await locator.count()
+            for idx in range(count):
+                candidate = locator.nth(idx)
+                try:
+                    if not await candidate.is_visible():
+                        continue
+                    await candidate.click(timeout=4000)
+                    await page.wait_for_timeout(1500)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
+                    return True
+                except Exception:
+                    continue
+    return False
+
+
+async def _go_to_first_page(page: Page) -> bool:
+    """Best-effort pagination reset before scraping a view."""
+    if await _click_visible_text_control(page, ["第一页", "首页"]):
+        await _wait_course_tables_ready(page)
+        logger.info("Reset pagination to the first page via explicit control")
+        return True
+
+    # Fallback: keep clicking previous page until it no longer changes.
+    for _ in range(8):
+        before_signature = await _capture_visible_course_table_signature(page)
+        moved = await _click_visible_text_control(page, ["上一页", "上页"])
+        if not moved:
+            break
+        await _wait_course_tables_ready(page)
+        after_signature = await _capture_visible_course_table_signature(page)
+        if after_signature == before_signature:
+            break
+
+    return True
+
+
 async def _capture_visible_course_table_signature(page: Page) -> str:
     """Build a compact signature of the currently visible course tables."""
     tables = await _get_visible_course_tables(page)
@@ -539,6 +588,16 @@ async def _capture_visible_course_table_signature(page: Page) -> str:
     return f"visible-course-tables:{len(tables)}|" + "||".join(chunks)
 
 
+async def _load_current_view_page_courses(page: Page) -> List[dict]:
+    """Parse the current page, retrying once when the table briefly disappears."""
+    page_courses = await _parse_visible_course_tables(page)
+    if page_courses:
+        return page_courses
+
+    await page.wait_for_timeout(1200)
+    return await _parse_visible_course_tables(page)
+
+
 async def _collect_current_view_courses(
     page: Page,
     include_details: bool,
@@ -547,7 +606,6 @@ async def _collect_current_view_courses(
     """Scrape every page in the currently active course view."""
     courses: List[dict] = []
     page_no = 1
-    empty_page_streak = 0
 
     while True:
         if page_no > MAX_PAGES_PER_VIEW:
@@ -558,11 +616,10 @@ async def _collect_current_view_courses(
             logger.error(f"视图[{view_name}] 会话恢复失败，停止抓取该视图")
             break
 
-        page_courses = await _parse_visible_course_tables(page)
+        page_courses = await _load_current_view_page_courses(page)
         logger.info(f"视图[{view_name}] 第 {page_no} 页解析到 {len(page_courses)} 门课程")
 
         if page_courses:
-            empty_page_streak = 0
             if include_details:
                 page_courses = await _enrich_with_details(page, page_courses)
             else:
@@ -571,12 +628,8 @@ async def _collect_current_view_courses(
                     course.pop("__table_index", None)
             courses.extend(page_courses)
         else:
-            empty_page_streak += 1
-            if empty_page_streak >= MAX_EMPTY_PAGES_PER_VIEW:
-                logger.warning(
-                    f"视图[{view_name}] 连续 {empty_page_streak} 页没有可见课程表格，停止翻页"
-                )
-                break
+            logger.warning(f"视图[{view_name}] 当前页没有可见课程表格，停止该视图抓取")
+            break
 
         has_next = await _go_to_next_page(page)
         if not has_next:
@@ -689,17 +742,27 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
                 f.write(html)
             return []
 
-        current_view_courses = await _collect_current_view_courses(page, include_details, "default")
-        courses.extend(current_view_courses)
-
+        scraped_any_view = False
         for view_key, aliases in COURSE_VIEW_CANDIDATES:
             activated = await _activate_course_view(page, aliases)
             if not activated:
-                logger.info(f"视图[{view_key}] 未找到可切换入口，跳过")
-                continue
+                if view_key == "all" and not scraped_any_view:
+                    logger.info("未找到“全部课程”入口，回退到当前默认视图抓取")
+                else:
+                    logger.info(f"视图[{view_key}] 未找到可切换入口，跳过")
+                    continue
 
-            view_courses = await _collect_current_view_courses(page, include_details, view_key)
+            await _go_to_first_page(page)
+            view_courses = await _collect_current_view_courses(page, include_details, view_key if activated else "default")
+            if view_courses:
+                scraped_any_view = True
             courses.extend(view_courses)
+
+        if not scraped_any_view:
+            logger.warning("未成功切换到任何显式课程视图，尝试抓取当前页面默认视图")
+            await _go_to_first_page(page)
+            current_view_courses = await _collect_current_view_courses(page, include_details, "default-fallback")
+            courses.extend(current_view_courses)
 
     except Exception as e:
         logger.error(f"抓取课程列表失败: {e}")
