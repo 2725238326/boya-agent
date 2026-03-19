@@ -15,6 +15,7 @@ import threading
 from typing import Any, Dict
 from datetime import datetime, timedelta
 from loguru import logger
+from sqlalchemy import and_, or_
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
@@ -244,6 +245,7 @@ def _load_active_enrollment_targets(session):
         .filter(Course.enroll_end != None)  # noqa: E711
         .filter(Course.enroll_start <= now)
         .filter(Course.enroll_end >= now)
+        .filter(or_(Course.end_time == None, Course.end_time > now))  # noqa: E711
         .all()
     )
 
@@ -508,8 +510,8 @@ async def _run_scrape_task_impl(mode: str = "full"):
         run_status["last_error"] = None
         _consecutive_failures = 0
         logger.info(
-            f"??????: ???? {pushed_count} ?, ???? {reopened_pushed} ?, ?????? {active_pushed} ?, "
-            f"???: urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}"
+            f"本轮抓取完成: 立即推送 {pushed_count} 门, 退课捡漏 {reopened_pushed} 门, "
+            f"开选巡检 {active_pushed} 门, 缓冲区 urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}"
         )
         return _scrape_result(
             True,
@@ -960,18 +962,25 @@ def _configure_daily_summary_job():
 
 def _sync_course_lifecycle():
     """
-    同步课程生命周期：选课结束超过 30 分钟 → 标记为 expired，并从推送缓冲区移除。
+    同步课程生命周期：
+    - 课程结束时间已过 -> 立即标记 expired
+    - 选课结束超过 30 分钟 -> 标记 expired
     长期清理由 cleanup_old_courses 统一处理，避免已结束课程被立即删库后失去排查上下文。
     """
     session = get_session()
     try:
         now = datetime.now()
-        cutoff = now - timedelta(minutes=30)
+        enroll_cutoff = now - timedelta(minutes=30)
 
         ended_courses = (
             session.query(Course)
-            .filter(Course.enroll_end != None)  # noqa: E711
-            .filter(Course.enroll_end < cutoff)
+            .filter(Course.expired == False)  # noqa: E712
+            .filter(
+                or_(
+                    and_(Course.end_time != None, Course.end_time <= now),  # noqa: E711
+                    and_(Course.enroll_end != None, Course.enroll_end < enroll_cutoff),  # noqa: E711
+                )
+            )
             .all()
         )
 
@@ -991,7 +1000,7 @@ def _sync_course_lifecycle():
 
         session.commit()
         if newly_expired:
-            logger.info(f"已标记 {newly_expired} 门选课已结束 30 分钟以上的课程为过期")
+            logger.info(f"已标记 {newly_expired} 门已结束或已截止的课程为过期")
 
     except Exception as e:
         session.rollback()

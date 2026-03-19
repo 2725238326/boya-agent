@@ -445,6 +445,75 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         finally:
             verify.close()
 
+    def test_sync_course_lifecycle_marks_finished_course_expired(self):
+        now = datetime.now()
+        session = self.Session()
+        session.add(
+            Course(
+                id="finished-course",
+                name="课程已结束",
+                teacher="王五",
+                location="教室5",
+                campus="学院路",
+                end_time=now - timedelta(minutes=5),
+                enroll_end=now + timedelta(hours=1),
+                capacity=60,
+                enrolled=10,
+                expired=False,
+            )
+        )
+        session.commit()
+        session.close()
+
+        scheduler._push_buffer["urgent"] = ["finished-course"]
+        scheduler._push_buffer["soon"] = ["finished-course"]
+
+        with patch("src.scheduler.get_session", side_effect=lambda: self.Session()):
+            scheduler._sync_course_lifecycle()
+
+        verify = self.Session()
+        try:
+            row = verify.query(Course).filter_by(id="finished-course").first()
+            self.assertIsNotNone(row)
+            self.assertTrue(row.expired)
+            self.assertNotIn("finished-course", scheduler._push_buffer["urgent"])
+            self.assertNotIn("finished-course", scheduler._push_buffer["soon"])
+        finally:
+            verify.close()
+
+    def test_save_courses_to_db_skips_new_course_that_has_already_ended(self):
+        ended_row = {
+            "id": "ended-row",
+            "name": "已经结束的课程",
+            "category": "博雅课程-德育",
+            "location": "学院路主M201",
+            "teacher": "郭老师",
+            "college": "学生工作部",
+            "start_time": "2026-03-19 09:00",
+            "end_time": "2026-03-19 10:00",
+            "enroll_start": "2026-03-19 08:00",
+            "enroll_end": "2026-03-19 12:00",
+            "capacity": 200,
+            "enrolled": 20,
+            "status": "可选",
+            "campus": "全部校区",
+        }
+
+        with (
+            patch("src.scraper.get_session", side_effect=lambda: self.Session()),
+            patch("src.scraper.datetime") as mocked_datetime,
+        ):
+            mocked_datetime.now.return_value = datetime(2026, 3, 19, 12, 30)
+            mocked_datetime.strptime = datetime.strptime
+            new_ids = save_courses_to_db([ended_row])
+
+        self.assertEqual(new_ids, [])
+        verify = self.Session()
+        try:
+            self.assertIsNone(verify.query(Course).filter_by(id="ended-row").first())
+        finally:
+            verify.close()
+
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
     def test_build_course_row_payload_handles_preview_row(self):

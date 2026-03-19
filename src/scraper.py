@@ -1405,6 +1405,21 @@ def _dedupe_scraped_courses(courses: List[dict]) -> List[dict]:
     return [deduped[cid] for cid in order]
 
 
+def _is_course_snapshot_finished(course: dict, now: Optional[datetime] = None) -> bool:
+    now = now or datetime.now()
+    end_time = parse_datetime(course.get("end_time", ""))
+    return bool(end_time and end_time <= now)
+
+
+def _drop_finished_course_snapshots(courses: List[dict]) -> List[dict]:
+    now = datetime.now()
+    active_courses = [course for course in courses if not _is_course_snapshot_finished(course, now)]
+    skipped = len(courses) - len(active_courses)
+    if skipped:
+        logger.info(f"跳过 {skipped} 门已结束课程快照")
+    return active_courses
+
+
 async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
@@ -1513,6 +1528,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
         logger.info(f"网络层补充 {len(network_courses)} 条课程")
         courses = list(network_courses) + courses
     deduped_courses = _dedupe_scraped_courses(courses)
+    deduped_courses = _drop_finished_course_snapshots(deduped_courses)
     logger.info(f"共抓取到 {len(courses)} 条课程，去重后 {len(deduped_courses)} 条")
     return deduped_courses
 
@@ -1913,6 +1929,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     new_course_ids = []
     _reopened_course_ids = []
     reused_similar_rows = 0
+    skipped_finished_rows = 0
 
     try:
         now = datetime.now()
@@ -1929,8 +1946,14 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 existing = _find_similar_active_course(session, data, now)
                 if existing:
                     reused_similar_rows += 1
+            end_time_dt = parse_datetime(data.get("end_time", ""))
             enroll_end_dt = parse_datetime(data.get("enroll_end", ""))
-            is_expired = bool(enroll_end_dt and enroll_end_dt < now)
+            has_course_ended = bool(end_time_dt and end_time_dt <= now)
+            is_expired = bool(has_course_ended or (enroll_end_dt and enroll_end_dt < now))
+
+            if has_course_ended and not existing:
+                skipped_finished_rows += 1
+                continue
 
             if existing:
                 # 检测退课捡漏：之前满了(remaining==0)，现在有名额了
@@ -1977,7 +2000,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                     teacher=data.get("teacher", ""),
                     college=data.get("college", ""),
                     start_time=parse_datetime(data.get("start_time", "")),
-                    end_time=parse_datetime(data.get("end_time", "")),
+                    end_time=end_time_dt,
                     enroll_start=parse_datetime(data.get("enroll_start", "")),
                     enroll_end=enroll_end_dt,
                     sign_method=data.get("sign_method", ""),
@@ -2004,8 +2027,9 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
         session.commit()
         extra = f", {len(_reopened_course_ids)} 门退课捡漏" if _reopened_course_ids else ""
         similar_extra = f", {reused_similar_rows} 条近重复记录复用旧课程" if reused_similar_rows else ""
+        skipped_extra = f", 跳过 {skipped_finished_rows} 条已结束课程" if skipped_finished_rows else ""
         logger.info(f"数据库更新完成: {len(new_course_ids)} 条新课程, "
-                     f"{len(courses_data) - len(new_course_ids)} 条已有课程已更新{similar_extra}{extra}")
+                     f"{len(courses_data) - len(new_course_ids) - skipped_finished_rows} 条已有课程已更新{similar_extra}{extra}{skipped_extra}")
     except Exception as e:
         session.rollback()
         logger.error(f"保存课程到数据库失败: {e}")
