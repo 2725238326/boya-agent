@@ -18,17 +18,13 @@ from src.models import Course, get_session
 # 浏览器数据持久化目录
 BROWSER_DATA_DIR = "browser_data"
 COURSE_VIEW_CANDIDATES = [
-    ("all", ["\u5168\u90e8\u8bfe\u7a0b", "\u5168\u90e8"]),
-    ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u8fd1\u671f", "\u5373\u5c06\u5f00\u8bfe"]),
+    ("all", ["\u5168\u90e8\u8bfe\u7a0b", "\u8bfe\u7a0b\u5168\u90e8"]),
+    ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u5373\u5c06\u5f00\u8bfe", "\u5373\u5c06\u5f00\u62a2"]),
     (
         "far",
         [
             "\u8fdc\u671f\u8bfe\u7a0b",
-            "\u8fdc\u5e74\u8bfe\u7a0b",
-            "\u8fdc\u671f",
-            "\u8fdc\u5e74",
             "\u9884\u544a\u8bfe\u7a0b",
-            "\u9884\u544a",
             "\u672a\u5f00\u8bfe",
             "\u672a\u5f00\u59cb\u8bfe\u7a0b",
             "\u5f85\u5f00\u8bfe",
@@ -437,6 +433,43 @@ def _build_column_map_from_headers(headers: List[str]) -> dict:
         if key and key not in column_map:
             column_map[key] = idx
     return column_map
+
+
+def _score_header_row(headers: List[str]) -> int:
+    keys = []
+    for header_text in headers:
+        key = _match_column_key(header_text)
+        if key and key not in keys:
+            keys.append(key)
+
+    if not keys:
+        return 0
+
+    score = len(keys)
+    if "name" in keys:
+        score += 3
+    if "time" in keys:
+        score += 2
+    if "enroll" in keys:
+        score += 2
+    if "capacity" in keys:
+        score += 1
+    if "status" in keys:
+        score += 1
+    return score
+
+
+def _select_best_header_row(header_rows: List[List[str]]) -> List[str]:
+    best_headers: List[str] = []
+    best_score = 0
+
+    for headers in header_rows:
+        score = _score_header_row(headers)
+        if score > best_score:
+            best_headers = headers
+            best_score = score
+
+    return best_headers
 
 
 def _build_course_row_payload(
@@ -883,10 +916,18 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
         extracted = await page.evaluate(
             """
             () => {
-              const clean = (value) => (value || "")
+              const cleanInline = (value) => (value || "")
                 .replace(/\\u00a0/g, " ")
                 .replace(/\\s+/g, " ")
                 .trim();
+
+              const cleanCell = (value) => (value || "")
+                .replace(/\\u00a0/g, " ")
+                .replace(/\\r/g, "")
+                .split("\\n")
+                .map((line) => line.replace(/[ \\t]+/g, " ").trim())
+                .filter(Boolean)
+                .join("\\n");
 
               const isVisible = (el) => {
                 if (!el) return false;
@@ -903,7 +944,7 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
                 const texts = [];
                 for (const cell of Array.from(row.children)) {
                   if (!cell.matches("th,td")) continue;
-                  const text = clean(cell.innerText || cell.textContent);
+                  const text = cleanInline(cell.innerText || cell.textContent);
                   const colspan = Math.max(1, parseInt(cell.getAttribute("colspan") || "1", 10) || 1);
                   for (let i = 0; i < colspan; i += 1) {
                     texts.push(text);
@@ -940,7 +981,7 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
                       fillCarry(rowTexts, cursorRef);
                     }
 
-                    const text = clean(cell.innerText || cell.textContent);
+                    const text = cleanCell(cell.innerText || cell.textContent);
                     const colspan = Math.max(1, parseInt(cell.getAttribute("colspan") || "1", 10) || 1);
                     const rowspan = Math.max(1, parseInt(cell.getAttribute("rowspan") || "1", 10) || 1);
 
@@ -959,7 +1000,7 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
 
                   const normalized = Array.from(
                     { length: rowTexts.length },
-                    (_, index) => clean(rowTexts[index])
+                    (_, index) => cleanCell(rowTexts[index])
                   );
                   rows.push({ row_index: rowIndex, cells: normalized });
                 });
@@ -978,8 +1019,10 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
                   return;
                 }
 
-                const headers = expandHeaderTexts(headerRow);
-                if (!headers.length) {
+                const headerRows = theadRows.length
+                  ? theadRows.map((row) => expandHeaderTexts(row))
+                  : [expandHeaderTexts(headerRow)];
+                if (!headerRows.length) {
                   return;
                 }
 
@@ -993,7 +1036,7 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
                   payload.push({
                     table_index: tableIndex,
                     row_index: row.row_index,
-                    headers,
+                    header_rows: headerRows,
                     cells: row.cells,
                   });
                 });
@@ -1009,7 +1052,8 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
 
     courses: List[dict] = []
     for item in extracted or []:
-        headers = item.get("headers") or []
+        header_rows = item.get("header_rows") or []
+        headers = _select_best_header_row(header_rows) if header_rows else (item.get("headers") or [])
         cells = item.get("cells") or []
         column_map = _build_column_map_from_headers(headers)
         if "name" not in column_map or ("enroll" not in column_map and "time" not in column_map):
@@ -1029,13 +1073,16 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
 
 
 async def _try_click_view_alias(page: Page, alias: str) -> bool:
+    normalized_alias = re.sub(r"\s+", "", alias)
     selectors = [
-        f'button:has-text("{alias}")',
-        f'a:has-text("{alias}")',
-        f'[role="tab"]:has-text("{alias}")',
-        f'li:has-text("{alias}")',
-        f'span:has-text("{alias}")',
-        f'div:has-text("{alias}")',
+        '[role="tab"]',
+        'button',
+        'a',
+        '.tab',
+        '.tabs li',
+        '.el-tabs__item',
+        '.ant-tabs-tab',
+        '.layui-tab-title li',
     ]
 
     for selector in selectors:
@@ -1045,6 +1092,9 @@ async def _try_click_view_alias(page: Page, alias: str) -> bool:
             candidate = locator.nth(idx)
             try:
                 if not await candidate.is_visible():
+                    continue
+                text = re.sub(r"\s+", "", await candidate.inner_text())
+                if not text or normalized_alias not in text:
                     continue
                 await candidate.click(timeout=4000)
                 await page.wait_for_timeout(1500)
@@ -1503,12 +1553,26 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
 async def _parse_visible_course_tables(page: Page) -> List[dict]:
     """Parse all visible course tables on the current page."""
     fast_path_courses = await _extract_visible_course_rows_via_dom(page)
-    if fast_path_courses and len(fast_path_courses) >= MIN_FAST_PATH_ROWS:
-        return _dedupe_scraped_courses(fast_path_courses)
-    if fast_path_courses:
-        logger.info(f"DOM 快路径仅抓到 {len(fast_path_courses)} 条课程，补跑 Locator 兜底")
-
     tables = await _get_visible_course_tables(page)
+    if fast_path_courses:
+        visible_row_budget = 0
+        for _, table in tables:
+            try:
+                visible_row_budget += await table.locator("tbody tr").count()
+            except Exception:
+                continue
+
+        minimum_complete_rows = max(
+            MIN_FAST_PATH_ROWS,
+            int(visible_row_budget * 0.8) if visible_row_budget else 0,
+        )
+        if len(fast_path_courses) >= minimum_complete_rows:
+            return _dedupe_scraped_courses(fast_path_courses)
+
+        logger.info(
+            f"DOM 快路径仅抓到 {len(fast_path_courses)} / {visible_row_budget or '?'} 条课程，补跑 Locator 兜底"
+        )
+
     if not tables:
         logger.warning("当前页面未找到可见课程表格")
         return _dedupe_scraped_courses(fast_path_courses)
@@ -1882,6 +1946,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     except Exception as e:
         session.rollback()
         logger.error(f"保存课程到数据库失败: {e}")
+        raise
     finally:
         session.close()
 

@@ -1050,5 +1050,6 @@ def get_run_status() -> dict:
         "total_push_courses": run_status["total_push_courses"],
         "is_running": run_status["is_running"],
         "last_error": run_status["last_error"],
+        "last_scrape_health": run_status["last_scrape_health"],
         "last_daily_summary": run_status["last_daily_summary"].strftime("%Y-%m-%d %H:%M:%S") if run_status["last_daily_summary"] else None,
     }

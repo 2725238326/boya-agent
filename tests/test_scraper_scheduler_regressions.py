@@ -17,6 +17,7 @@ from src.scraper import (
     _find_similar_active_course,
     _is_near_duplicate_triplet,
     _parse_visible_course_tables,
+    _select_best_header_row,
     assess_scrape_health,
     generate_course_id,
     generate_legacy_course_id,
@@ -397,6 +398,18 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertEqual(health["db_active_count"], 20)
         self.assertEqual(health["scraped_count"], 2)
 
+    def test_select_best_header_row_prefers_real_course_header_over_filter_header(self):
+        header_rows = [
+            ["状态", "课程名称", "课程类别", "课程信息", "课程时间", "开放群体", "选课时间", "课程作业", "课程人数", "操作"],
+            ["", "检索名称", "检索类别", "检索信息", "全局检索"],
+        ]
+
+        headers = _select_best_header_row(header_rows)
+
+        self.assertEqual(headers[0], "状态")
+        self.assertIn("课程时间", headers)
+        self.assertIn("选课时间", headers)
+
     def test_sync_course_lifecycle_marks_expired_instead_of_deleting(self):
         now = datetime.now()
         session = self.Session()
@@ -481,6 +494,21 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_parse_visible_course_tables_prefers_dom_fast_path(self):
         page = types.SimpleNamespace()
+        class FakeRowLocator:
+            def __init__(self, count):
+                self._count = count
+
+            async def count(self):
+                return self._count
+
+        class FakeTable:
+            def __init__(self, row_count):
+                self._row_count = row_count
+
+            def locator(self, selector):
+                assert selector == "tbody tr"
+                return FakeRowLocator(self._row_count)
+
         dom_rows = []
         for index in range(5):
             preview_id = generate_course_id(
@@ -514,16 +542,34 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "src.scraper._extract_visible_course_rows_via_dom",
                 new=AsyncMock(return_value=dom_rows)),
-            patch("src.scraper._get_visible_course_tables", new=AsyncMock()) as visible_tables_mock,
+            patch(
+                "src.scraper._get_visible_course_tables",
+                new=AsyncMock(return_value=[(0, FakeTable(5))]),
+            ) as visible_tables_mock,
         ):
             rows = await _parse_visible_course_tables(page)
 
         self.assertEqual(len(rows), 5)
         self.assertEqual(rows[0]["capacity"], 250)
-        self.assertEqual(visible_tables_mock.await_count, 0)
+        self.assertEqual(visible_tables_mock.await_count, 1)
 
     async def test_parse_visible_course_tables_runs_fallback_when_fast_path_is_sparse(self):
         page = types.SimpleNamespace()
+        class FakeRowLocator:
+            def __init__(self, count):
+                self._count = count
+
+            async def count(self):
+                return self._count
+
+        class FakeTable:
+            def __init__(self, row_count):
+                self._row_count = row_count
+
+            def locator(self, selector):
+                assert selector == "tbody tr"
+                return FakeRowLocator(self._row_count)
+
         dom_row = {
             "id": "dom-only",
             "name": "课程预告A",
@@ -546,7 +592,7 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("src.scraper._extract_visible_course_rows_via_dom", new=AsyncMock(return_value=[dom_row])),
-            patch("src.scraper._get_visible_course_tables", new=AsyncMock(return_value=[(0, object())])),
+            patch("src.scraper._get_visible_course_tables", new=AsyncMock(return_value=[(0, FakeTable(5))])),
             patch("src.scraper._parse_course_table", new=AsyncMock(return_value=[locator_row])) as parse_table_mock,
         ):
             rows = await _parse_visible_course_tables(page)
