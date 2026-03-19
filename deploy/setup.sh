@@ -4,7 +4,7 @@
 
 set -e
 
-APP_DIR="/home/ubuntu/boya-agent"
+APP_DIR="/home/boya-agent"
 SERVICE_NAME="boya-agent"
 
 echo "================================================"

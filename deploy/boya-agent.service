@@ -4,12 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/boya-agent
-ExecStart=/home/ubuntu/boya-agent/venv/bin/python src/main.py
+User=root
+WorkingDirectory=/home/boya-agent
+ExecStart=/home/boya-agent/venv/bin/python src/main.py
 Restart=always
 RestartSec=10
-EnvironmentFile=/home/ubuntu/boya-agent/.env
+EnvironmentFile=/home/boya-agent/.env
 
 # 日志
 StandardOutput=journal
