@@ -397,11 +397,11 @@ function toggleFullCourses() {
 }
 
 function renderCourseCard(course, isFull = false) {
-    const checkIn = course.check_in_method || course.sign_method || '';
+    const checkIn = getPortalCourseCheckInLabel(course);
     const isSelf = checkIn.includes('\u81ea\u4e3b');
     const signBadge = isSelf
         ? '<span class="portal-badge portal-badge-self">\u2713 \u81ea\u4e3b\u7b7e\u5230</span>'
-        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn || '\u5e38\u89c4\u7b7e\u5230')}</span>`;
+        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn)}</span>`;
 
     const remaining = course.remaining;
     const capacity = course.capacity || 1;
@@ -458,6 +458,18 @@ function renderCourseCard(course, isFull = false) {
             ${remindBtn}
         </div>
     </div>`;
+}
+
+function getPortalCourseCheckInLabel(course) {
+    const displayLabel = String(course.display_check_in_method || '').trim();
+    if (displayLabel) return displayLabel;
+
+    const rawCheckIn = String(course.check_in_method || '').trim();
+    const rawSignMethod = String(course.sign_method || '').trim();
+    if (`${rawCheckIn} ${rawSignMethod}`.includes('\u81ea\u4e3b')) {
+        return '\u81ea\u4e3b\u7b7e\u5230';
+    }
+    return '\u5e38\u89c4\u7b7e\u5230';
 }
 
 function buildPortalCoursePrimaryAction(course) {

@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import List
 from loguru import logger
 
+from src.course_state import get_check_in_display_label, is_self_check_in
+
 try:
     from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.constants import ParseMode
@@ -39,8 +41,8 @@ def format_course_message(course) -> str:
     将课程对象格式化为 Telegram 消息（Markdown V2 格式）
     """
     # 签到方式标记（优先用详情页的 check_in_method）
-    check_in = getattr(course, 'check_in_method', '') or course.sign_method or '未知'
-    sign_icon = "✅" if "自主" in check_in else "⚠️"
+    check_in = get_check_in_display_label(course)
+    sign_icon = "✅" if is_self_check_in(course) else "⚠️"
     # 名额状态
     if course.remaining > 10:
         cap_icon = "🟢"
@@ -169,7 +171,7 @@ async def send_daily_summary_notification(courses: list) -> bool:
         ]
 
         for i, course in enumerate(courses, start=1):
-            check_in = getattr(course, "check_in_method", "") or course.sign_method or "未知"
+            check_in = get_check_in_display_label(course)
             enroll_end = course.enroll_end.strftime('%Y-%m-%d %H:%M') if course.enroll_end else "未知"
             lines.append(
                 f"{i}\\. *{_escape_md(course.name)}* | {_escape_md(course.category)}\n"

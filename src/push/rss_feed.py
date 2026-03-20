@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import List
 from loguru import logger
 
+from src.course_state import get_check_in_display_label, is_self_check_in
+
 try:
     from feedgen.feed import FeedGenerator
     HAS_FEEDGEN = True
@@ -43,7 +45,8 @@ def generate_rss_feed(courses: list, base_url: str = "http://localhost:5000") ->
         fe.title(f"[{course.category}] {course.name}")
 
         # 签到方式标记
-        sign_icon = "✅ 自主签课" if "自主" in course.sign_method else "⚠️ " + course.sign_method
+        check_in_label = get_check_in_display_label(course)
+        sign_icon = "✅ 自主签课" if is_self_check_in(course) else "⚠️ " + check_in_label
 
         # 构建详情
         description = f"""
@@ -92,7 +95,7 @@ def generate_atom_feed(courses: list, base_url: str = "http://localhost:5000") -
         fe.title(f"[{course.category}] {course.name}")
         fe.summary(
             f"{course.name} | {course.teacher} | {course.location} | "
-            f"{course.sign_method} | 剩余 {course.remaining} 人"
+            f"{check_in_label} | 剩余 {course.remaining} 人"
         )
         fe.link(href="https://bykc.buaa.edu.cn/system/course-select")
         if course.first_seen:

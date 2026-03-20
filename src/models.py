@@ -9,7 +9,14 @@ from sqlalchemy import inspect, text
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from src.course_state import get_hot_reason, is_enrollment_open, is_hot_course, course_fill_ratio
+from src.course_state import (
+    course_fill_ratio,
+    get_check_in_display_label,
+    get_hot_reason,
+    is_enrollment_open,
+    is_hot_course,
+    is_self_check_in,
+)
 
 DATABASE_PATH = "boya_agent.db"
 
@@ -94,6 +101,8 @@ class Course(Base):
             "status": self.status,
             "campus": self.campus,
             "check_in_method": self.check_in_method,
+            "display_check_in_method": get_check_in_display_label(self),
+            "is_self_check_in": is_self_check_in(self),
             "is_enrollable": self.is_enrollable,
             "enrollment_open": is_enrollment_open(self, now),
             "is_hot_course": is_hot_course(self, now),

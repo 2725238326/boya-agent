@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.course_state import get_check_in_display_label, is_self_check_in
 from src.models import Base, Course
 from src.scraper import (
     _extract_courses_from_network_payload,
@@ -613,6 +614,23 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertEqual(payload["hot_reason"], "fill_ratio")
         self.assertTrue(payload["enrollment_open"])
         self.assertGreater(payload["fill_percent"], 90)
+        self.assertEqual(payload["display_check_in_method"], "常规签到")
+        self.assertFalse(payload["is_self_check_in"])
+
+    def test_check_in_display_label_never_falls_back_to_direct_enroll_mode(self):
+        course = Course(
+            id="check-in-label",
+            name="签到标签展示课",
+            sign_method="直接选课",
+            check_in_method="",
+        )
+
+        self.assertEqual(get_check_in_display_label(course), "常规签到")
+        self.assertFalse(is_self_check_in(course))
+
+        course.check_in_method = "自主签到"
+        self.assertEqual(get_check_in_display_label(course), "自主签到")
+        self.assertTrue(is_self_check_in(course))
 
     def test_should_defer_browser_recycle_when_hot_courses_exist(self):
         fake_session = type("FakeSession", (), {"close": lambda self: None})()

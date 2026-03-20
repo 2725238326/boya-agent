@@ -156,10 +156,10 @@ function buildConsoleHeatBadge(course) {
 }
 
 function renderCourseCard(course) {
-    const checkIn = course.check_in_method || course.sign_method || '';
+    const checkIn = getConsoleCourseCheckInLabel(course);
     const signBadge = checkIn.includes('自主')
         ? '<span class="badge badge-self-sign">✅ 自主签到</span>'
-        : `<span class="badge badge-not-self-sign">ℹ️ ${escapeHtml(checkIn || '直接选课')}</span>`;
+        : `<span class="badge badge-not-self-sign">ℹ️ ${escapeHtml(checkIn)}</span>`;
     const hotBadge = buildConsoleHeatBadge(course);
     const expiredBadge = course.expired
         ? '<span class="badge badge-full">⏳ 已过期</span>'
@@ -211,6 +211,18 @@ function renderCourseCard(course) {
             <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">📤 推送此课程</button>
         </div>` : ''}
     </div>`;
+}
+
+function getConsoleCourseCheckInLabel(course) {
+    const displayLabel = String(course.display_check_in_method || '').trim();
+    if (displayLabel) return displayLabel;
+
+    const rawCheckIn = String(course.check_in_method || '').trim();
+    const rawSignMethod = String(course.sign_method || '').trim();
+    if (`${rawCheckIn} ${rawSignMethod}`.includes('自主')) {
+        return '自主签到';
+    }
+    return '常规签到';
 }
 
 function buildConsoleCourseStatus(course) {

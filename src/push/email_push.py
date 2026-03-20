@@ -18,6 +18,8 @@ from email.utils import formataddr
 from typing import List
 from loguru import logger
 
+from src.course_state import get_check_in_display_label, is_self_check_in
+
 
 def _get_smtp_config() -> dict:
     """获取 SMTP 配置（支持 Gmail）"""
@@ -711,8 +713,8 @@ def send_service_update_to_subscribers(subscribers: List, base_url: str) -> dict
 
 def _build_course_html(course, remind_url: str = "", portal_url: str = "") -> str:
     """构建单条课程 HTML 卡片 — 移动端友好的单列布局"""
-    check_in = getattr(course, 'check_in_method', '') or getattr(course, 'sign_method', '') or ''
-    is_self_sign = "自主" in check_in
+    check_in = get_check_in_display_label(course)
+    is_self_sign = is_self_check_in(course)
     sign_color = "#34c759" if is_self_sign else "#ff9500"
     remaining = course.remaining
     cap_color = "#34c759" if remaining > 10 else ("#ff9500" if remaining > 0 else "#ff3b30")
@@ -761,7 +763,7 @@ def _build_course_html(course, remind_url: str = "", portal_url: str = "") -> st
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px; color:{_EMAIL_TEXT};">
     <tr>
       <td style="padding:8px 0; width:50%;"><span style="color:{_EMAIL_MUTED}">地点</span><br><span style="font-weight:600;">{course.location}</span></td>
-      <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">签到方式</span><br><span style="color:{sign_color}; font-weight:700;">{check_in or '直接选课'}</span></td>
+      <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">签到方式</span><br><span style="color:{sign_color}; font-weight:700;">{check_in}</span></td>
     </tr>
     <tr>
       <td style="padding:8px 0;"><span style="color:{_EMAIL_MUTED}">上课时间</span><br><span style="font-weight:600;">{start_str}</span></td>

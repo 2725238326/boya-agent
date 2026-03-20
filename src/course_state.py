@@ -37,6 +37,25 @@ def course_remaining(course: Any = None, *, capacity: Optional[int] = None, enro
     return max(0, int(capacity or 0) - int(enrolled or 0))
 
 
+def get_check_in_display_label(course: Any) -> str:
+    """Return a stable user-facing check-in label.
+
+    `sign_method` reflects enrollment mode such as "直接选课", which should not
+    be shown as the course's check-in badge. For UI and notifications we only
+    expose the normalized sign-in state: "自主签到" or "常规签到".
+    """
+    raw_check_in = str(_read_attr(course, "check_in_method", "") or "").strip()
+    raw_sign_method = str(_read_attr(course, "sign_method", "") or "").strip()
+    combined = f"{raw_check_in} {raw_sign_method}"
+    if "自主" in combined:
+        return "自主签到"
+    return "常规签到"
+
+
+def is_self_check_in(course: Any) -> bool:
+    return get_check_in_display_label(course) == "自主签到"
+
+
 def is_course_finished(course: Any, now: Optional[datetime] = None) -> bool:
     now = now or datetime.now()
     end_time = _read_attr(course, "end_time")
