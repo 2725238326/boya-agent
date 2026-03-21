@@ -1360,6 +1360,9 @@ def api_subscriber_session():
         if token != sub.token:
             return _set_portal_session_cookie(resp, sub.token)
         return resp
+    except Exception as e:
+        logger.exception(f"获取门户会话失败: {e}")
+        return jsonify({"success": False, "error": f"加载门户会话失败: {e}"}), 500
     finally:
         session.close()
 
@@ -1448,6 +1451,9 @@ def api_subscriber_reminders(token=None):
 
         result = _serialize_course_reminders(session, sub.id)
         return jsonify({"success": True, "data": result, "total": len(result)})
+    except Exception as e:
+        logger.exception(f"获取提醒列表失败: {e}")
+        return jsonify({"success": False, "error": f"获取提醒列表失败: {e}"}), 500
     finally:
         session.close()
 
@@ -1783,6 +1789,9 @@ def api_portal_highlights():
                 "push_paused_until": push_paused_until,
             },
         })
+    except Exception as e:
+        logger.exception(f"获取门户亮点失败: {e}")
+        return jsonify({"success": False, "error": f"获取门户亮点失败: {e}"}), 500
     finally:
         session.close()
 
