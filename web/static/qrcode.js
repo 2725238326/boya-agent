@@ -36,7 +36,7 @@ async function qrcodeApi(url, options = {}) {
             const text = await resp.text();
             return {
                 success: false,
-                error: `接口返回了非 JSON 响应 (${resp.status})`,
+                error: `接口返回异常 (${resp.status})`,
                 bodyPreview: text.slice(0, 120),
             };
         }
@@ -66,7 +66,7 @@ function updateContributorStats(data = {}) {
     const stats = data.stats || {};
     emailEl.textContent = email || "未登录";
     countEl.textContent = String(stats.total_uploads || 0);
-    nextRewardEl.textContent = stats.next_reward_threshold ? `${stats.next_reward_threshold} 次` : "已达到最高档";
+    nextRewardEl.textContent = stats.next_reward_threshold ? `${stats.next_reward_threshold} 次` : "已达最高档";
 
     const emailInput = document.getElementById("qrcodeEmail");
     if (email && emailInput && !emailInput.value) {
@@ -128,7 +128,7 @@ function renderUploads(items) {
     if (!container) return;
 
     if (!items || !items.length) {
-        container.innerHTML = '<div class="qrcode-empty">暂无共享二维码。你可以成为第一个上传的人。</div>';
+        container.innerHTML = '<div class="qrcode-empty">还没有二维码，你可以先上传一张。</div>';
         return;
     }
 
@@ -164,22 +164,22 @@ function renderUploads(items) {
 async function loadQrcodeContext() {
     const result = await qrcodeApi(buildQrcodeApiUrl("/api/qrcode/context"));
     if (!result.success) {
-        setQrcodeStatus(result.error || "无法加载贡献信息", "error");
+        setQrcodeStatus(result.error || "加载贡献信息失败", "error");
         return;
     }
 
     const data = result.data || {};
     updateContributorStats(data);
     updateLeaderboardTitles(data.leaderboard_current);
-    renderLeaderboard("qrcodeCurrentLeaderboard", data.leaderboard_current, "本期还没有贡献记录");
-    renderLeaderboard("qrcodeAllTimeLeaderboard", data.leaderboard_all_time, "暂时还没有累计贡献记录");
+    renderLeaderboard("qrcodeCurrentLeaderboard", data.leaderboard_current, "本期暂无贡献");
+    renderLeaderboard("qrcodeAllTimeLeaderboard", data.leaderboard_all_time, "暂无累计贡献");
 }
 
 async function loadQrcodeUploads() {
     const result = await qrcodeApi(buildQrcodeApiUrl("/api/qrcode/uploads"));
     if (!result.success) {
         renderUploads([]);
-        setQrcodeStatus(result.error || "二维码列表加载失败", "error");
+        setQrcodeStatus(result.error || "二维码加载失败", "error");
         return;
     }
     renderUploads(result.data || []);
@@ -217,7 +217,7 @@ async function submitQrcodeForm(event) {
         });
         await loadQrcodeContext();
         await loadQrcodeUploads();
-        setQrcodeStatus(result.message || "上传成功，二维码已加入共享列表", "success");
+        setQrcodeStatus(result.message || "上传成功", "success");
     } else {
         setQrcodeStatus(result.error || "上传失败，请稍后重试", "error");
     }
@@ -241,7 +241,7 @@ document.addEventListener("DOMContentLoaded", () => {
         refreshButton.addEventListener("click", async () => {
             setQrcodeStatus("正在刷新二维码...");
             await loadQrcodeUploads();
-            setQrcodeStatus("二维码列表已刷新");
+            setQrcodeStatus("二维码已刷新");
         });
     }
 
