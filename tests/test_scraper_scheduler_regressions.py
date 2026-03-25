@@ -22,6 +22,7 @@ from src.scraper import (
     assess_scrape_health,
     generate_course_id,
     generate_legacy_course_id,
+    parse_datetime,
     save_courses_to_db,
 )
 
@@ -142,10 +143,16 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
     def test_save_courses_to_db_keeps_parallel_offerings_separate(self):
         now = datetime.now()
+        course_day = now + timedelta(days=2)
+        enroll_day = now + timedelta(days=1)
+        start_str = course_day.replace(hour=19, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
+        end_str = course_day.replace(hour=20, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
+        enroll_start_str = enroll_day.replace(hour=12, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
+        enroll_end_str = course_day.replace(hour=18, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
         legacy_id = generate_legacy_course_id(
             "课程D",
-            "2026-03-22 19:00",
-            "2026-03-20 12:00",
+            start_str,
+            enroll_start_str,
             "赵老师",
         )
         session = self.Session()
@@ -157,10 +164,10 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
                     teacher="赵老师",
                     location="学院路主M201",
                     campus="学院路校区",
-                    start_time=datetime(2026, 3, 22, 19, 0),
-                    end_time=datetime(2026, 3, 22, 20, 0),
-                    enroll_start=datetime(2026, 3, 20, 12, 0),
-                    enroll_end=datetime(2026, 3, 22, 18, 0),
+                    start_time=parse_datetime(start_str),
+                    end_time=parse_datetime(end_str),
+                    enroll_start=parse_datetime(enroll_start_str),
+                    enroll_end=parse_datetime(enroll_end_str),
                     capacity=120,
                     enrolled=120,
                     last_seen=now,
@@ -173,33 +180,33 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
         payload = [
             {
-                "id": generate_course_id("课程D", "2026-03-22 19:00", "2026-03-20 12:00", "赵老师", "学院路主M201", "学院路校区"),
+                "id": generate_course_id("课程D", start_str, enroll_start_str, "赵老师", "学院路主M201", "学院路校区"),
                 "legacy_id": legacy_id,
                 "name": "课程D",
                 "teacher": "赵老师",
                 "location": "学院路主M201",
                 "campus": "学院路校区",
                 "category": "博雅课程-德育",
-                "start_time": "2026-03-22 19:00",
-                "end_time": "2026-03-22 20:00",
-                "enroll_start": "2026-03-20 12:00",
-                "enroll_end": "2026-03-22 18:00",
+                "start_time": start_str,
+                "end_time": end_str,
+                "enroll_start": enroll_start_str,
+                "enroll_end": enroll_end_str,
                 "capacity": 120,
                 "enrolled": 119,
                 "status": "预告",
             },
             {
-                "id": generate_course_id("课程D", "2026-03-22 19:00", "2026-03-20 12:00", "赵老师", "沙河SH3-101", "沙河校区"),
+                "id": generate_course_id("课程D", start_str, enroll_start_str, "赵老师", "沙河SH3-101", "沙河校区"),
                 "legacy_id": legacy_id,
                 "name": "课程D",
                 "teacher": "赵老师",
                 "location": "沙河SH3-101",
                 "campus": "沙河校区",
                 "category": "博雅课程-德育",
-                "start_time": "2026-03-22 19:00",
-                "end_time": "2026-03-22 20:00",
-                "enroll_start": "2026-03-20 12:00",
-                "enroll_end": "2026-03-22 18:00",
+                "start_time": start_str,
+                "end_time": end_str,
+                "enroll_start": enroll_start_str,
+                "enroll_end": enroll_end_str,
                 "capacity": 120,
                 "enrolled": 118,
                 "status": "预告",
