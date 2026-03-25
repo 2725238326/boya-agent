@@ -7,6 +7,8 @@ __pycache__/
 
 # Database
 *.db
+*.db-wal
+*.db-shm
 
 # Playwright
 browser_data/
