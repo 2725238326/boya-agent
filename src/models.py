@@ -327,6 +327,7 @@ class QRCodeUpload(Base):
     __tablename__ = "qrcode_uploads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    course_id = Column(String, default="", index=True)
     contributor_email = Column(String, nullable=False, index=True)
     contributor_subscriber_id = Column(Integer, nullable=True)
     course_name = Column(String, nullable=False, default="")
@@ -346,6 +347,7 @@ class QRCodeUpload(Base):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "course_id": self.course_id,
             "contributor_email": self.contributor_email,
             "course_name": self.course_name,
             "course_time": self.course_time,
@@ -450,4 +452,16 @@ def _migrate_schema_if_needed():
                     "ALTER TABLE email_subscribers "
                     "ADD COLUMN verify_code_expires_at DATETIME"
                 ))
+
+        if "qrcode_uploads" in table_names:
+            qr_columns = {col["name"] for col in inspector.get_columns("qrcode_uploads")}
+            if "course_id" not in qr_columns:
+                conn.execute(text(
+                    "ALTER TABLE qrcode_uploads "
+                    "ADD COLUMN course_id VARCHAR DEFAULT ''"
+                ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_qrcode_uploads_course_id "
+                "ON qrcode_uploads (course_id)"
+            ))
 

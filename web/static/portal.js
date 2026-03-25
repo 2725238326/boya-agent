@@ -425,6 +425,8 @@ function renderCourseCard(course, isFull = false) {
     const statusBadge = buildPortalCourseStatus(course);
     const timingHint = buildPortalCourseTimingHint(course);
     const goAction = buildPortalCoursePrimaryAction(course);
+    const qrcodeAction = buildPortalCourseQrcodeAction(course, checkIn);
+    const actionButtons = [goAction, qrcodeAction, remindBtn].filter(Boolean);
 
     return `
     <div class="${cardClass}">
@@ -453,9 +455,8 @@ function renderCourseCard(course, isFull = false) {
             <span>\u5df2\u9009 ${course.enrolled}/${capacity}</span>
             <span>\u5269\u4f59 ${remaining} \u4eba</span>
         </div>
-        <div class="portal-card-actions${!remindBtn ? ' single' : ''}">
-            ${goAction}
-            ${remindBtn}
+        <div class="portal-card-actions${actionButtons.length <= 1 ? ' single' : ''}">
+            ${actionButtons.join('')}
         </div>
     </div>`;
 }
@@ -483,6 +484,15 @@ function buildPortalCoursePrimaryAction(course) {
             : '\u6253\u5f00\u9009\u8bfe\u95e8\u6237';
     const className = canOpenNow ? 'portal-btn-go primary' : 'portal-btn-go';
     return `<a class="${className}" href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">${label}</a>`;
+}
+
+function buildPortalCourseQrcodeAction(course, checkInLabel = '') {
+    const label = String(checkInLabel || getPortalCourseCheckInLabel(course)).trim();
+    if (course.expired || label !== '\u5e38\u89c4\u7b7e\u5230' || !course.id) {
+        return '';
+    }
+    const href = `/QRcode/course/${encodeURIComponent(course.id)}`;
+    return `<a class="portal-btn-qrcode" href="${href}">\ud83d\udcf7 \u7b7e\u5230\u4e8c\u7ef4\u7801</a>`;
 }
 
 function getPortalCourseAgeSeconds(course) {

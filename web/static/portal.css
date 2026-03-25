@@ -1253,6 +1253,28 @@ body.portal-body {
     box-shadow: 0 18px 32px rgba(10, 132, 255, 0.26);
 }
 
+.portal-btn-qrcode {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 980px;
+    background: rgba(90, 78, 255, 0.08);
+    color: #4d3fff;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid rgba(90, 78, 255, 0.14);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.portal-btn-qrcode:hover {
+    background: rgba(90, 78, 255, 0.14);
+    box-shadow: 0 10px 22px rgba(90, 78, 255, 0.14);
+    transform: translateY(-1px);
+}
+
 .portal-btn-remind {
     padding: 8px 18px;
     background: rgba(0, 113, 227, 0.06);
@@ -2540,6 +2562,7 @@ body.portal-body {
     }
 
     .portal-btn-go,
+    .portal-btn-qrcode,
     .portal-btn-remind {
         width: 100%;
         min-height: 42px;
