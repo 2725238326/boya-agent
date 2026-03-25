@@ -157,7 +157,7 @@
                 </form>
 
                 <div class="qrcode-status-box" id="qrcodeStatusBox">
-                    {% if qrcode_course %}上传后会自动出现在这门课的二维码列表里。{% else %}上传后会出现在共享二维码列表里。{% endif %}
+                    {% if qrcode_course %}上传后会自动出现在这门课的二维码列表里。有效贡献累计达到门槛后，系统会主动通知你。{% else %}上传后会出现在共享二维码列表里。有效贡献累计达到门槛后，系统会主动通知你。{% endif %}
                 </div>
             </section>
 
@@ -174,54 +174,6 @@
                     <div class="qrcode-empty">正在加载二维码...</div>
                 </div>
             </section>
-
-            <aside class="qrcode-panel qrcode-side-panel" id="qrcodeStatsSection">
-                <div class="qrcode-panel-head">
-                    <div class="qrcode-section-kicker">排行</div>
-                    <h2>贡献排行</h2>
-                    <p>想看排行时，再看这里就行。</p>
-                </div>
-
-                <div class="qrcode-identity">
-                    <div class="qrcode-identity-label">当前账号</div>
-                    <div class="qrcode-identity-value" id="qrcodeCurrentUser">未登录</div>
-                </div>
-
-                <div class="qrcode-stats" id="qrcodeContributorStats">
-                    <div class="qrcode-stat-card">
-                        <div class="qrcode-stat-label">累计上传</div>
-                        <div class="qrcode-stat-value" id="qrcodeUploadCount">0</div>
-                    </div>
-                    <div class="qrcode-stat-card">
-                        <div class="qrcode-stat-label">下一档</div>
-                        <div class="qrcode-stat-value" id="qrcodeNextReward">3 次</div>
-                    </div>
-                </div>
-
-                <div class="qrcode-thresholds">
-                    <div class="qrcode-thresholds-title">门槛</div>
-                    <div class="qrcode-threshold-list">
-                        {% for threshold in reward_thresholds %}
-                        <span class="qrcode-threshold-chip">{{ threshold }} 次</span>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <div class="qrcode-leaderboards">
-                    <div class="qrcode-leaderboard-card">
-                        <div class="qrcode-thresholds-title" id="qrcodeCurrentLeaderboardTitle">本期贡献榜</div>
-                        <div class="qrcode-leaderboard-list" id="qrcodeCurrentLeaderboard">
-                            <div class="qrcode-empty compact">正在加载榜单...</div>
-                        </div>
-                    </div>
-                    <div class="qrcode-leaderboard-card">
-                        <div class="qrcode-thresholds-title">累计贡献榜</div>
-                        <div class="qrcode-leaderboard-list" id="qrcodeAllTimeLeaderboard">
-                            <div class="qrcode-empty compact">正在加载榜单...</div>
-                        </div>
-                    </div>
-                </div>
-            </aside>
         </section>
     </main>
 

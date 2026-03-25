@@ -60,13 +60,18 @@ function updateContributorStats(data = {}) {
     const emailEl = document.getElementById("qrcodeCurrentUser");
     const countEl = document.getElementById("qrcodeUploadCount");
     const nextRewardEl = document.getElementById("qrcodeNextReward");
-    if (!emailEl || !countEl || !nextRewardEl) return;
 
     const email = data.email || "";
     const stats = data.stats || {};
-    emailEl.textContent = email || "未登录";
-    countEl.textContent = String(stats.total_uploads || 0);
-    nextRewardEl.textContent = stats.next_reward_threshold ? `${stats.next_reward_threshold} 次` : "已达最高档";
+    if (emailEl) {
+        emailEl.textContent = email || "未登录";
+    }
+    if (countEl) {
+        countEl.textContent = String(stats.total_uploads || 0);
+    }
+    if (nextRewardEl) {
+        nextRewardEl.textContent = stats.next_reward_threshold ? `${stats.next_reward_threshold} 次` : "已达最高档";
+    }
 
     const emailInput = document.getElementById("qrcodeEmail");
     if (email && emailInput && !emailInput.value) {
@@ -164,7 +169,7 @@ function renderUploads(items) {
 async function loadQrcodeContext() {
     const result = await qrcodeApi(buildQrcodeApiUrl("/api/qrcode/context"));
     if (!result.success) {
-        setQrcodeStatus(result.error || "加载贡献信息失败", "error");
+        setQrcodeStatus(result.error || "加载页面信息失败", "error");
         return;
     }
 

@@ -431,153 +431,6 @@ body.qrcode-preview-open {
     font-weight: 700;
 }
 
-.qrcode-stats {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 14px;
-}
-
-.qrcode-identity {
-    margin-top: 16px;
-    padding: 14px 16px;
-    border-radius: var(--qrcode-radius-md);
-    border: 1px solid var(--qrcode-border);
-    background: rgba(255, 255, 255, 0.84);
-}
-
-.qrcode-identity-label {
-    color: var(--qrcode-text-soft);
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.qrcode-identity-value {
-    margin-top: 8px;
-    color: var(--qrcode-text);
-    font-size: clamp(17px, 4.8vw, 22px);
-    font-weight: 800;
-    line-height: 1.3;
-    word-break: break-all;
-}
-
-.qrcode-stat-card {
-    padding: 14px;
-    border-radius: var(--qrcode-radius-md);
-    border: 1px solid var(--qrcode-border);
-    background: rgba(255, 255, 255, 0.84);
-}
-
-.qrcode-stat-label {
-    color: var(--qrcode-text-soft);
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.qrcode-stat-value {
-    margin-top: 8px;
-    color: var(--qrcode-text);
-    font-size: clamp(18px, 5.4vw, 24px);
-    font-weight: 900;
-    line-height: 1.12;
-    letter-spacing: -0.04em;
-    word-break: break-all;
-}
-
-.qrcode-thresholds {
-    margin-top: 14px;
-}
-
-.qrcode-thresholds-title {
-    color: var(--qrcode-text);
-    font-size: 15px;
-    font-weight: 800;
-}
-
-.qrcode-threshold-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.qrcode-threshold-chip {
-    display: inline-flex;
-    align-items: center;
-    min-height: 34px;
-    padding: 0 12px;
-    border-radius: 999px;
-    background: rgba(37, 99, 255, 0.08);
-    color: var(--qrcode-accent);
-    font-size: 13px;
-    font-weight: 800;
-}
-
-.qrcode-leaderboards {
-    display: grid;
-    gap: 12px;
-    margin-top: 14px;
-}
-
-.qrcode-leaderboard-card {
-    padding: 14px;
-    border-radius: var(--qrcode-radius-lg);
-    border: 1px solid var(--qrcode-border);
-    background: rgba(255, 255, 255, 0.74);
-}
-
-.qrcode-leaderboard-list {
-    display: grid;
-    gap: 10px;
-    margin-top: 12px;
-}
-
-.qrcode-rank-item {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: var(--qrcode-radius-sm);
-    border: 1px solid rgba(37, 99, 255, 0.1);
-    background: rgba(37, 99, 255, 0.05);
-}
-
-.qrcode-rank-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-
-.qrcode-rank-index {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 42px;
-    min-height: 30px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.88);
-    color: var(--qrcode-accent);
-    font-size: 12px;
-    font-weight: 900;
-}
-
-.qrcode-rank-name {
-    min-width: 0;
-    color: var(--qrcode-text);
-    font-size: 14px;
-    font-weight: 700;
-    word-break: break-all;
-}
-
-.qrcode-rank-score {
-    flex-shrink: 0;
-    color: var(--qrcode-text);
-    font-size: 14px;
-    font-weight: 900;
-}
-
 .qrcode-status-box {
     margin-top: 16px;
     padding: 14px 16px;
@@ -687,8 +540,7 @@ body.qrcode-preview-open {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .qrcode-card-footer,
-    .qrcode-rank-item {
+    .qrcode-card-footer {
         flex-direction: column;
         align-items: flex-start;
     }
@@ -723,25 +575,16 @@ body.qrcode-preview-open {
     }
 
     .qrcode-sections {
-        grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
-        grid-template-areas:
-            "upload side"
-            "list side";
+        grid-template-columns: minmax(0, 1fr);
         align-items: start;
     }
 
     .qrcode-upload-panel {
-        grid-area: upload;
+        grid-area: unset;
     }
 
     .qrcode-list-panel {
-        grid-area: list;
-    }
-
-    .qrcode-side-panel {
-        grid-area: side;
-        position: sticky;
-        top: 92px;
+        grid-area: unset;
     }
 
     .qrcode-grid-two {
