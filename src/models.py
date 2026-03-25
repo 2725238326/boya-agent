@@ -3,10 +3,12 @@ SQLAlchemy 鏁版嵁妯″瀷 - 璇剧▼淇℃伅 & 绛涢€夐厤缃?
 """
 
 import json
+import time
 import secrets
 from datetime import datetime
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, event
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from src.course_state import (
@@ -21,8 +23,24 @@ from src.course_state import (
 DATABASE_PATH = "boya_agent.db"
 
 Base = declarative_base()
-engine = create_engine(f"sqlite:///{DATABASE_PATH}", echo=False)
-SessionLocal = sessionmaker(bind=engine)
+engine = create_engine(
+    f"sqlite:///{DATABASE_PATH}",
+    echo=False,
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 30,
+    },
+)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+@event.listens_for(engine, "connect")
+def _configure_sqlite_connection(dbapi_connection, _connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
 
 
 class Course(Base):
@@ -384,6 +402,35 @@ def init_db():
 def get_session():
     """Get a database session."""
     return SessionLocal()
+
+
+def commit_with_retry(session, retries: int = 4, base_delay: float = 0.15):
+    """Commit with short retries for transient SQLite lock contention."""
+    last_error = None
+    for attempt in range(retries):
+        try:
+            session.commit()
+            return
+        except OperationalError as exc:
+            session.rollback()
+            last_error = exc
+            if "database is locked" not in str(exc).lower() or attempt == retries - 1:
+                raise
+            time.sleep(base_delay * (attempt + 1))
+    if last_error:
+        raise last_error
+
+
+def is_database_locked_error(exc) -> bool:
+    """Return True when an exception chain indicates transient SQLite lock contention."""
+    current = exc
+    checked = set()
+    while current is not None and id(current) not in checked:
+        checked.add(id(current))
+        if "database is locked" in str(current).lower():
+            return True
+        current = getattr(current, "orig", None) or getattr(current, "__cause__", None)
+    return False
 
 
 def _migrate_schema_if_needed():

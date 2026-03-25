@@ -25,6 +25,8 @@ from src.models import (
     NotificationEvent,
     get_session,
     init_db,
+    commit_with_retry,
+    is_database_locked_error,
 )
 from src.course_state import HOT_COURSE_FILL_RATIO, HOT_COURSE_REMAINING_THRESHOLD, is_hot_course
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
@@ -117,6 +119,14 @@ def _check_login_email_cooldown(email: str) -> int:
 
 def _mark_login_email_sent(email: str):
     _login_email_last_sent_at[email] = datetime.now().timestamp()
+
+
+def _database_busy_message(action: str) -> str:
+    return f"当前{action}的人较多，请稍后再试"
+
+
+def _database_busy_json(action: str):
+    return jsonify({"success": False, "error": _database_busy_message(action)}), 503
 
 
 def _create_login_bridge_ticket(session, sub: EmailSubscriber) -> LoginBridgeTicket:
@@ -800,7 +810,7 @@ def api_subscribe():
             existing.self_sign_only = True
             existing.categories = []
             existing.onboarding_seen_at = None
-            session.commit()
+            commit_with_retry(session)
             token = existing.token
         else:
             sub = EmailSubscriber(
@@ -811,7 +821,7 @@ def api_subscribe():
             sub.categories = []
             sub.onboarding_seen_at = None
             session.add(sub)
-            session.commit()
+            commit_with_retry(session)
             token = sub.token
 
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
@@ -823,7 +833,7 @@ def api_subscribe():
         ok = send_verification_email(email, verify_url, verify_code, subscribe_url)
 
         if ok:
-            session.commit()
+            commit_with_retry(session)
             return jsonify({
                 "success": True,
                 "message": f"验证邮件已经发出。推荐直接回到本页输入邮件里的 {VERIFICATION_CODE_LENGTH} 位验证码完成验证。",
@@ -839,6 +849,9 @@ def api_subscribe():
     except Exception as e:
         session.rollback()
         logger.error(f"订阅失败: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"订阅请求遇到数据库锁竞争: {e}")
+            return _database_busy_json("注册")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
@@ -862,7 +875,6 @@ def api_login_request():
         )
         if not sub:
             return jsonify({"success": False, "error": "该邮箱尚未注册，请先点击“订阅推送”完成首次验证"})
-        session.commit()
         resp = jsonify({
             "success": True,
             "message": "识别为已注册用户，正在进入门户。",
@@ -890,7 +902,7 @@ def api_login(token):
         if not sub:
             return redirect("/subscribe?result=invalid")
         _mark_bridge_verified(session, bridge_ticket, sub)
-        session.commit()
+        commit_with_retry(session)
         resp = make_response(redirect(_portal_url_for_subscriber(sub)))
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
@@ -923,7 +935,7 @@ def api_verify_confirm(token):
                 "error": "验证链接无效或已过期，请回到订阅页重新发送验证邮件",
             }), 404
 
-        session.commit()
+        commit_with_retry(session)
         resp = jsonify({
             "success": True,
             "message": "邮箱验证成功",
@@ -936,6 +948,9 @@ def api_verify_confirm(token):
     except Exception as e:
         session.rollback()
         logger.error(f"verify confirm failed: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"邮箱验证确认遇到数据库锁竞争: {e}")
+            return _database_busy_json("验证")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
@@ -965,7 +980,7 @@ def api_subscribe_verify_code():
         if error in {"invalid_code", "code_mismatch"}:
             return jsonify({"success": False, "error": f"验证码不正确，请检查邮件中的 {VERIFICATION_CODE_LENGTH} 位数字"}), 400
 
-        session.commit()
+        commit_with_retry(session)
         resp = jsonify({
             "success": True,
             "message": "邮箱验证成功，正在进入课程门户。",
@@ -978,6 +993,9 @@ def api_subscribe_verify_code():
     except Exception as e:
         session.rollback()
         logger.error(f"subscribe verify code failed: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"验证码验证遇到数据库锁竞争: {e}")
+            return _database_busy_json("验证")
         return jsonify({"success": False, "error": "验证码验证失败，请稍后重试"}), 500
     finally:
         session.close()
@@ -1029,7 +1047,7 @@ def api_subscribe_bridge_claim(ticket):
             return jsonify({"success": False, "error": "subscriber state invalid"}), 409
 
         bridge.claimed_at = now
-        session.commit()
+        commit_with_retry(session)
         resp = jsonify({
             "success": True,
             "message": "already logged in",
@@ -1042,6 +1060,9 @@ def api_subscribe_bridge_claim(ticket):
     except Exception as e:
         session.rollback()
         logger.error(f"bridge login failed: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"桥接登录遇到数据库锁竞争: {e}")
+            return _database_busy_json("登录")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
@@ -1056,7 +1077,7 @@ def api_unsubscribe(token):
         if not sub:
             return redirect("/subscribe?result=invalid")
         sub.active = False
-        session.commit()
+        commit_with_retry(session)
         resp = make_response(redirect("/subscribe?result=unsubscribed"))
         return _clear_portal_session_cookie(resp)
     except Exception as e:
@@ -1077,7 +1098,7 @@ def api_pause_by_token(token):
         if not sub:
             return redirect("/subscribe?result=invalid")
         sub.push_paused_until = datetime.now() + timedelta(hours=hours)
-        session.commit()
+        commit_with_retry(session)
         target = f"/portal?push=paused&hours={hours}"
         resp = make_response(redirect(target))
         return _set_portal_session_cookie(resp, sub.token)
@@ -1102,7 +1123,7 @@ def api_unsubscribe_session():
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.active = False
-        session.commit()
+        commit_with_retry(session)
         resp = jsonify({"success": True, "message": "已退订"})
         return _clear_portal_session_cookie(resp)
     except Exception as e:
@@ -1115,45 +1136,105 @@ def api_unsubscribe_session():
 
 @app.route("/api/subscribers")
 def api_subscribers():
-    """管理端：查看所有订阅者（含推送暂停、通知统计）"""
+    """管理端：查看所有订阅者（聚合推送/提醒/活跃度数据）"""
     now = datetime.now()
+    cutoff_7d = now - timedelta(days=7)
+    dormant_cutoff = now - timedelta(days=14)
     session = get_session()
     try:
         subs = session.query(EmailSubscriber).order_by(EmailSubscriber.created_at.desc()).all()
+        sub_ids = [s.id for s in subs]
+        deliveries_7d_map = {}
+        last_delivery_map = {}
+        pending_reminders_map = {}
+
+        if sub_ids:
+            delivery_rows = (
+                session.query(
+                    NotificationEvent.subscriber_id,
+                    func.count(NotificationEvent.id),
+                )
+                .filter(
+                    NotificationEvent.subscriber_id.in_(sub_ids),
+                    NotificationEvent.sent_at >= cutoff_7d,
+                    NotificationEvent.success == True,  # noqa: E712
+                )
+                .group_by(NotificationEvent.subscriber_id)
+                .all()
+            )
+            deliveries_7d_map = {subscriber_id: count for subscriber_id, count in delivery_rows}
+
+            last_delivery_rows = (
+                session.query(
+                    NotificationEvent.subscriber_id,
+                    func.max(NotificationEvent.sent_at),
+                )
+                .filter(
+                    NotificationEvent.subscriber_id.in_(sub_ids),
+                    NotificationEvent.success == True,  # noqa: E712
+                )
+                .group_by(NotificationEvent.subscriber_id)
+                .all()
+            )
+            last_delivery_map = {subscriber_id: sent_at for subscriber_id, sent_at in last_delivery_rows}
+
+            pending_reminder_rows = (
+                session.query(
+                    CourseReminder.subscriber_id,
+                    func.count(CourseReminder.id),
+                )
+                .filter(
+                    CourseReminder.subscriber_id.in_(sub_ids),
+                    CourseReminder.sent == False,  # noqa: E712
+                )
+                .group_by(CourseReminder.subscriber_id)
+                .all()
+            )
+            pending_reminders_map = {subscriber_id: count for subscriber_id, count in pending_reminder_rows}
+
         result = []
+        summary = {
+            "total": len(subs),
+            "verified": 0,
+            "unverified": 0,
+            "active_sending": 0,
+            "paused": 0,
+            "inactive": 0,
+            "dormant": 0,
+            "joined_7d": 0,
+        }
         for s in subs:
             d = s.to_dict()
-            # 推送暂停信息
             paused = bool(s.push_paused_until and now < s.push_paused_until)
             d["push_is_paused"] = paused
             d["push_paused_until"] = s.push_paused_until.strftime("%Y-%m-%d %H:%M") if paused else None
             d["account_status"] = "active" if s.active else "inactive"
             d["verification_status"] = "verified" if s.verified else "unverified"
-            # 最近通知事件数（7天内）
-            from datetime import timedelta
-            cutoff = now - timedelta(days=7)
-            d["deliveries_7d"] = (
-                session.query(NotificationEvent)
-                .filter(
-                    NotificationEvent.subscriber_id == s.id,
-                    NotificationEvent.sent_at >= cutoff,
-                    NotificationEvent.success == True,  # noqa: E712
-                )
-                .count()
-            )
-            last_event = (
-                session.query(NotificationEvent)
-                .filter(
-                    NotificationEvent.subscriber_id == s.id,
-                    NotificationEvent.success == True,  # noqa: E712
-                )
-                .order_by(NotificationEvent.sent_at.desc())
-                .first()
-            )
-            d["last_delivered_at"] = last_event.sent_at.strftime("%Y-%m-%d %H:%M") if last_event and last_event.sent_at else None
+            d["deliveries_7d"] = deliveries_7d_map.get(s.id, 0)
+            last_delivered_at = last_delivery_map.get(s.id)
+            d["last_delivered_at"] = last_delivered_at.strftime("%Y-%m-%d %H:%M") if last_delivered_at else None
+            d["pending_reminders"] = pending_reminders_map.get(s.id, 0)
             d["last_portal_seen_at"] = s.last_portal_seen_at.strftime("%Y-%m-%d %H:%M") if s.last_portal_seen_at else None
+            d["is_dormant"] = bool(s.active and s.verified and (not s.last_portal_seen_at or s.last_portal_seen_at < dormant_cutoff))
+            d["joined_recently"] = bool(s.created_at and s.created_at >= cutoff_7d)
             result.append(d)
-        return jsonify({"success": True, "data": result, "total": len(result)})
+
+            if s.verified:
+                summary["verified"] += 1
+            else:
+                summary["unverified"] += 1
+            if not s.active:
+                summary["inactive"] += 1
+            elif paused:
+                summary["paused"] += 1
+            else:
+                summary["active_sending"] += 1
+            if d["is_dormant"]:
+                summary["dormant"] += 1
+            if d["joined_recently"]:
+                summary["joined_7d"] += 1
+
+        return jsonify({"success": True, "data": result, "total": len(result), "summary": summary})
     finally:
         session.close()
 
@@ -1193,7 +1274,7 @@ def api_remind(token, course_id):
                 remind_before_minutes=5,
             )
             session.add(reminder)
-            session.commit()
+            commit_with_retry(session)
             logger.info(f"选课提醒已注册: {sub.email} -> {course.name}")
 
         if is_json:
@@ -1202,6 +1283,11 @@ def api_remind(token, course_id):
     except Exception as e:
         session.rollback()
         logger.error(f"注册选课提醒失败: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"注册选课提醒遇到数据库锁竞争: {e}")
+            if is_json:
+                return _database_busy_json("提醒")
+            return redirect("/subscribe?result=invalid")
         if is_json:
             return jsonify({"success": False, "error": str(e)}), 500
         return redirect("/subscribe?result=invalid")
@@ -1347,8 +1433,18 @@ def api_subscriber_session():
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         is_first_portal_visit = sub.last_portal_seen_at is None and sub.onboarding_seen_at is None
-        sub.last_portal_seen_at = datetime.now()
-        session.commit()
+        now = datetime.now()
+        should_persist_last_seen = (
+            sub.last_portal_seen_at is None
+            or (now - sub.last_portal_seen_at) >= timedelta(minutes=10)
+        )
+        if should_persist_last_seen:
+            sub.last_portal_seen_at = now
+            try:
+                commit_with_retry(session)
+            except Exception as e:
+                logger.warning(f"skip last_portal_seen_at update due to DB contention: {e}")
+                session.rollback()
         resp = jsonify({
             "success": True,
             "data": {
@@ -1385,11 +1481,14 @@ def api_subscriber_onboarding_seen():
             return jsonify({"success": False, "error": "会话失效"}), 401
         if not sub.onboarding_seen_at:
             sub.onboarding_seen_at = datetime.now()
-            session.commit()
+            commit_with_retry(session)
         return jsonify({"success": True, "message": "首次引导已记录"})
     except Exception as e:
         session.rollback()
         logger.error(f"mark onboarding seen failed: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"标记首次引导已读遇到数据库锁竞争: {e}")
+            return _database_busy_json("保存设置")
         return jsonify({"success": False, "error": "引导状态保存失败"}), 500
     finally:
         session.close()
@@ -1425,12 +1524,15 @@ def api_subscriber_update(token=None):
         if "active" in data:
             sub.active = bool(data["active"])
 
-        session.commit()
+        commit_with_retry(session)
         logger.info(f"订阅者偏好已更新: {sub.email}")
         return jsonify({"success": True, "message": "偏好已保存", "data": sub.to_dict()})
     except Exception as e:
         session.rollback()
         logger.error(f"更新订阅者偏好失败: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"更新订阅偏好遇到数据库锁竞争: {e}")
+            return _database_busy_json("保存设置")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
@@ -1792,6 +1894,37 @@ def api_portal_highlights():
     except Exception as e:
         logger.exception(f"获取门户亮点失败: {e}")
         return jsonify({"success": False, "error": f"获取门户亮点失败: {e}"}), 500
+    finally:
+        session.close()
+
+
+@app.route("/api/admin/subscriber/<int:sub_id>/pause-push", methods=["POST"])
+def api_admin_pause_push(sub_id):
+    """管理端：暂停订阅者推送 N 小时"""
+    session = get_session()
+    try:
+        sub = session.query(EmailSubscriber).filter_by(id=sub_id).first()
+        if not sub:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+
+        data = request.get_json(silent=True) or {}
+        try:
+            hours = max(1, min(int(data.get("hours", 24)), 24 * 30))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "暂停时长无效"}), 400
+
+        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        session.commit()
+        until_str = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
+        logger.info(f"管理端暂停推送: {sub.email} -> {until_str}")
+        return jsonify({
+            "success": True,
+            "message": f"{sub.email} 已暂停推送 {hours} 小时（至 {until_str}）",
+            "paused_until": until_str,
+        })
+    except Exception as e:
+        session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
 
