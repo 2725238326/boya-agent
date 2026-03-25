@@ -7,6 +7,7 @@ let searchTimeout = null;
 let pushLogsTodayOnly = false;
 let consoleRefreshWatchToken = 0;
 let subscribersAll = [];
+let subscriberQuickFilter = 'all';
 
 const CONSOLE_TAB_KEY = 'console_active_tab';
 
@@ -788,96 +789,257 @@ function showToast(message, type = 'info') {
 }
 
 async function loadSubscribers() {
-    const tbody = document.getElementById('subscribersTbody');
-    if (!tbody) return;
+    const listEl = document.getElementById('subscribersList');
+    if (!listEl) return;
 
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载中...</td></tr>';
+    listEl.innerHTML = '<div class="sub-empty-state">正在加载用户列表...</div>';
     const result = await api('/api/subscribers');
 
     if (!result.success) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">加载失败</td></tr>';
+        listEl.innerHTML = '<div class="sub-empty-state">用户列表加载失败，请稍后再试。</div>';
         return;
     }
 
     subscribersAll = Array.isArray(result.data) ? result.data : [];
-
-    document.getElementById('subStatTotal').textContent = subscribersAll.length;
-    document.getElementById('subStatActive').textContent = subscribersAll.filter((item) => item.active && !item.push_is_paused).length;
-    document.getElementById('subStatPaused').textContent = subscribersAll.filter((item) => item.push_is_paused).length;
+    renderSubscriberSummary(result.summary || {});
+    populateSubscriberCampusOptions(subscribersAll);
 
     filterSubscribers();
+}
+
+function renderSubscriberSummary(summary) {
+    const total = summary.total ?? subscribersAll.length;
+    const activeSending = summary.active_sending ?? subscribersAll.filter((item) => item.active && !item.push_is_paused).length;
+    const paused = summary.paused ?? subscribersAll.filter((item) => item.push_is_paused).length;
+    const unverified = summary.unverified ?? subscribersAll.filter((item) => item.verification_status === 'unverified').length;
+    const dormant = summary.dormant ?? subscribersAll.filter((item) => item.is_dormant).length;
+    const joined = summary.joined_7d ?? subscribersAll.filter((item) => item.joined_recently).length;
+
+    document.getElementById('subStatTotal').textContent = total;
+    document.getElementById('subStatActive').textContent = activeSending;
+    document.getElementById('subStatPaused').textContent = paused;
+    document.getElementById('subStatUnverified').textContent = unverified;
+    document.getElementById('subStatDormant').textContent = dormant;
+    document.getElementById('subStatJoined').textContent = joined;
+}
+
+function populateSubscriberCampusOptions(list) {
+    const select = document.getElementById('subCampusFilter');
+    if (!select) return;
+
+    const previous = select.value || '';
+    const campuses = Array.from(new Set(
+        list
+            .map((item) => String(item.campus_filter || '').trim())
+            .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+    select.innerHTML = '<option value="">全部校区</option>' + campuses
+        .map((campus) => `<option value="${escapeHtml(campus)}">${escapeHtml(campus)}</option>`)
+        .join('');
+
+    if (campuses.includes(previous)) {
+        select.value = previous;
+    }
+}
+
+function applySubscriberQuickFilter(mode) {
+    subscriberQuickFilter = mode;
+    document.querySelectorAll('.sub-summary-card').forEach((card) => card.classList.remove('active'));
+    const activeCard = {
+        all: 'subSummaryAll',
+        active: 'subSummarySending',
+        paused: 'subSummaryPaused',
+        unverified: 'subSummaryUnverified',
+        dormant: 'subSummaryDormant',
+        joined_7d: 'subSummaryJoined',
+    }[mode];
+    if (activeCard) {
+        document.getElementById(activeCard)?.classList.add('active');
+    }
+    filterSubscribers();
+}
+
+function resetSubscriberFilters() {
+    document.getElementById('subSearchInput').value = '';
+    document.getElementById('subStatusFilter').value = '';
+    document.getElementById('subCampusFilter').value = '';
+    document.getElementById('subSortFilter').value = 'created_desc';
+    applySubscriberQuickFilter('all');
 }
 
 function filterSubscribers() {
     const keyword = (document.getElementById('subSearchInput')?.value || '').toLowerCase();
     const status = document.getElementById('subStatusFilter')?.value || '';
+    const campus = document.getElementById('subCampusFilter')?.value || '';
+    const sort = document.getElementById('subSortFilter')?.value || 'created_desc';
 
-    let list = subscribersAll;
-    if (keyword) list = list.filter((item) => String(item.email || '').toLowerCase().includes(keyword));
-    if (status === 'active') list = list.filter((item) => item.active && !item.push_is_paused);
-    else if (status === 'inactive') list = list.filter((item) => !item.active);
-    else if (status === 'paused') list = list.filter((item) => item.push_is_paused);
+    let list = [...subscribersAll];
+    if (keyword) {
+        list = list.filter((item) => {
+            const haystack = [
+                item.email || '',
+                item.campus_filter || '',
+                Array.isArray(item.categories) ? item.categories.join(' ') : '',
+                item.self_sign_only ? '自主签到' : '全部课程',
+            ].join(' ').toLowerCase();
+            return haystack.includes(keyword);
+        });
+    }
+    if (campus) {
+        list = list.filter((item) => String(item.campus_filter || '') === campus);
+    }
+
+    if (subscriberQuickFilter && subscriberQuickFilter !== 'all') {
+        list = list.filter((item) => matchesSubscriberFilter(item, subscriberQuickFilter));
+    }
+    if (status) {
+        list = list.filter((item) => matchesSubscriberFilter(item, status));
+    }
+
+    list.sort((a, b) => getSubscriberSortValue(a, sort, b));
 
     renderSubscribers(list);
+    const meta = document.getElementById('subResultsMeta');
+    if (meta) {
+        meta.textContent = `当前显示 ${list.length} / ${subscribersAll.length} 位用户`;
+    }
+}
+
+function matchesSubscriberFilter(item, mode) {
+    if (mode === 'active') return item.active && item.verified && !item.push_is_paused;
+    if (mode === 'inactive') return !item.active;
+    if (mode === 'paused') return Boolean(item.push_is_paused);
+    if (mode === 'unverified') return item.verification_status === 'unverified' || !item.verified;
+    if (mode === 'dormant') return Boolean(item.is_dormant);
+    if (mode === 'joined_7d') return Boolean(item.joined_recently);
+    return true;
+}
+
+function getSubscriberSortValue(a, mode, b) {
+    const asTime = (value) => {
+        if (!value) return 0;
+        const parsed = new Date(String(value).replace(' ', 'T')).getTime();
+        return Number.isNaN(parsed) ? 0 : parsed;
+    };
+
+    if (mode === 'recent_seen') {
+        return asTime(b.last_portal_seen_at) - asTime(a.last_portal_seen_at);
+    }
+    if (mode === 'deliveries_desc') {
+        return (b.deliveries_7d || 0) - (a.deliveries_7d || 0);
+    }
+    if (mode === 'reminders_desc') {
+        return (b.pending_reminders || 0) - (a.pending_reminders || 0);
+    }
+    return asTime(b.created_at) - asTime(a.created_at);
 }
 
 function renderSubscribers(list) {
-    const tbody = document.getElementById('subscribersTbody');
-    if (!tbody) return;
+    const listEl = document.getElementById('subscribersList');
+    if (!listEl) return;
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">没有匹配的用户</td></tr>';
+        listEl.innerHTML = '<div class="sub-empty-state">没有符合当前筛选条件的用户。</div>';
         return;
     }
 
-    tbody.innerHTML = list.map((subscriber) => {
-        let accountBadge;
-        if (!subscriber.active) accountBadge = '<span class="sub-badge inactive">已停用</span>';
-        else if (subscriber.verification_status === 'unverified') accountBadge = '<span class="sub-badge unverified">待验证</span>';
-        else accountBadge = '<span class="sub-badge active">已启用</span>';
-
-        const campus = subscriber.campus_filter ? escapeHtml(subscriber.campus_filter) : '全部';
-        const categoryCount = Array.isArray(subscriber.categories) && subscriber.categories.length
-            ? `${subscriber.categories.length} 类`
-            : '全部';
-        const selfSign = subscriber.self_sign_only ? '自主签到' : '全部课程';
-        const preference = `${campus} / ${categoryCount} / ${selfSign}`;
-
-        let pushState = '<span class="sub-badge inactive">关闭</span>';
-        if (subscriber.active && subscriber.push_is_paused) {
-            const until = subscriber.push_paused_until
-                ? `至 ${escapeHtml(String(subscriber.push_paused_until).slice(5, 16))}`
-                : '已暂停';
-            pushState = `<div><span class="sub-badge paused">已暂停</span><div class="sub-meta">${until}</div></div>`;
-        } else if (subscriber.active) {
-            pushState = '<span class="sub-badge normal">正常发送</span>';
+    listEl.innerHTML = list.map((subscriber) => {
+        const statusBadges = [];
+        if (!subscriber.active) {
+            statusBadges.push('<span class="sub-badge inactive">已停用</span>');
+        } else if (subscriber.verification_status === 'unverified' || !subscriber.verified) {
+            statusBadges.push('<span class="sub-badge unverified">待验证</span>');
+        } else {
+            statusBadges.push('<span class="sub-badge active">已启用</span>');
         }
 
-        const delivered7d = subscriber.deliveries_7d != null ? subscriber.deliveries_7d : '-';
-        const lastDelivered = subscriber.last_delivered_at ? escapeHtml(String(subscriber.last_delivered_at).slice(5, 16)) : '-';
-        const portalSeen = subscriber.last_portal_seen_at ? escapeHtml(String(subscriber.last_portal_seen_at).slice(5, 16)) : '-';
-        const createdAt = subscriber.created_at ? escapeHtml(String(subscriber.created_at).slice(0, 10)) : '-';
+        if (subscriber.push_is_paused) {
+            statusBadges.push('<span class="sub-badge paused">推送已暂停</span>');
+        } else if (subscriber.active) {
+            statusBadges.push('<span class="sub-badge normal">正常推送</span>');
+        }
 
-        const pauseButton = subscriber.push_is_paused
-            ? `<button class="sub-op-btn success" onclick="adminClearPause(${subscriber.id})">恢复推送</button>`
-            : '';
-        const toggleButton = subscriber.active
-            ? `<button class="sub-op-btn danger" onclick="adminToggleSubscriber(${subscriber.id}, true)">停用</button>`
-            : `<button class="sub-op-btn success" onclick="adminToggleSubscriber(${subscriber.id}, false)">启用</button>`;
+        if (subscriber.is_dormant) {
+            statusBadges.push('<span class="sub-badge neutral">沉默用户</span>');
+        }
+        if (subscriber.joined_recently) {
+            statusBadges.push('<span class="sub-badge accent">近期新增</span>');
+        }
+
+        const campus = subscriber.campus_filter ? escapeHtml(subscriber.campus_filter) : '全部校区';
+        const categories = Array.isArray(subscriber.categories) && subscriber.categories.length
+            ? `${subscriber.categories.length} 类`
+            : '全部类别';
+        const selfSign = subscriber.self_sign_only ? '仅自主签到' : '全部课程';
+        const delivered7d = subscriber.deliveries_7d ?? 0;
+        const pendingReminders = subscriber.pending_reminders ?? 0;
+        const lastDelivered = formatShortDateTime(subscriber.last_delivered_at) || '暂无';
+        const portalSeen = formatShortDateTime(subscriber.last_portal_seen_at) || '未访问';
+        const createdAt = formatDateOnly(subscriber.created_at) || '未知';
+        const pauseUntil = formatShortDateTime(subscriber.push_paused_until);
+
+        const actionButtons = [];
+        if (subscriber.active && subscriber.verified && !subscriber.push_is_paused) {
+            actionButtons.push(`<button class="sub-op-btn" onclick="adminPauseSubscriber(${subscriber.id}, 24)">暂停 24h</button>`);
+        }
+        if (subscriber.push_is_paused) {
+            actionButtons.push(`<button class="sub-op-btn success" onclick="adminClearPause(${subscriber.id})">恢复推送</button>`);
+        }
+        actionButtons.push(
+            subscriber.active
+                ? `<button class="sub-op-btn danger" onclick="adminToggleSubscriber(${subscriber.id}, true)">停用</button>`
+                : `<button class="sub-op-btn success" onclick="adminToggleSubscriber(${subscriber.id}, false)">启用</button>`
+        );
 
         return `
-        <tr>
-            <td class="sub-email">${escapeHtml(subscriber.email)}</td>
-            <td>${accountBadge}</td>
-            <td>${pushState}</td>
-            <td class="sub-pref">${escapeHtml(preference)}</td>
-            <td>${delivered7d}</td>
-            <td class="sub-time">${lastDelivered}</td>
-            <td class="sub-time">${portalSeen}</td>
-            <td class="sub-time">${createdAt}</td>
-            <td><div class="sub-op-group">${pauseButton}${toggleButton}</div></td>
-        </tr>`;
+        <article class="subscriber-card${!subscriber.active ? ' is-inactive' : ''}">
+            <div class="subscriber-card-head">
+                <div class="subscriber-identity">
+                    <div class="sub-email">${escapeHtml(subscriber.email)}</div>
+                    <div class="sub-joined">注册于 ${createdAt}</div>
+                </div>
+                <div class="subscriber-badges">${statusBadges.join('')}</div>
+            </div>
+            <div class="subscriber-card-body">
+                <div class="subscriber-panel">
+                    <span class="subscriber-panel-label">偏好</span>
+                    <div class="subscriber-panel-value">${campus}</div>
+                    <div class="subscriber-panel-meta">${categories} / ${selfSign}</div>
+                </div>
+                <div class="subscriber-panel">
+                    <span class="subscriber-panel-label">活跃度</span>
+                    <div class="subscriber-panel-value">${portalSeen}</div>
+                    <div class="subscriber-panel-meta">最近访问</div>
+                </div>
+                <div class="subscriber-panel">
+                    <span class="subscriber-panel-label">送达与提醒</span>
+                    <div class="subscriber-panel-value">${delivered7d} / ${pendingReminders}</div>
+                    <div class="subscriber-panel-meta">近 7 天送达 / 待提醒</div>
+                </div>
+                <div class="subscriber-panel">
+                    <span class="subscriber-panel-label">最近送达</span>
+                    <div class="subscriber-panel-value">${lastDelivered}</div>
+                    <div class="subscriber-panel-meta">${pauseUntil ? `暂停至 ${pauseUntil}` : '未暂停'}</div>
+                </div>
+            </div>
+            <div class="subscriber-card-actions">
+                ${actionButtons.join('')}
+            </div>
+        </article>`;
     }).join('');
+}
+
+function formatShortDateTime(value) {
+    if (!value) return '';
+    const normalized = String(value).trim();
+    if (!normalized) return '';
+    return normalized.length >= 16 ? normalized.slice(5, 16) : normalized;
+}
+
+function formatDateOnly(value) {
+    if (!value) return '';
+    return String(value).trim().slice(0, 10);
 }
 
 async function sendServiceUpdateBroadcast() {
@@ -917,6 +1079,20 @@ async function adminClearPause(subscriberId) {
     const result = await api(`/api/admin/subscriber/${subscriberId}/clear-pause`, { method: 'POST' });
     if (result.success) {
         showToast('已恢复推送', 'success');
+        loadSubscribers();
+        return;
+    }
+
+    showToast(`操作失败: ${result.error || '未知错误'}`, 'error');
+}
+
+async function adminPauseSubscriber(subscriberId, hours = 24) {
+    const result = await api(`/api/admin/subscriber/${subscriberId}/pause-push`, {
+        method: 'POST',
+        body: JSON.stringify({ hours }),
+    });
+    if (result.success) {
+        showToast(result.message || '已暂停推送', 'success');
         loadSubscribers();
         return;
     }

@@ -349,77 +349,80 @@
         </section>
 
         <section class="tab-content" id="tab-subscribers">
-            <div class="sub-overview">
-                <button class="sub-summary-card active" id="subSummaryAll" onclick="applySubscriberQuickFilter('all')">
-                    <span class="sub-summary-value" id="subStatTotal">-</span>
-                    <span class="sub-summary-label">总用户</span>
-                </button>
-                <button class="sub-summary-card" id="subSummarySending" onclick="applySubscriberQuickFilter('active')">
-                    <span class="sub-summary-value" id="subStatActive">-</span>
-                    <span class="sub-summary-label">正常推送</span>
-                </button>
-                <button class="sub-summary-card" id="subSummaryPaused" onclick="applySubscriberQuickFilter('paused')">
-                    <span class="sub-summary-value" id="subStatPaused">-</span>
-                    <span class="sub-summary-label">已暂停</span>
-                </button>
-                <button class="sub-summary-card" id="subSummaryUnverified" onclick="applySubscriberQuickFilter('unverified')">
-                    <span class="sub-summary-value" id="subStatUnverified">-</span>
-                    <span class="sub-summary-label">待验证</span>
-                </button>
-                <button class="sub-summary-card" id="subSummaryDormant" onclick="applySubscriberQuickFilter('dormant')">
-                    <span class="sub-summary-value" id="subStatDormant">-</span>
-                    <span class="sub-summary-label">沉默 14 天</span>
-                </button>
-                <button class="sub-summary-card" id="subSummaryJoined" onclick="applySubscriberQuickFilter('joined_7d')">
-                    <span class="sub-summary-value" id="subStatJoined">-</span>
-                    <span class="sub-summary-label">近 7 天新增</span>
-                </button>
-            </div>
-
-            <div class="sub-toolbar">
-                <div class="sub-actions sub-actions-wide">
-                    <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱 / 校区 / 偏好..." oninput="filterSubscribers()">
-                    <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
-                        <option value="">全部状态</option>
-                        <option value="active">正常推送</option>
-                        <option value="paused">已暂停</option>
-                        <option value="inactive">已停用</option>
-                        <option value="unverified">待验证</option>
-                        <option value="dormant">沉默 14 天</option>
-                        <option value="joined_7d">近 7 天新增</option>
-                    </select>
-                    <select class="select" id="subCampusFilter" onchange="filterSubscribers()">
-                        <option value="">全部校区</option>
-                    </select>
-                    <select class="select" id="subSortFilter" onchange="filterSubscribers()">
-                        <option value="created_desc">按注册时间排序</option>
-                        <option value="recent_seen">最近访问优先</option>
-                        <option value="deliveries_desc">近 7 天送达优先</option>
-                        <option value="reminders_desc">待提醒最多优先</option>
-                    </select>
-                    <button class="btn btn-sm" onclick="resetSubscriberFilters()">清空筛选</button>
-                    <button class="btn btn-sm" onclick="sendServiceUpdateBroadcast()">发送站点调整通知</button>
-                    <button class="btn btn-sm btn-accent" onclick="loadSubscribers()">🔄 刷新</button>
+            <div class="sub-admin-shell">
+                <div class="sub-section-head">
+                    <div>
+                        <h3>用户管理</h3>
+                        <p>按状态、活跃度和偏好快速筛选，直接处理暂停、恢复和启停。</p>
+                    </div>
+                    <div class="sub-results-meta" id="subResultsMeta">正在加载用户列表...</div>
                 </div>
-                <div class="sub-results-meta" id="subResultsMeta">正在加载用户列表...</div>
-            </div>
 
-            <div class="sub-table-wrap">
-                <table class="log-table sub-table" id="subscribersTable">
-                    <thead>
-                        <tr>
-                            <th>用户</th>
-                            <th>状态</th>
-                            <th>偏好</th>
-                            <th>活跃度</th>
-                            <th>送达 / 提醒</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="subscribersTbody">
-                        <tr><td colspan="6" style="text-align:center;color:var(--text-muted)">加载中...</td></tr>
-                    </tbody>
-                </table>
+                <div class="sub-overview">
+                    <button class="sub-summary-card active" id="subSummaryAll" onclick="applySubscriberQuickFilter('all')">
+                        <span class="sub-summary-value" id="subStatTotal">-</span>
+                        <span class="sub-summary-label">全部用户</span>
+                        <span class="sub-summary-hint">看整体规模</span>
+                    </button>
+                    <button class="sub-summary-card" id="subSummarySending" onclick="applySubscriberQuickFilter('active')">
+                        <span class="sub-summary-value" id="subStatActive">-</span>
+                        <span class="sub-summary-label">正常推送</span>
+                        <span class="sub-summary-hint">当前在稳定接收</span>
+                    </button>
+                    <button class="sub-summary-card" id="subSummaryPaused" onclick="applySubscriberQuickFilter('paused')">
+                        <span class="sub-summary-value" id="subStatPaused">-</span>
+                        <span class="sub-summary-label">已暂停</span>
+                        <span class="sub-summary-hint">需要恢复时处理</span>
+                    </button>
+                    <button class="sub-summary-card" id="subSummaryUnverified" onclick="applySubscriberQuickFilter('unverified')">
+                        <span class="sub-summary-value" id="subStatUnverified">-</span>
+                        <span class="sub-summary-label">待验证</span>
+                        <span class="sub-summary-hint">注册未完成</span>
+                    </button>
+                    <button class="sub-summary-card" id="subSummaryDormant" onclick="applySubscriberQuickFilter('dormant')">
+                        <span class="sub-summary-value" id="subStatDormant">-</span>
+                        <span class="sub-summary-label">沉默 14 天</span>
+                        <span class="sub-summary-hint">适合回访关注</span>
+                    </button>
+                    <button class="sub-summary-card" id="subSummaryJoined" onclick="applySubscriberQuickFilter('joined_7d')">
+                        <span class="sub-summary-value" id="subStatJoined">-</span>
+                        <span class="sub-summary-label">近 7 天新增</span>
+                        <span class="sub-summary-hint">近期增长情况</span>
+                    </button>
+                </div>
+
+                <div class="sub-toolbar">
+                    <div class="sub-toolbar-main">
+                        <input type="text" class="input" id="subSearchInput" placeholder="搜索邮箱、校区或偏好..." oninput="filterSubscribers()">
+                        <button class="btn btn-sm" onclick="sendServiceUpdateBroadcast()">发送站点调整通知</button>
+                        <button class="btn btn-sm btn-accent" onclick="loadSubscribers()">刷新列表</button>
+                    </div>
+                    <div class="sub-toolbar-filters">
+                        <select class="select" id="subStatusFilter" onchange="filterSubscribers()">
+                            <option value="">全部状态</option>
+                            <option value="active">正常推送</option>
+                            <option value="paused">已暂停</option>
+                            <option value="inactive">已停用</option>
+                            <option value="unverified">待验证</option>
+                            <option value="dormant">沉默 14 天</option>
+                            <option value="joined_7d">近 7 天新增</option>
+                        </select>
+                        <select class="select" id="subCampusFilter" onchange="filterSubscribers()">
+                            <option value="">全部校区</option>
+                        </select>
+                        <select class="select" id="subSortFilter" onchange="filterSubscribers()">
+                            <option value="created_desc">按注册时间排序</option>
+                            <option value="recent_seen">最近访问优先</option>
+                            <option value="deliveries_desc">近 7 天送达优先</option>
+                            <option value="reminders_desc">待提醒最多优先</option>
+                        </select>
+                        <button class="btn btn-sm" onclick="resetSubscriberFilters()">清空筛选</button>
+                    </div>
+                </div>
+
+                <div class="subscriber-list" id="subscribersList">
+                    <div class="sub-empty-state">正在加载用户列表...</div>
+                </div>
             </div>
         </section>
 
