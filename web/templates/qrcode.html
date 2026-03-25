@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if qrcode_course %}{{ qrcode_course.name }} 签到二维码{% else %}签到二维码共享{% endif %} | 博雅课程</title>
-    <meta name="description" content="上传和共享常规签到课程二维码，支持课程直达入口、课程专属二维码页和贡献榜。">
+    <meta name="description" content="上传和查看课程签到二维码，支持课程直达入口、共享二维码展示和贡献排行。">
     <link rel="stylesheet" href="{{ url_for('static', filename='qrcode.css') }}">
 </head>
 <body class="qrcode-body" data-course-id="{{ qrcode_course.id if qrcode_course else '' }}">
@@ -25,36 +25,34 @@
     <main class="qrcode-main">
         <section class="qrcode-hero">
             <div class="qrcode-hero-copy">
-                <div class="qrcode-eyebrow">{% if qrcode_course %}课程专属二维码{% elif qrcode_missing_course %}课程入口失效{% else %}二维码共享大厅{% endif %}</div>
                 {% if qrcode_course %}
+                <div class="qrcode-eyebrow">课程专属二维码</div>
                 <h1>{{ qrcode_course.name }}</h1>
-                <p class="qrcode-hero-desc">不用再手填课程名称、时间和地点。你只需要上传二维码图片，其他课程信息都会自动带入。</p>
-                <div class="qrcode-hero-guide">
-                    <span>1. 先上传二维码</span>
-                    <span>2. 再看大家共享</span>
-                    <span>3. 最后看贡献榜</span>
-                </div>
+                <p class="qrcode-hero-desc">
+                    这是这门课的签到二维码页。课程信息已经带好，直接上传图片就可以；如果想先看看别人上传的二维码，也可以直接往下看。
+                </p>
                 {% elif qrcode_missing_course %}
+                <div class="qrcode-eyebrow">入口失效</div>
                 <h1>未找到对应课程</h1>
-                <p class="qrcode-hero-desc">这个入口可能已经失效，或者课程已下线。建议返回门户，从课程卡片上的“签到二维码”入口重新进入。</p>
+                <p class="qrcode-hero-desc">
+                    这个入口可能已经失效，或者课程已下线。建议返回门户，从课程卡片上的“签到二维码”入口重新进入。
+                </p>
                 {% else %}
-                <h1>签到二维码共享页</h1>
-                <p class="qrcode-hero-desc">这里适合统一浏览和上传二维码。如果你是从具体课程进入，推荐用课程直达页，会更清楚也更省事。</p>
-                <div class="qrcode-hero-guide">
-                    <span>上传课程二维码</span>
-                    <span>查看最近共享</span>
-                    <span>查看贡献排行</span>
-                </div>
+                <div class="qrcode-eyebrow">二维码共享</div>
+                <h1>课程签到二维码</h1>
+                <p class="qrcode-hero-desc">
+                    这里可以上传二维码，也可以直接查看最近共享的二维码。想更省事的话，建议从具体课程卡片进入专属页面。
+                </p>
                 {% endif %}
 
                 <nav class="qrcode-jump-nav" aria-label="快捷操作">
                     <a class="qrcode-jump-link primary" href="#qrcodeUploadSection">上传二维码</a>
-                    <a class="qrcode-jump-link" href="#qrcodeListSection">查看共享</a>
-                    <a class="qrcode-jump-link" href="#qrcodeStatsSection">贡献榜</a>
+                    <a class="qrcode-jump-link" href="#qrcodeListSection">查看二维码</a>
+                    <a class="qrcode-jump-link" href="#qrcodeStatsSection">贡献排行</a>
                 </nav>
             </div>
 
-            <div class="qrcode-hero-card">
+            <aside class="qrcode-hero-card">
                 {% if qrcode_course %}
                 <div class="qrcode-hero-card-label">课程信息</div>
                 <div class="qrcode-hero-card-value">{{ qrcode_course.check_in_label }}</div>
@@ -83,7 +81,7 @@
                 </div>
                 {% else %}
                 <div class="qrcode-hero-card-label">当前模式</div>
-                <div class="qrcode-hero-card-value">全站共享</div>
+                <div class="qrcode-hero-card-value">共享大厅</div>
                 <div class="qrcode-hero-card-meta">
                     <div class="qrcode-hero-card-line">
                         <span class="qrcode-hero-card-key">适合</span>
@@ -95,15 +93,15 @@
                     </div>
                 </div>
                 {% endif %}
-            </div>
+            </aside>
         </section>
 
         <section class="qrcode-sections">
             <section class="qrcode-panel qrcode-upload-panel" id="qrcodeUploadSection">
                 <div class="qrcode-panel-head">
-                    <div class="qrcode-section-kicker">步骤 1</div>
+                    <div class="qrcode-section-kicker">上传</div>
                     <h2>{% if qrcode_course %}上传这门课的二维码{% else %}上传二维码{% endif %}</h2>
-                    <p>{% if qrcode_course %}课程信息已经自动带入，你现在只需要上传图片。{% else %}全站共享模式下，仍然可以手动补充课程信息。{% endif %}</p>
+                    <p>{% if qrcode_course %}课程信息已经自动带入，上传会更省事。{% else %}如果你不是从课程页面进来，也可以手动补充课程信息。{% endif %}</p>
                 </div>
 
                 <form id="qrcodeUploadForm" class="qrcode-form" enctype="multipart/form-data">
@@ -124,7 +122,7 @@
                             <span class="qrcode-summary-value">{{ qrcode_course.location or '地点待补充' }}</span>
                         </div>
                     </div>
-                    <div class="qrcode-form-hint">登录门户后会自动识别你的贡献身份，不需要再手填邮箱。</div>
+                    <div class="qrcode-form-hint">登录门户后会自动识别你的账号，不用再手填邮箱。</div>
                     {% else %}
                     <label class="qrcode-field">
                         <span>联系邮箱</span>
@@ -159,7 +157,7 @@
                     </label>
 
                     <div class="qrcode-form-hint">
-                        如果你只是想快速提交，填完图片就可以直接上传；补充说明不是必填项。
+                        只想快速提交的话，上传图片就可以；补充说明可以不填。
                     </div>
 
                     <div class="qrcode-form-actions">
@@ -171,11 +169,11 @@
             <section class="qrcode-panel qrcode-list-panel" id="qrcodeListSection">
                 <div class="qrcode-panel-head qrcode-list-head">
                     <div>
-                        <div class="qrcode-section-kicker">步骤 2</div>
-                        <h2>{% if qrcode_course %}这门课的共享二维码{% else %}最近共享二维码{% endif %}</h2>
-                        <p>{% if qrcode_course %}这里只显示这门课的共享二维码，方便你直接查看和补传。{% else %}这里保留全站最近上传项目，便于统一浏览。{% endif %}</p>
+                        <div class="qrcode-section-kicker">查看</div>
+                        <h2>{% if qrcode_course %}这门课的二维码{% else %}最近共享二维码{% endif %}</h2>
+                        <p>{% if qrcode_course %}点开图片可以放大查看，适合直接扫码或核对。{% else %}这里展示最近上传的二维码，点击图片可以放大。{% endif %}</p>
                     </div>
-                    <button type="button" class="qrcode-button secondary" id="qrcodeRefreshButton">刷新列表</button>
+                    <button type="button" class="qrcode-button secondary" id="qrcodeRefreshButton">刷新二维码</button>
                 </div>
                 <div class="qrcode-list" id="qrcodeList">
                     <div class="qrcode-empty">正在加载二维码列表...</div>
@@ -184,14 +182,14 @@
 
             <aside class="qrcode-panel qrcode-side-panel" id="qrcodeStatsSection">
                 <div class="qrcode-panel-head">
-                    <div class="qrcode-section-kicker">步骤 3</div>
+                    <div class="qrcode-section-kicker">排行</div>
                     <h2>贡献进度</h2>
-                    <p>榜单默认按周结算，同时保留累计贡献统计。</p>
+                    <p>默认展示本期贡献和累计贡献，方便看谁补得最多。</p>
                 </div>
 
                 <div class="qrcode-stats" id="qrcodeContributorStats">
                     <div class="qrcode-stat-card">
-                        <div class="qrcode-stat-label">当前识别用户</div>
+                        <div class="qrcode-stat-label">当前用户</div>
                         <div class="qrcode-stat-value" id="qrcodeCurrentUser">未登录</div>
                     </div>
                     <div class="qrcode-stat-card">
@@ -205,7 +203,7 @@
                 </div>
 
                 <div class="qrcode-thresholds">
-                    <div class="qrcode-thresholds-title">当前预设门槛</div>
+                    <div class="qrcode-thresholds-title">当前门槛</div>
                     <div class="qrcode-threshold-list">
                         {% for threshold in reward_thresholds %}
                         <span class="qrcode-threshold-chip">{{ threshold }} 次</span>
@@ -229,11 +227,24 @@
                 </div>
 
                 <div class="qrcode-status-box" id="qrcodeStatusBox">
-                    {% if qrcode_course %}课程专属入口已经就绪，现在可以直接上传或查看本课二维码。{% else %}页面已就绪，更推荐从具体课程卡片进入课程专属二维码页。{% endif %}
+                    {% if qrcode_course %}这个入口已经准备好，现在可以直接上传或查看本课二维码。{% else %}页面已就绪，也可以从具体课程卡片进入课程专属二维码页。{% endif %}
                 </div>
             </aside>
         </section>
     </main>
+
+    <div class="qrcode-preview" id="qrcodePreview" hidden>
+        <button type="button" class="qrcode-preview-backdrop" id="qrcodePreviewBackdrop" aria-label="关闭预览"></button>
+        <div class="qrcode-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="qrcodePreviewTitle">
+            <div class="qrcode-preview-head">
+                <div class="qrcode-preview-title" id="qrcodePreviewTitle">二维码预览</div>
+                <button type="button" class="qrcode-preview-close" id="qrcodePreviewClose" aria-label="关闭">关闭</button>
+            </div>
+            <div class="qrcode-preview-body">
+                <img id="qrcodePreviewImage" src="" alt="二维码大图">
+            </div>
+        </div>
+    </div>
 
     <script src="{{ url_for('static', filename='qrcode.js') }}"></script>
 </body>

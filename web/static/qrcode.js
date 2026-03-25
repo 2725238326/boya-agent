@@ -103,6 +103,26 @@ function updateLeaderboardTitles(currentBoard) {
         : "本期贡献榜";
 }
 
+function openQrcodePreview(imageUrl, title) {
+    const root = document.getElementById("qrcodePreview");
+    const image = document.getElementById("qrcodePreviewImage");
+    const titleEl = document.getElementById("qrcodePreviewTitle");
+    if (!root || !image || !titleEl) return;
+    image.src = imageUrl;
+    titleEl.textContent = title || "二维码预览";
+    root.hidden = false;
+    document.body.classList.add("qrcode-preview-open");
+}
+
+function closeQrcodePreview() {
+    const root = document.getElementById("qrcodePreview");
+    const image = document.getElementById("qrcodePreviewImage");
+    if (!root || !image) return;
+    root.hidden = true;
+    image.src = "";
+    document.body.classList.remove("qrcode-preview-open");
+}
+
 function renderUploads(items) {
     const container = document.getElementById("qrcodeList");
     if (!container) return;
@@ -112,35 +132,47 @@ function renderUploads(items) {
         return;
     }
 
-    container.innerHTML = items.map((item) => `
-        <article class="qrcode-card">
-            <img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.course_name)}">
-            <div class="qrcode-card-title">${escapeHtml(item.course_name)}</div>
-            <div class="qrcode-card-meta">
-                <div>${escapeHtml(item.course_time || "时间待补充")}</div>
-                <div>${escapeHtml(item.course_location || "地点待补充")}</div>
-            </div>
-            <div class="qrcode-card-notes">${escapeHtml(item.notes || "暂无补充说明")}</div>
-            <div class="qrcode-card-footer">
-                <span>${escapeHtml(item.masked_contributor_email || item.contributor_email || "匿名用户")}</span>
-                <span>累计 ${Number(item.contributor_upload_count || 0)} 次</span>
-            </div>
-        </article>
-    `).join("");
+    container.innerHTML = items.map((item) => {
+        const title = escapeHtml(item.course_name);
+        const imageUrl = escapeHtml(item.image_url);
+        return `
+            <article class="qrcode-card">
+                <button
+                    type="button"
+                    class="qrcode-card-image"
+                    onclick="openQrcodePreview('${imageUrl}', '${title}')"
+                    aria-label="查看 ${title} 的二维码大图"
+                >
+                    <img src="${imageUrl}" alt="${title}">
+                    <span class="qrcode-card-image-tip">点开看大图</span>
+                </button>
+                <div class="qrcode-card-title">${title}</div>
+                <div class="qrcode-card-meta">
+                    <div>${escapeHtml(item.course_time || "时间待补充")}</div>
+                    <div>${escapeHtml(item.course_location || "地点待补充")}</div>
+                </div>
+                <div class="qrcode-card-notes">${escapeHtml(item.notes || "没有补充说明")}</div>
+                <div class="qrcode-card-footer">
+                    <span>${escapeHtml(item.masked_contributor_email || item.contributor_email || "匿名用户")}</span>
+                    <span>累计 ${Number(item.contributor_upload_count || 0)} 次</span>
+                </div>
+            </article>
+        `;
+    }).join("");
 }
 
 async function loadQrcodeContext() {
     const result = await qrcodeApi(buildQrcodeApiUrl("/api/qrcode/context"));
     if (!result.success) {
-        setQrcodeStatus(result.error || "无法加载当前贡献信息", "error");
+        setQrcodeStatus(result.error || "无法加载贡献信息", "error");
         return;
     }
 
     const data = result.data || {};
     updateContributorStats(data);
     updateLeaderboardTitles(data.leaderboard_current);
-    renderLeaderboard("qrcodeCurrentLeaderboard", data.leaderboard_current, "本期暂无贡献记录");
-    renderLeaderboard("qrcodeAllTimeLeaderboard", data.leaderboard_all_time, "累计暂无贡献记录");
+    renderLeaderboard("qrcodeCurrentLeaderboard", data.leaderboard_current, "本期还没有贡献记录");
+    renderLeaderboard("qrcodeAllTimeLeaderboard", data.leaderboard_all_time, "暂时还没有累计贡献记录");
 }
 
 async function loadQrcodeUploads() {
@@ -207,11 +239,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const refreshButton = document.getElementById("qrcodeRefreshButton");
     if (refreshButton) {
         refreshButton.addEventListener("click", async () => {
-            setQrcodeStatus("正在刷新二维码列表...");
+            setQrcodeStatus("正在刷新二维码...");
             await loadQrcodeUploads();
             setQrcodeStatus("二维码列表已刷新");
         });
     }
+
+    document.getElementById("qrcodePreviewBackdrop")?.addEventListener("click", closeQrcodePreview);
+    document.getElementById("qrcodePreviewClose")?.addEventListener("click", closeQrcodePreview);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeQrcodePreview();
+        }
+    });
 
     loadQrcodeContext();
     loadQrcodeUploads();
