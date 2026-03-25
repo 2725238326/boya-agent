@@ -323,7 +323,7 @@ def verify_page(token):
                 button_label="返回订阅页",
             )
 
-        session.commit()
+        commit_with_retry(session)
         resp = make_response(render_template(
             "verify.html",
             success=True,
@@ -337,6 +337,17 @@ def verify_page(token):
     except Exception as e:
         session.rollback()
         logger.error(f"verify page failed: {e}")
+        if is_database_locked_error(e):
+            logger.warning(f"验证页处理遇到数据库锁竞争: {e}")
+            return render_template(
+                "verify.html",
+                success=False,
+                portal_url="/subscribe",
+                title="系统繁忙，请稍后重试",
+                detail="当前验证请求较多，系统正在排队处理。请稍后再试，或回到订阅页重新发送一封新的验证邮件。",
+                auto_redirect=False,
+                button_label="返回订阅页",
+            ), 503
         return render_template(
             "verify.html",
             success=False,
@@ -1786,12 +1797,15 @@ def api_pause_push():
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.push_paused_until = datetime.now() + timedelta(hours=hours)
-        session.commit()
+        commit_with_retry(session)
         until_str = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
         logger.info(f"推送已暂停 {hours} 小时: {sub.email} (至 {until_str})")
         return jsonify({"success": True, "message": f"推送已暂停 {hours} 小时，至 {until_str}", "paused_until": until_str})
     except Exception as e:
         session.rollback()
+        if is_database_locked_error(e):
+            logger.warning(f"按会话暂停推送遇到数据库锁竞争: {e}")
+            return _database_busy_json("保存设置")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
@@ -1810,11 +1824,14 @@ def api_resume_push():
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.push_paused_until = None
-        session.commit()
+        commit_with_retry(session)
         logger.info(f"推送已恢复: {sub.email}")
         return jsonify({"success": True, "message": "推送已恢复"})
     except Exception as e:
         session.rollback()
+        if is_database_locked_error(e):
+            logger.warning(f"按会话恢复推送遇到数据库锁竞争: {e}")
+            return _database_busy_json("保存设置")
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
         session.close()
