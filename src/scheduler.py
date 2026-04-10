@@ -11,8 +11,8 @@
 
 import asyncio
 import os
-import threading
 from typing import Any, Dict
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta
 from loguru import logger
 from sqlalchemy import and_, or_
@@ -64,14 +64,13 @@ _browser_state = {
 _runtime_loop = None
 _active_scrape_task = None
 _active_scrape_task_lock = None
-_submitted_scrape_future = None
-_submitted_scrape_lock = threading.Lock()
 BROWSER_MAX_SCRAPE_RUNS = max(20, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "80")))
 BROWSER_HARD_MAX_SCRAPE_RUNS = max(
     BROWSER_MAX_SCRAPE_RUNS,
     int(os.getenv("BROWSER_HARD_MAX_SCRAPE_RUNS", str(max(140, BROWSER_MAX_SCRAPE_RUNS * 2)))),
 )
 BROWSER_DEFER_RECYCLE_WHEN_HOT = (os.getenv("BROWSER_DEFER_RECYCLE_WHEN_HOT", "true").strip().lower() not in {"0", "false", "no"})
+SCRAPE_TASK_TIMEOUT_SECONDS = max(180, int(os.getenv("SCRAPE_TASK_TIMEOUT_SECONDS", "900")))
 
 # ── 推送缓冲区 ──────────────────────────────────────────
 # 按紧急级别缓冲课程 ID
@@ -108,34 +107,21 @@ def submit_coroutine(coro):
 
 
 def queue_scrape_task(mode: str = "full") -> Dict[str, Any]:
-    global _submitted_scrape_future
-
-    with _submitted_scrape_lock:
-        future = _submitted_scrape_future
-        if future and not future.done():
-            return {
-                "success": True,
-                "started": False,
-                "joined_existing": True,
-                "mode": mode,
-            }
-
-        future = submit_coroutine(run_scrape_task(mode=mode))
-        _submitted_scrape_future = future
-
-        def _clear_submitted(done_future):
-            global _submitted_scrape_future
-            with _submitted_scrape_lock:
-                if _submitted_scrape_future is done_future:
-                    _submitted_scrape_future = None
-
-        future.add_done_callback(_clear_submitted)
+    future = submit_coroutine(trigger_scrape_task(mode=mode))
+    try:
+        return future.result(timeout=5)
+    except FutureTimeoutError:
+        logger.warning(f"queue scrape task confirmation timed out, assume {mode} scrape request has been queued")
         return {
             "success": True,
             "started": True,
             "joined_existing": False,
             "mode": mode,
+            "queued_without_confirmation": True,
         }
+    except Exception as e:
+        logger.error(f"queue scrape task failed: {e}")
+        raise
 
 
 def _ensure_active_scrape_task_lock():
@@ -349,7 +335,7 @@ async def monitor_active_enrollment_courses():
     finally:
         session.close()
 
-    await run_scrape_task(mode="quick")
+    await trigger_scrape_task(mode="quick")
 
 
 async def monitor_hot_courses():
@@ -375,7 +361,7 @@ async def monitor_hot_courses():
     finally:
         session.close()
 
-    await run_scrape_task(mode="quick")
+    await trigger_scrape_task(mode="quick")
 
 
 # ═══════════════════════════════════════════════════════
@@ -611,30 +597,101 @@ async def _run_scrape_task_impl(mode: str = "full"):
         run_status["is_running"] = False
 
 
-async def run_scrape_task(mode: str = "full"):
-    """Reuse the in-flight scrape task instead of failing concurrent callers."""
+def _clear_active_scrape_task(task: asyncio.Task) -> None:
+    global _active_scrape_task
+    if _active_scrape_task is task:
+        _active_scrape_task = None
+
+
+async def _execute_scrape_task(mode: str = "full"):
+    try:
+        return await asyncio.wait_for(
+            _run_scrape_task_impl(mode=mode),
+            timeout=SCRAPE_TASK_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        global _consecutive_failures
+        msg = f"scrape task timed out after {SCRAPE_TASK_TIMEOUT_SECONDS}s ({mode})"
+        run_status["last_error"] = msg
+        run_status["is_running"] = False
+        logger.error(msg)
+        _consecutive_failures += 1
+        try:
+            await close_browser()
+        except Exception as close_error:
+            logger.warning(f"close browser after scrape timeout failed: {close_error}")
+        await _check_and_alert_failures()
+        return _scrape_result(
+            False,
+            msg,
+            scraped_count=0,
+            new_courses=0,
+            mode=mode,
+            timed_out=True,
+        )
+
+
+async def _get_or_create_scrape_task(mode: str, join_existing: bool = True):
     global _active_scrape_task
     joined_existing = False
 
     async with _ensure_active_scrape_task_lock():
         task = _active_scrape_task
         if task and not task.done():
-            logger.info("scrape already in progress, joining existing task")
-            joined_existing = True
+            active_mode = getattr(task, "_boya_mode", "unknown")
+            if join_existing:
+                logger.info(f"scrape already in progress ({active_mode}), joining existing task")
+                joined_existing = True
+                return task, joined_existing
+            logger.info(f"scrape already in progress ({active_mode}), skip starting another {mode} scrape")
+            return None, True
         else:
-            task = asyncio.create_task(_run_scrape_task_impl(mode=mode))
+            task = asyncio.create_task(_execute_scrape_task(mode=mode))
+            setattr(task, "_boya_mode", mode)
+            task.add_done_callback(_clear_active_scrape_task)
             _active_scrape_task = task
-    try:
-        result = await task
-        if joined_existing and isinstance(result, dict):
-            joined = dict(result)
-            joined["joined_existing"] = True
-            return joined
-        return result
-    finally:
-        async with _ensure_active_scrape_task_lock():
-            if _active_scrape_task is task and task.done():
-                _active_scrape_task = None
+    return task, joined_existing
+
+
+async def trigger_scrape_task(mode: str = "full"):
+    task, joined_existing = await _get_or_create_scrape_task(mode=mode, join_existing=False)
+    if task is None:
+        return _scrape_result(
+            True,
+            "scrape already in progress",
+            started=False,
+            joined_existing=True,
+            mode=mode,
+            skipped_due_to_active=True,
+        )
+
+    return _scrape_result(
+        True,
+        "scrape started",
+        started=True,
+        joined_existing=joined_existing,
+        mode=mode,
+    )
+
+
+async def run_scrape_task(mode: str = "full", join_existing: bool = True):
+    """Reuse the in-flight scrape task when desired, otherwise return immediately."""
+    task, joined_existing = await _get_or_create_scrape_task(mode=mode, join_existing=join_existing)
+    if task is None:
+        return _scrape_result(
+            True,
+            "scrape already in progress",
+            started=False,
+            joined_existing=True,
+            mode=mode,
+            skipped_due_to_active=True,
+        )
+    result = await task
+    if joined_existing and isinstance(result, dict):
+        joined = dict(result)
+        joined["joined_existing"] = True
+        return joined
+    return result
 
 
 # ═══════════════════════════════════════════════════════

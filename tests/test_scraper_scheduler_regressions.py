@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from datetime import datetime, timedelta
 import sys
@@ -651,6 +652,64 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
 
 class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        scheduler._active_scrape_task = None
+        scheduler._active_scrape_task_lock = None
+        scheduler.run_status["is_running"] = False
+        scheduler.run_status["last_error"] = None
+
+    async def asyncTearDown(self):
+        task = scheduler._active_scrape_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+        scheduler._active_scrape_task = None
+        scheduler._active_scrape_task_lock = None
+        scheduler.run_status["is_running"] = False
+        scheduler.run_status["last_error"] = None
+
+    async def test_trigger_scrape_task_returns_immediately_when_scrape_is_already_running(self):
+        async def _long_running():
+            await asyncio.sleep(60)
+
+        task = asyncio.create_task(_long_running())
+        setattr(task, "_boya_mode", "full")
+        scheduler._active_scrape_task = task
+        scheduler._active_scrape_task_lock = asyncio.Lock()
+
+        payload = await scheduler.trigger_scrape_task(mode="quick")
+
+        self.assertTrue(payload["success"])
+        self.assertFalse(payload["started"])
+        self.assertTrue(payload["joined_existing"])
+        self.assertTrue(payload["skipped_due_to_active"])
+
+    async def test_run_scrape_task_times_out_and_closes_browser(self):
+        async def _slow_impl(mode="full"):
+            await asyncio.sleep(0.05)
+
+        previous_timeout = scheduler.SCRAPE_TASK_TIMEOUT_SECONDS
+        scheduler.SCRAPE_TASK_TIMEOUT_SECONDS = 0
+        try:
+            with (
+                patch.object(scheduler, "_run_scrape_task_impl", new=AsyncMock(side_effect=_slow_impl)),
+                patch.object(scheduler, "close_browser", new=AsyncMock()) as close_browser_mock,
+                patch.object(scheduler, "_check_and_alert_failures", new=AsyncMock()) as alert_mock,
+            ):
+                result = await scheduler.run_scrape_task(mode="quick", join_existing=False)
+        finally:
+            scheduler.SCRAPE_TASK_TIMEOUT_SECONDS = previous_timeout
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["timed_out"])
+        self.assertIn("timed out", result["message"])
+        close_browser_mock.assert_awaited()
+        alert_mock.assert_awaited()
+        self.assertIn("timed out", scheduler.run_status["last_error"])
+
     def test_build_course_row_payload_handles_preview_row(self):
         headers = ["状态", "课程名称", "课程类别", "检索信息", "课程时间", "全局检索", "选课信息", "作业", "人数", "操作"]
         column_map = {}
