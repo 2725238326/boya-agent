@@ -1,5 +1,7 @@
 # 北航博雅课程 Agent — 业务与发展规划 (Roadmap)
 
+> 文档状态：历史资料和规划，不代表当前系统行为。当前已实现能力以 [docs/project/PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md) 和 [docs/product/PRODUCT_BEHAVIOR.md](docs/product/PRODUCT_BEHAVIOR.md) 为准；未来事项仍需逐项确认。
+
 > 整理项目当前已实现的业务逻辑，以及未来的演进方向与商业化 / 社区化尝试的蓝图。
 
 ---

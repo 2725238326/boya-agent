@@ -1,10 +1,12 @@
 # `/admin` 后台接入说明
 
+> 文档状态：部署补充资料。认证、TLS、systemd 和上线检查的完整当前步骤以 [docs/operations/DEPLOYMENT.md](../docs/operations/DEPLOYMENT.md) 为准；本文不替代应用层管理员认证说明。
+
 目标：
 - 对外只保留 `80/443`
 - Flask 仅监听 `127.0.0.1:5000`
 - 后台统一走 `https://你的域名/admin`
-- 通过 Nginx Basic Auth 输入账号密码进入
+- 通过 Nginx Basic Auth 输入账号密码进入；Flask 还会校验应用层 `ADMIN_USERNAME/ADMIN_PASSWORD` 或 `ADMIN_API_TOKEN`
 
 ## 1. 确认应用只监听本机
 

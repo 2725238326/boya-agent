@@ -99,10 +99,8 @@ function renderPortalRefreshMeta() {
 
 // 鈺愨晲鈺愨晲鈺愨晲 Init 鈺愨晲鈺愨晲鈺愨晲
 document.addEventListener('DOMContentLoaded', () => {
-    const params = new URLSearchParams(window.location.search);
-    const email = params.get('email') || '';
-    portalState.email = email;
-    document.getElementById('userEmail').textContent = email || '\u52a0\u8f7d\u4e2d...';
+    portalState.email = '';
+    document.getElementById('userEmail').textContent = '\u52a0\u8f7d\u4e2d...';
     initTabs();
     const savedTab = localStorage.getItem(PORTAL_TAB_KEY);
     if (savedTab) switchPortalTab(savedTab);
@@ -250,8 +248,7 @@ async function portalApi(url, options = {}) {
 
 // 鈺愨晲鈺愨晲鈺愨晲 Data Loading 鈺愨晲鈺愨晲鈺愨晲
 async function loadPortalData() {
-    const emailQuery = portalState.email ? `?email=${encodeURIComponent(portalState.email)}` : '';
-    const sessionRes = await portalApi(`/api/subscriber/session${emailQuery}`);
+    const sessionRes = await portalApi('/api/subscriber/session');
     if (!sessionRes.success) {
         if (sessionRes.status === 401) {
             window.location.href = '/subscribe';
@@ -363,6 +360,9 @@ function renderCourses(courses) {
     }
 
     grid.innerHTML = html;
+    grid.querySelectorAll('[data-reminder-course-id]').forEach((button) => {
+        button.addEventListener('click', () => registerReminder(button.dataset.reminderCourseId, button));
+    });
 
     // 已满课程折叠区
     let fullSection = existingFullSection;
@@ -416,7 +416,7 @@ function renderCourseCard(course, isFull = false) {
         ? ''
         : isReminded
             ? `<button class="portal-btn-remind reminded" disabled>\u2713 \u5df2\u8bbe\u63d0\u9192</button>`
-            : `<button class="portal-btn-remind" onclick="registerReminder('${escapeHtml(course.id)}', this)">\ud83d\udd14 \u63d0\u9192\u6211\u9009\u8bfe</button>`;
+            : `<button class="portal-btn-remind" data-reminder-course-id="${escapeHtml(course.id)}">\ud83d\udd14 \u63d0\u9192\u6211\u9009\u8bfe</button>`;
 
     const cardClass = isFull ? 'portal-course-card portal-card-full' : 'portal-course-card';
     const fullBadge = (remaining <= 0 && !course.expired) ? '<span class="portal-badge portal-badge-full">\u5df2\u6ee1</span>' : '';
@@ -643,7 +643,7 @@ async function waitForPortalRefresh(requestedAt) {
 
     while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const statusRes = await portalApi('/api/status', { suppressErrorToast: true });
+        const statusRes = await portalApi('/api/portal/refresh/status', { suppressErrorToast: true });
         if (!statusRes.success) continue;
 
         const data = statusRes.data || {};

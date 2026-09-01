@@ -18,6 +18,25 @@ if PROJECT_ROOT not in sys.path:
 load_dotenv()
 load_dotenv(os.path.join(PROJECT_ROOT, "config", ".env"))
 
+
+def _validate_runtime_security_config():
+    secret = (os.getenv("WEB_SECRET_KEY") or "").strip()
+    if len(secret) < 32 or secret.lower().startswith("replace-with-"):
+        raise RuntimeError("WEB_SECRET_KEY 未配置、仍是示例值或长度不足 32 个字符")
+
+    admin_token = (os.getenv("ADMIN_API_TOKEN") or "").strip()
+    admin_user = (os.getenv("ADMIN_USERNAME") or "").strip()
+    admin_password = os.getenv("ADMIN_PASSWORD") or ""
+    if admin_token.lower().startswith("replace-with-"):
+        admin_token = ""
+    if admin_password.lower().startswith("replace-with-"):
+        admin_password = ""
+    if not admin_token and not (admin_user and admin_password):
+        raise RuntimeError("必须配置 ADMIN_API_TOKEN，或同时配置 ADMIN_USERNAME/ADMIN_PASSWORD")
+
+
+_validate_runtime_security_config()
+
 logger.remove()
 logger.add(
     sys.stderr,
@@ -53,7 +72,7 @@ async def main():
     init_db()
     logger.info("数据库初始化完成")
 
-    interval = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "10"))
+    interval = max(1, min(1440, int(os.getenv("SCRAPE_INTERVAL_MINUTES", "10"))))
 
     if "--once" in sys.argv:
         logger.info("以单次运行模式执行")

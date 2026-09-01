@@ -52,7 +52,7 @@ async function loadHomeSession() {
         const data = await fetchJson('/api/subscriber/session');
         if (!data.data || !data.data.email) return;
         portalBtn.textContent = '我的门户';
-        portalBtn.href = `/portal?email=${encodeURIComponent(data.data.email)}`;
+        portalBtn.href = '/portal';
     } catch (err) {
         // Logged-out users can keep the default portal entry link.
     }

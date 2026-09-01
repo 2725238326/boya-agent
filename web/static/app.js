@@ -141,6 +141,9 @@ async function loadCourses() {
     }
 
     grid.innerHTML = courses.map((course) => renderCourseCard(course)).join('');
+    grid.querySelectorAll('[data-manual-push-course-id]').forEach((button) => {
+        button.addEventListener('click', () => manualPush(button.dataset.manualPushCourseId, button));
+    });
 }
 
 function isConsoleCourseHot(course) {
@@ -209,7 +212,7 @@ function renderCourseCard(course) {
             <span>剩余 ${remaining} 人</span>
         </div>
         ${!course.expired ? `<div style="margin-top:8px;text-align:right;">
-            <button class="btn btn-sm btn-accent" onclick="manualPush('${course.id}', this)" style="font-size:12px;">📤 推送此课程</button>
+            <button class="btn btn-sm btn-accent" data-manual-push-course-id="${escapeHtml(course.id)}" style="font-size:12px;">📤 推送此课程</button>
         </div>` : ''}
     </div>`;
 }
@@ -351,7 +354,7 @@ function renderCategoryChips(categories, selectedCategories) {
     if (!container) return;
     container.innerHTML = categories.map((category) => {
         const active = selectedCategories.includes(category) ? 'active' : '';
-        return `<span class="chip ${active}" onclick="toggleChip(this, '${escapeHtml(category)}')">${escapeHtml(category)}</span>`;
+        return `<span class="chip ${active}" onclick="toggleChip(this)">${escapeHtml(category)}</span>`;
     }).join('');
 }
 

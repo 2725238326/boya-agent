@@ -4,6 +4,7 @@ SSO 统一认证自动登录模块（WebVPN 版）
 """
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 from loguru import logger
 
 # ========== URL 配置 ==========
@@ -16,6 +17,23 @@ BYKC_WEBVPN_BASE = (
 )
 BYKC_COURSE_URL = f"{BYKC_WEBVPN_BASE}/system/course-select"
 BYKC_HOME_URL = f"{BYKC_WEBVPN_BASE}/system/home"
+
+
+def _mask_username(username: str) -> str:
+    """避免把校园账号原样写入日志。"""
+    value = (username or "").strip()
+    if len(value) <= 2:
+        return "***"
+    return f"{value[:2]}***{value[-2:]}"
+
+
+def safe_url_for_log(url: str) -> str:
+    """只记录 URL 的来源和路径，避免 query 中的 ticket/session 泄露到日志。"""
+    try:
+        parsed = urlsplit(url or "")
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    except Exception:
+        return "<url-redacted>"
 
 
 def _is_sso_login_page(url: str) -> bool:
@@ -39,7 +57,7 @@ async def _detect_and_fill_login_form(page, username: str, password: str) -> boo
         for frame in page.frames:
             if frame.name == "loginIframe":
                 login_frame = frame
-                logger.info(f"找到登录 iframe: {frame.url[:80]}...")
+                logger.info(f"找到登录 iframe: {safe_url_for_log(frame.url)}")
                 break
 
         # 如果没找到 iframe，在主 frame 中查找
@@ -74,7 +92,7 @@ async def _detect_and_fill_login_form(page, username: str, password: str) -> boo
         # 填写学号
         await username_input.first.click()
         await username_input.first.fill(username)
-        logger.info(f"已填写用户名: {username}")
+        logger.info(f"已填写用户名: {_mask_username(username)}")
 
         # 填写密码
         password_input = target.locator('input#pwPassword')
@@ -91,8 +109,7 @@ async def _detect_and_fill_login_form(page, username: str, password: str) -> boo
             logger.warning("未找到密码输入框")
             return False
 
-        # 截图确认已填写
-        await page.screenshot(path="logs/form_filled.png")
+        # 不保存填写后的登录表单截图，避免账号或密码输入状态落盘。
 
         # 点击登录按钮
         submit_btn = target.locator('input[value="登录"]')
@@ -117,15 +134,11 @@ async def _detect_and_fill_login_form(page, username: str, password: str) -> boo
         await page.wait_for_timeout(3000)
         await page.wait_for_load_state("networkidle", timeout=20000)
 
-        logger.info(f"登录提交后 URL: {page.url}")
+        logger.info(f"登录提交后 URL: {safe_url_for_log(page.url)}")
         return True
 
     except Exception as e:
         logger.error(f"填写登录表单失败: {e}")
-        try:
-            await page.screenshot(path="logs/form_error.png")
-        except Exception:
-            pass
         return False
 
 
@@ -135,7 +148,7 @@ async def is_logged_in(page) -> bool:
 
     # 还在 SSO 登录页
     if _is_sso_login_page(current_url):
-        logger.info(f"当前处于 SSO 登录页: {current_url[:100]}...")
+        logger.info(f"当前处于 SSO 登录页: {safe_url_for_log(current_url)}")
         return False
 
     # 被拦截提示"请在校园网环境下访问"
@@ -162,7 +175,7 @@ async def is_logged_in(page) -> bool:
     except Exception:
         pass
 
-    logger.warning(f"无法确定登录状态，URL: {current_url[:100]}...")
+    logger.warning(f"无法确定登录状态，URL: {safe_url_for_log(current_url)}")
     return False
 
 
@@ -176,7 +189,7 @@ async def do_webvpn_and_sso_login(page, username: str, password: str) -> bool:
         await page.goto(WEBVPN_BASE, wait_until="networkidle", timeout=30000)
         await page.wait_for_timeout(2000)
 
-        logger.info(f"WebVPN 页面 URL: {page.url}")
+        logger.info(f"WebVPN 页面 URL: {safe_url_for_log(page.url)}")
         await page.screenshot(path="logs/step1_webvpn.png")
 
         # ====== 第 2 步: 处理 SSO 登录（可能多次） ======
@@ -193,7 +206,7 @@ async def do_webvpn_and_sso_login(page, username: str, password: str) -> bool:
 
                 await page.screenshot(path=f"logs/step2_after_login{attempt+1}.png")
             else:
-                logger.info(f"[2/4] 当前不在 SSO 登录页: {page.url[:80]}...")
+                logger.info(f"[2/4] 当前不在 SSO 登录页: {safe_url_for_log(page.url)}")
                 break
 
         # ====== 第 3 步: 通过 WebVPN 访问博雅系统 ======
@@ -201,7 +214,7 @@ async def do_webvpn_and_sso_login(page, username: str, password: str) -> bool:
         await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30000)
         await page.wait_for_timeout(3000)
 
-        logger.info(f"博雅页面 URL: {page.url}")
+        logger.info(f"博雅页面 URL: {safe_url_for_log(page.url)}")
         await page.screenshot(path="logs/step3_boya.png")
 
         # ====== 第 4 步: 处理博雅系统可能的二次 SSO ======
@@ -213,7 +226,7 @@ async def do_webvpn_and_sso_login(page, username: str, password: str) -> bool:
 
         # 最终 URL
         final_url = page.url
-        logger.info(f"最终 URL: {final_url}")
+        logger.info(f"最终 URL: {safe_url_for_log(final_url)}")
         await page.screenshot(path="logs/login_final.png")
 
         return await is_logged_in(page)

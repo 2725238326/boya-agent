@@ -4,12 +4,18 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=boya-agent
+Group=boya-agent
+UMask=027
 WorkingDirectory=/home/boya-agent
 ExecStart=/home/boya-agent/venv/bin/python src/main.py
 Restart=always
 RestartSec=10
 EnvironmentFile=/home/boya-agent/.env
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/boya-agent /home/boya-agent/logs /home/boya-agent/config
 
 # 日志
 StandardOutput=journal

@@ -4,12 +4,17 @@
 默认关闭，需通过 Web 控制台开启
 """
 
-from datetime import datetime
+import os
+
 from loguru import logger
 from playwright.async_api import Page
 
 from src.models import Course, EnrollLog, FilterConfig, get_session
 from src.filters import get_auto_enroll_candidates, load_filter_config
+from src.time_utils import now as business_now
+
+
+AUTO_ENROLL_FAILURE_LIMIT = max(1, int(os.getenv("AUTO_ENROLL_FAILURE_LIMIT", "3")))
 
 
 async def attempt_enroll(page: Page, course: Course) -> tuple:
@@ -121,7 +126,7 @@ def log_enroll_attempt(course_id: str, course_name: str, success: bool, message:
         log = EnrollLog(
             course_id=course_id,
             course_name=course_name,
-            attempted_at=datetime.now(),
+            attempted_at=business_now(),
             success=success,
             message=message,
         )
@@ -138,13 +143,27 @@ def get_today_enroll_count() -> int:
     """获取今天已自动选课的次数"""
     session = get_session()
     try:
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = business_now().replace(hour=0, minute=0, second=0, microsecond=0)
         count = (
             session.query(EnrollLog)
             .filter(EnrollLog.attempted_at >= today, EnrollLog.success == True)
             .count()
         )
         return count
+    finally:
+        session.close()
+
+
+def get_today_enroll_failure_count() -> int:
+    """获取今天自动选课失败次数，作为高风险操作的持久化熔断依据。"""
+    session = get_session()
+    try:
+        today = business_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return (
+            session.query(EnrollLog)
+            .filter(EnrollLog.attempted_at >= today, EnrollLog.success == False)
+            .count()
+        )
     finally:
         session.close()
 
@@ -168,6 +187,14 @@ async def auto_enroll_if_enabled(page: Page, filtered_courses: list):
         logger.info(f"今日已自动选课 {today_count} 次，达到上限 {config.max_auto_enroll_per_day}")
         return
 
+    failure_count = get_today_enroll_failure_count()
+    if failure_count >= AUTO_ENROLL_FAILURE_LIMIT:
+        logger.error(
+            f"今日自动选课已失败 {failure_count} 次，达到熔断阈值 "
+            f"{AUTO_ENROLL_FAILURE_LIMIT} 次，暂停后续尝试"
+        )
+        return
+
     # 获取候选课程
     candidates = get_auto_enroll_candidates(filtered_courses, config)
     if not candidates:
@@ -177,8 +204,8 @@ async def auto_enroll_if_enabled(page: Page, filtered_courses: list):
     remaining_slots = config.max_auto_enroll_per_day - today_count
 
     for course in candidates[:remaining_slots]:
-        # 发送确认提醒（如果开启）
-        if config.confirm_before_enroll:
+        # 发送确认提醒（仅在 Telegram 通道开启时发送）
+        if config.confirm_before_enroll and config.telegram_enabled:
             from src.push.telegram_bot import send_enroll_confirmation
             await send_enroll_confirmation(course)
 
@@ -189,10 +216,20 @@ async def auto_enroll_if_enabled(page: Page, filtered_courses: list):
         log_enroll_attempt(course.id, course.name, success, message)
 
         # 发送结果通知
-        from src.push.telegram_bot import send_enroll_result
-        from src.push.email_push import send_enroll_result_email
-        await send_enroll_result(course, success, message)
-        await send_enroll_result_email(course, success, message)
+        if config.telegram_enabled:
+            from src.push.telegram_bot import send_enroll_result
+            await send_enroll_result(course, success, message)
+        if config.email_enabled:
+            from src.push.email_push import send_enroll_result_email
+            await send_enroll_result_email(course, success, message)
+
+        if not success:
+            failure_count += 1
+            if failure_count >= AUTO_ENROLL_FAILURE_LIMIT:
+                logger.error(
+                    f"自动选课失败次数达到熔断阈值 {AUTO_ENROLL_FAILURE_LIMIT} 次，"
+                    "暂停本轮后续尝试"
+                )
 
         # 更新数据库
         if success:
@@ -206,3 +243,6 @@ async def auto_enroll_if_enabled(page: Page, filtered_courses: list):
                 session.close()
 
         logger.info(f"自动选课 {'成功' if success else '失败'}: {course.name} - {message}")
+
+        if failure_count >= AUTO_ENROLL_FAILURE_LIMIT:
+            break

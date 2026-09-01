@@ -16,6 +16,11 @@ echo "[1/6] 安装系统依赖..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq python3 python3-pip python3-venv
 
+# 应用不以 root 运行。项目目录是专用目录，后续由该用户拥有。
+if ! id -u boya-agent >/dev/null 2>&1; then
+    sudo useradd --system --user-group --home-dir /home/boya-agent --shell /usr/sbin/nologin boya-agent
+fi
+
 # 2. 创建项目目录
 echo "[2/6] 设置项目目录..."
 mkdir -p "$APP_DIR"
@@ -42,8 +47,11 @@ if [ ! -f .env ]; then
     echo "    nano $APP_DIR/.env"
 fi
 
-# 创建日志目录
-mkdir -p logs
+# 创建运行时目录，并将应用文件交给非 root 服务用户。
+mkdir -p logs config/uploads/qrcode
+sudo chown -R boya-agent:boya-agent "$APP_DIR"
+sudo chmod 750 "$APP_DIR" logs config/uploads config/uploads/qrcode
+sudo chmod 600 .env
 
 # 6. 部署 systemd 服务
 echo "[6/6] 部署 systemd 服务..."

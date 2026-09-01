@@ -93,7 +93,7 @@ function renderLeaderboard(containerId, leaderboard, emptyText) {
         <div class="qrcode-rank-item">
             <div class="qrcode-rank-left">
                 <span class="qrcode-rank-index">#${item.rank}</span>
-                <span class="qrcode-rank-name">${escapeHtml(item.masked_email || item.email || "匿名用户")}</span>
+                <span class="qrcode-rank-name">${escapeHtml(item.masked_email || "匿名用户")}</span>
             </div>
             <span class="qrcode-rank-score">${Number(item.upload_count || 0)} 次</span>
         </div>
@@ -145,7 +145,8 @@ function renderUploads(items) {
                 <button
                     type="button"
                     class="qrcode-card-image"
-                    onclick="openQrcodePreview('${imageUrl}', '${title}')"
+                    data-image-url="${imageUrl}"
+                    data-title="${title}"
                     aria-label="查看 ${title} 的二维码大图"
                 >
                     <img src="${imageUrl}" alt="${title}">
@@ -158,12 +159,18 @@ function renderUploads(items) {
                 </div>
                 <div class="qrcode-card-notes">${escapeHtml(item.notes || "没有补充说明")}</div>
                 <div class="qrcode-card-footer">
-                    <span>${escapeHtml(item.masked_contributor_email || item.contributor_email || "匿名用户")}</span>
+                    <span>${escapeHtml(item.masked_contributor_email || "匿名用户")}</span>
                     <span>累计 ${Number(item.contributor_upload_count || 0)} 次</span>
                 </div>
             </article>
         `;
     }).join("");
+
+    container.querySelectorAll(".qrcode-card-image").forEach((button) => {
+        button.addEventListener("click", () => {
+            openQrcodePreview(button.dataset.imageUrl || "", button.dataset.title || "");
+        });
+    });
 }
 
 async function loadQrcodeContext() {
@@ -217,7 +224,7 @@ async function submitQrcodeForm(event) {
             if (hiddenCourseId) hiddenCourseId.value = qrcodePageState.courseId;
         }
         updateContributorStats({
-            email: result.stats?.email || "",
+            email: result.stats?.masked_email || "",
             stats: result.stats || {},
         });
         await loadQrcodeContext();

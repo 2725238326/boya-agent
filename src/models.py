@@ -3,9 +3,10 @@ SQLAlchemy 鏁版嵁妯″瀷 - 璇剧▼淇℃伅 & 绛涢€夐厤缃?
 """
 
 import json
+import os
 import time
 import secrets
-from datetime import datetime
+from pathlib import Path
 from sqlalchemy import inspect, text, event
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Text
 from sqlalchemy.exc import OperationalError
@@ -16,11 +17,16 @@ from src.course_state import (
     get_check_in_display_label,
     get_hot_reason,
     is_enrollment_open,
+    is_course_expired,
     is_hot_course,
     is_self_check_in,
 )
+from src.time_utils import now as business_now
 
-DATABASE_PATH = "boya_agent.db"
+DATABASE_PATH = os.getenv(
+    "DATABASE_PATH",
+    str(Path(__file__).resolve().parents[1] / "boya_agent.db"),
+)
 
 Base = declarative_base()
 engine = create_engine(
@@ -70,8 +76,8 @@ class Course(Base):
     description = Column(Text, default="")        # 璇剧▼浠嬬粛锛堣鎯呴〉锛?
     organizer = Column(String, default="")        # 璇剧▼缁勭粐璐熻矗浜?
 
-    first_seen = Column(DateTime, default=datetime.now)
-    last_seen = Column(DateTime, default=datetime.now)
+    first_seen = Column(DateTime, default=business_now)
+    last_seen = Column(DateTime, default=business_now)
     pushed = Column(Boolean, default=False)
     expired = Column(Boolean, default=False)  # 閫夎宸叉埅姝?澶辨晥
     enrolled_by_bot = Column(Boolean, default=False)  # 鏄惁琚嚜鍔ㄩ€夎
@@ -82,18 +88,15 @@ class Course(Base):
 
     @property
     def is_enrollable(self) -> bool:
-        now = datetime.now()
         return (
-            (not self.expired)
-            and
             self.enroll_start is not None
             and self.enroll_end is not None
-            and self.enroll_start <= now <= self.enroll_end
+            and is_enrollment_open(self, business_now())
             and self.remaining > 0
         )
 
     def to_dict(self) -> dict:
-        now = datetime.now()
+        now = business_now()
         seconds_since_last_seen = None
         if self.last_seen:
             seconds_since_last_seen = max(0, int((now - self.last_seen).total_seconds()))
@@ -126,7 +129,7 @@ class Course(Base):
             "is_hot_course": is_hot_course(self, now),
             "hot_reason": hot_reason,
             "pushed": self.pushed,
-            "expired": self.expired,
+            "expired": is_course_expired(self, now),
             "first_seen": self.first_seen.strftime("%Y-%m-%d %H:%M") if self.first_seen else "",
             "last_seen": self.last_seen.strftime("%Y-%m-%d %H:%M:%S") if self.last_seen else "",
             "last_seen_seconds_ago": seconds_since_last_seen,
@@ -223,7 +226,7 @@ class PushLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     course_id = Column(String, nullable=False)
     push_type = Column(String, nullable=False)  # telegram / email / rss
-    pushed_at = Column(DateTime, default=datetime.now)
+    pushed_at = Column(DateTime, default=business_now)
     success = Column(Boolean, default=True)
     message = Column(Text, default="")
 
@@ -235,7 +238,7 @@ class EnrollLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     course_id = Column(String, nullable=False)
     course_name = Column(String, nullable=False)
-    attempted_at = Column(DateTime, default=datetime.now)
+    attempted_at = Column(DateTime, default=business_now)
     success = Column(Boolean, default=False)
     message = Column(Text, default="")
 
@@ -253,12 +256,16 @@ class EmailSubscriber(Base):
     categories_json = Column(Text, default="[]")
     campus_filter = Column(String, default="")
     self_sign_only = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=business_now)
     push_paused_until = Column(DateTime, nullable=True)
     last_portal_seen_at = Column(DateTime, nullable=True)
     onboarding_seen_at = Column(DateTime, nullable=True)
     verify_code = Column(String, nullable=True)
     verify_code_expires_at = Column(DateTime, nullable=True)
+    verify_code_attempts = Column(Integer, default=0)
+    login_code = Column(String, nullable=True)
+    login_code_expires_at = Column(DateTime, nullable=True)
+    login_code_attempts = Column(Integer, default=0)
 
     @property
     def categories(self) -> list:
@@ -272,7 +279,7 @@ class EmailSubscriber(Base):
     def push_is_paused(self) -> bool:
         if not self.push_paused_until:
             return False
-        return datetime.now() < self.push_paused_until
+        return business_now() < self.push_paused_until
 
     def to_dict(self) -> dict:
         paused_until_str = None
@@ -304,10 +311,26 @@ class LoginBridgeTicket(Base):
     subscriber_email = Column(String, nullable=False)
     subscriber_token = Column(String, nullable=False)
     verified = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=business_now)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
     claimed_at = Column(DateTime, nullable=True)
+
+
+class EmailAuthChallenge(Base):
+    """短期、一次性邮箱验证/登录链接。"""
+
+    __tablename__ = "email_auth_challenges"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 数据库只保存摘要；原始值只出现在邮件链接中。
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    subscriber_id = Column(Integer, nullable=False, index=True)
+    purpose = Column(String, nullable=False, default="verify")  # verify / login
+    bridge_ticket = Column(String, nullable=True)
+    created_at = Column(DateTime, default=business_now)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
 
 
 class CourseReminder(Base):
@@ -319,7 +342,7 @@ class CourseReminder(Base):
     course_id = Column(String, nullable=False)         # 鍏宠仈 Course.id
     remind_before_minutes = Column(Integer, default=5)
     sent = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=business_now)
 
 
 class NotificationEvent(Base):
@@ -335,7 +358,7 @@ class NotificationEvent(Base):
     event_type = Column(String, default="new")          # new / snipe
     delivery_mode = Column(String, default="")          # priority / digest_urgent / digest_soon / digest_daily
     channel = Column(String, default="email")
-    sent_at = Column(DateTime, default=datetime.now)
+    sent_at = Column(DateTime, default=business_now)
     success = Column(Boolean, default=True)
     message = Column(Text, default="")
 
@@ -356,30 +379,36 @@ class QRCodeUpload(Base):
     original_filename = Column(String, default="")
     mime_type = Column(String, default="")
     file_size = Column(Integer, default=0)
+    content_hash = Column(String(64), default="", index=True)
     verification_status = Column(String, default="pending")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=business_now)
+    updated_at = Column(DateTime, default=business_now)
     deactivated_at = Column(DateTime, nullable=True)
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, *, include_private: bool = False) -> dict:
+        payload = {
             "id": self.id,
             "course_id": self.course_id,
-            "contributor_email": self.contributor_email,
             "course_name": self.course_name,
             "course_time": self.course_time,
             "course_location": self.course_location,
             "notes": self.notes,
-            "file_path": self.file_path,
-            "original_filename": self.original_filename,
-            "mime_type": self.mime_type,
             "file_size": self.file_size,
-            "verification_status": self.verification_status,
-            "is_active": self.is_active,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else "",
         }
+        if include_private:
+            payload.update({
+                "contributor_email": self.contributor_email,
+                "file_path": self.file_path,
+                "original_filename": self.original_filename,
+                "mime_type": self.mime_type,
+                "content_hash": self.content_hash,
+                "verification_status": self.verification_status,
+                "is_active": self.is_active,
+            })
+        return payload
 
 
 
@@ -499,6 +528,26 @@ def _migrate_schema_if_needed():
                     "ALTER TABLE email_subscribers "
                     "ADD COLUMN verify_code_expires_at DATETIME"
                 ))
+            if "verify_code_attempts" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN verify_code_attempts INTEGER DEFAULT 0"
+                ))
+            if "login_code" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN login_code VARCHAR"
+                ))
+            if "login_code_expires_at" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN login_code_expires_at DATETIME"
+                ))
+            if "login_code_attempts" not in sub_columns:
+                conn.execute(text(
+                    "ALTER TABLE email_subscribers "
+                    "ADD COLUMN login_code_attempts INTEGER DEFAULT 0"
+                ))
 
         if "qrcode_uploads" in table_names:
             qr_columns = {col["name"] for col in inspector.get_columns("qrcode_uploads")}
@@ -507,8 +556,17 @@ def _migrate_schema_if_needed():
                     "ALTER TABLE qrcode_uploads "
                     "ADD COLUMN course_id VARCHAR DEFAULT ''"
                 ))
+            if "content_hash" not in qr_columns:
+                conn.execute(text(
+                    "ALTER TABLE qrcode_uploads "
+                    "ADD COLUMN content_hash VARCHAR(64) DEFAULT ''"
+                ))
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_qrcode_uploads_course_id "
                 "ON qrcode_uploads (course_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_qrcode_uploads_content_hash "
+                "ON qrcode_uploads (content_hash)"
             ))
 

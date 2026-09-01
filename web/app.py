@@ -5,13 +5,17 @@ Flask Web 控制台
 
 import os
 import asyncio
+import hashlib
+import hmac
 import secrets
-from datetime import datetime, timedelta
-from urllib.parse import quote
+import time
+from datetime import timedelta
 from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
 from flask_cors import CORS
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, text
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from web.qrcode_feature import qrcode_bp
 from src.models import (
@@ -21,6 +25,7 @@ from src.models import (
     EnrollLog,
     EmailSubscriber,
     LoginBridgeTicket,
+    EmailAuthChallenge,
     CourseReminder,
     NotificationEvent,
     get_session,
@@ -28,8 +33,15 @@ from src.models import (
     commit_with_retry,
     is_database_locked_error,
 )
-from src.course_state import HOT_COURSE_FILL_RATIO, HOT_COURSE_REMAINING_THRESHOLD, is_hot_course
+from src.course_state import (
+    HOT_COURSE_FILL_RATIO,
+    HOT_COURSE_REMAINING_THRESHOLD,
+    is_course_expired,
+    is_enrollment_open,
+    is_hot_course,
+)
 from src.push.rss_feed import generate_rss_feed, generate_atom_feed
+from src.time_utils import now as business_now
 from src.scheduler import (
     BROWSER_HARD_MAX_SCRAPE_RUNS,
     BROWSER_MAX_SCRAPE_RUNS,
@@ -40,6 +52,14 @@ from src.scheduler import (
     update_scheduler_interval,
     update_daily_summary_schedule,
 )
+from web.security import (
+    admin_error_response,
+    is_admin_authorized,
+    is_same_origin_request,
+    mask_email,
+    requires_admin,
+    security_headers,
+)
 
 
 app = Flask(
@@ -47,20 +67,75 @@ app = Flask(
     template_folder=os.path.join(os.path.dirname(__file__), "templates"),
     static_folder=os.path.join(os.path.dirname(__file__), "static"),
 )
-app.secret_key = os.getenv("WEB_SECRET_KEY", "boya-agent-secret-key")
-CORS(app)
+WEB_SECRET_KEY = (os.getenv("WEB_SECRET_KEY") or "").strip()
+if len(WEB_SECRET_KEY) < 32 or WEB_SECRET_KEY.lower().startswith("replace-with-"):
+    raise RuntimeError("WEB_SECRET_KEY must be configured with a non-example value of at least 32 characters")
+app.secret_key = WEB_SECRET_KEY
+
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,
+    x_proto=1,
+    x_host=1,
+)
+
+_configured_origins = {
+    value.strip().rstrip("/")
+    for value in (os.getenv("APP_ALLOWED_ORIGINS") or "").split(",")
+    if value.strip()
+}
+if _configured_origins:
+    CORS(app, origins=sorted(_configured_origins), supports_credentials=False)
 
 PORTAL_SESSION_COOKIE = "portal_token"
 PORTAL_SESSION_MAX_AGE = 60 * 60 * 24 * 180  # 180 days
 LOGIN_EMAIL_COOLDOWN_SECONDS = 20
+LOGIN_IP_COOLDOWN_SECONDS = max(2, int(os.getenv("LOGIN_IP_COOLDOWN_SECONDS", "5")))
 LOGIN_BRIDGE_TTL_SECONDS = max(60, int(os.getenv("LOGIN_BRIDGE_TTL_SECONDS", "900")))
 VERIFICATION_CODE_TTL_MINUTES = max(5, int(os.getenv("VERIFICATION_CODE_TTL_MINUTES", "20")))
-VERIFICATION_CODE_LENGTH = 4
+AUTH_CHALLENGE_TTL_SECONDS = max(300, int(os.getenv("AUTH_CHALLENGE_TTL_SECONDS", "900")))
+AUTH_CODE_MAX_ATTEMPTS = max(3, int(os.getenv("AUTH_CODE_MAX_ATTEMPTS", "5")))
+VERIFICATION_CODE_LENGTH = 6
 _login_email_last_sent_at = {}
+_login_ip_last_sent_at = {}
 DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
 
 app.config["PORTAL_SESSION_COOKIE"] = PORTAL_SESSION_COOKIE
+app.config["MAX_CONTENT_LENGTH"] = max(
+    1024 * 1024,
+    int(os.getenv("QRCODE_MAX_FILE_SIZE", str(5 * 1024 * 1024))) + 1024 * 1024,
+)
 app.register_blueprint(qrcode_bp)
+
+
+@app.before_request
+def _security_boundary():
+    """在进入视图前统一执行管理端认证和跨站写请求检查。"""
+    if requires_admin(request.path) and not is_admin_authorized():
+        return admin_error_response()
+
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not is_same_origin_request():
+        return jsonify({
+            "success": False,
+            "code": "cross_origin_forbidden",
+            "error": "请求来源不受信任",
+        }), 403
+
+
+@app.after_request
+def _security_headers(response):
+    return security_headers(response)
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def _request_entity_too_large(_error):
+    if request.path.startswith("/api/"):
+        return jsonify({
+            "success": False,
+            "code": "request_too_large",
+            "error": "上传内容超过大小限制",
+        }), 413
+    return "请求内容超过大小限制", 413
 
 
 def _is_https_request() -> bool:
@@ -107,18 +182,46 @@ def _get_public_base_url() -> str:
     return DEFAULT_PUBLIC_BASE_URL
 
 
+def _normalize_email(value) -> str:
+    """Normalize a user-supplied email and reject header-injection characters."""
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip().lower()
+    if len(normalized) > 254 or normalized.count("@") != 1:
+        return ""
+    if any(ord(char) < 32 or ord(char) == 127 for char in normalized):
+        return ""
+    if any(char in '<>,;:"()[]\\' for char in normalized):
+        return ""
+    local, domain = normalized.split("@", 1)
+    if not local or not domain or any(char.isspace() for char in normalized):
+        return ""
+    return normalized
+
+
 def _check_login_email_cooldown(email: str) -> int:
-    """返回剩余冷却秒数；0 表示可发送"""
-    last_ts = _login_email_last_sent_at.get(email)
-    if last_ts is None:
-        return 0
-    elapsed = datetime.now().timestamp() - last_ts
-    remain = int(LOGIN_EMAIL_COOLDOWN_SECONDS - elapsed)
-    return max(0, remain)
+    """按邮箱和来源 IP 返回剩余冷却秒数；0 表示可发送。"""
+    now = time.monotonic()
+    email_last = _login_email_last_sent_at.get(email)
+    ip_key = request.remote_addr or "unknown"
+    ip_last = _login_ip_last_sent_at.get(ip_key)
+    email_remain = (
+        int(LOGIN_EMAIL_COOLDOWN_SECONDS - (now - email_last))
+        if email_last is not None
+        else 0
+    )
+    ip_remain = (
+        int(LOGIN_IP_COOLDOWN_SECONDS - (now - ip_last))
+        if ip_last is not None
+        else 0
+    )
+    return max(0, email_remain, ip_remain)
 
 
 def _mark_login_email_sent(email: str):
-    _login_email_last_sent_at[email] = datetime.now().timestamp()
+    now = time.monotonic()
+    _login_email_last_sent_at[email] = now
+    _login_ip_last_sent_at[request.remote_addr or "unknown"] = now
 
 
 def _database_busy_message(action: str) -> str:
@@ -130,11 +233,12 @@ def _database_busy_json(action: str):
 
 
 def _create_login_bridge_ticket(session, sub: EmailSubscriber) -> LoginBridgeTicket:
-    expires_at = datetime.now() + timedelta(seconds=LOGIN_BRIDGE_TTL_SECONDS)
+    expires_at = business_now() + timedelta(seconds=LOGIN_BRIDGE_TTL_SECONDS)
     bridge = LoginBridgeTicket(
         subscriber_id=sub.id,
-        subscriber_email=sub.email,
-        subscriber_token=sub.token,
+        # 旧字段保留用于数据库兼容；新桥接记录不再复制邮箱或会话令牌。
+        subscriber_email="",
+        subscriber_token="",
         expires_at=expires_at,
     )
     session.add(bridge)
@@ -146,20 +250,22 @@ def _mark_bridge_verified(session, ticket: str, sub: EmailSubscriber) -> None:
     ticket = (ticket or "").strip()
     if not ticket:
         return
-    now = datetime.now()
+    now = business_now()
     bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
     if not bridge:
         return
-    if bridge.subscriber_token != sub.token:
+    if bridge.subscriber_id != sub.id:
         return
-    if bridge.expires_at and bridge.expires_at < now:
+    if bridge.expires_at and bridge.expires_at <= now:
+        return
+    if bridge.claimed_at:
         return
     bridge.verified = True
     bridge.verified_at = now
 
 
 def _bridge_payload(bridge: LoginBridgeTicket) -> dict:
-    expires_in = int((bridge.expires_at - datetime.now()).total_seconds())
+    expires_in = int((bridge.expires_at - business_now()).total_seconds())
     return {
         "bridge_ticket": bridge.ticket,
         "bridge_expires_in": max(0, expires_in),
@@ -178,43 +284,134 @@ def _normalize_verification_code(text: str) -> str:
     return "".join(ch for ch in (text or "") if ch.isdigit())[:VERIFICATION_CODE_LENGTH]
 
 
+def _hash_one_time_code(code: str) -> str:
+    """用应用密钥保存验证码摘要，避免数据库直接保存可用验证码。"""
+    return hmac.new(
+        WEB_SECRET_KEY.encode("utf-8"),
+        (code or "").encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def _issue_verification_code(sub: EmailSubscriber) -> str:
     code = _generate_verification_code()
-    sub.verify_code = code
-    sub.verify_code_expires_at = datetime.now() + timedelta(minutes=VERIFICATION_CODE_TTL_MINUTES)
+    sub.verify_code = _hash_one_time_code(code)
+    sub.verify_code_attempts = 0
+    sub.verify_code_expires_at = business_now() + timedelta(minutes=VERIFICATION_CODE_TTL_MINUTES)
     return code
 
 
 def _clear_verification_code(sub: EmailSubscriber) -> None:
     sub.verify_code = None
     sub.verify_code_expires_at = None
+    sub.verify_code_attempts = 0
 
 
-def _mark_all_bridges_verified(session, sub: EmailSubscriber) -> None:
-    now = datetime.now()
-    bridges = (
-        session.query(LoginBridgeTicket)
-        .filter_by(subscriber_token=sub.token)
-        .all()
+def _issue_login_code(sub: EmailSubscriber) -> str:
+    code = _generate_verification_code()
+    sub.login_code = _hash_one_time_code(code)
+    sub.login_code_attempts = 0
+    sub.login_code_expires_at = business_now() + timedelta(minutes=VERIFICATION_CODE_TTL_MINUTES)
+    return code
+
+
+def _clear_login_code(sub: EmailSubscriber) -> None:
+    sub.login_code = None
+    sub.login_code_expires_at = None
+    sub.login_code_attempts = 0
+
+
+def _hash_auth_challenge(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def _create_auth_challenge(
+    session,
+    sub: EmailSubscriber,
+    purpose: str,
+    bridge_ticket: str = "",
+) -> tuple[str, EmailAuthChallenge]:
+    raw_token = secrets.token_urlsafe(32)
+    challenge = EmailAuthChallenge(
+        token_hash=_hash_auth_challenge(raw_token),
+        subscriber_id=sub.id,
+        purpose=purpose,
+        bridge_ticket=(bridge_ticket or "").strip() or None,
+        expires_at=business_now() + timedelta(seconds=AUTH_CHALLENGE_TTL_SECONDS),
     )
-    for bridge in bridges:
-        if bridge.expires_at and bridge.expires_at < now:
-            continue
-        bridge.verified = True
-        bridge.verified_at = now
+    session.add(challenge)
+    session.flush()
+    return raw_token, challenge
 
 
-def _verify_subscriber_token(session, token: str, bridge_ticket: str = ""):
-    sub = session.query(EmailSubscriber).filter_by(token=token).first()
+def _load_auth_challenge(session, raw_token: str, purpose: str):
+    if not raw_token:
+        return None
+    return (
+        session.query(EmailAuthChallenge)
+        .filter_by(token_hash=_hash_auth_challenge(raw_token), purpose=purpose)
+        .first()
+    )
+
+
+def _consume_auth_challenge(session, raw_token: str, purpose: str):
+    """消费短期一次性链接；数据库只按摘要查找原始链接。"""
+    challenge = _load_auth_challenge(session, raw_token, purpose)
+    if not challenge:
+        return None, "invalid"
+
+    now = business_now()
+    if challenge.used_at:
+        return None, "used"
+    if challenge.expires_at and challenge.expires_at <= now:
+        return None, "expired"
+
+    sub = (
+        session.query(EmailSubscriber)
+        .filter_by(id=challenge.subscriber_id)
+        .first()
+    )
     if not sub:
         return None, "invalid"
 
-    sub.verified = True
-    sub.active = True
-    _clear_verification_code(sub)
-    _mark_bridge_verified(session, bridge_ticket, sub)
-    _mark_all_bridges_verified(session, sub)
+    # 用条件更新把“检查未使用 + 标记已使用”收敛为一次数据库写入，
+    # 避免两个并发请求同时消费同一条邮件链接。
+    marked = (
+        session.query(EmailAuthChallenge)
+        .filter(
+            EmailAuthChallenge.id == challenge.id,
+            EmailAuthChallenge.used_at.is_(None),
+        )
+        .update({EmailAuthChallenge.used_at: now}, synchronize_session=False)
+    )
+    if marked != 1:
+        return None, "used"
+
+    if purpose == "verify":
+        sub.verified = True
+        sub.active = True
+        _clear_verification_code(sub)
+    elif not (sub.verified and sub.active):
+        return None, "invalid"
+
+    _mark_bridge_verified(session, challenge.bridge_ticket or "", sub)
     return sub, None
+
+
+def _record_code_failure(sub: EmailSubscriber, purpose: str) -> str:
+    if purpose == "login":
+        attempts = int(sub.login_code_attempts or 0) + 1
+        sub.login_code_attempts = attempts
+        if attempts >= AUTH_CODE_MAX_ATTEMPTS:
+            _clear_login_code(sub)
+            return "too_many_attempts"
+    else:
+        attempts = int(sub.verify_code_attempts or 0) + 1
+        sub.verify_code_attempts = attempts
+        if attempts >= AUTH_CODE_MAX_ATTEMPTS:
+            _clear_verification_code(sub)
+            return "too_many_attempts"
+    return "code_mismatch"
 
 
 def _verify_subscriber_code(session, email: str, code: str, bridge_ticket: str = ""):
@@ -222,29 +419,76 @@ def _verify_subscriber_code(session, email: str, code: str, bridge_ticket: str =
     if not sub:
         return None, "missing"
 
-    if sub.verified and sub.active:
-        _mark_bridge_verified(session, bridge_ticket, sub)
-        _mark_all_bridges_verified(session, sub)
-        return sub, None
-
     normalized = _normalize_verification_code(code)
     if len(normalized) != VERIFICATION_CODE_LENGTH:
-        return None, "invalid_code"
+        purpose = "login" if sub.verified else "verify"
+        return None, _record_code_failure(sub, purpose)
 
-    expires_at = sub.verify_code_expires_at
-    if not sub.verify_code or not expires_at:
+    purpose = "login" if sub.verified else "verify"
+    expected = sub.login_code if purpose == "login" else sub.verify_code
+    expires_at = sub.login_code_expires_at if purpose == "login" else sub.verify_code_expires_at
+    if not expected or not expires_at:
         return None, "missing_code"
-    if expires_at < datetime.now():
+    now = business_now()
+    if expires_at <= now:
         return None, "expired_code"
-    if sub.verify_code != normalized:
-        return None, "code_mismatch"
+    if not hmac.compare_digest(expected, _hash_one_time_code(normalized)):
+        return None, _record_code_failure(sub, purpose)
 
-    sub.verified = True
-    sub.active = True
-    _clear_verification_code(sub)
+    if purpose == "login":
+        # 把“仍是这条验证码 + 尚未过期 + 清空验证码”合并为条件更新，
+        # 避免两个并发请求同时使用同一条验证码。
+        consumed = (
+            session.query(EmailSubscriber)
+            .filter(
+                EmailSubscriber.id == sub.id,
+                EmailSubscriber.login_code == expected,
+                EmailSubscriber.login_code_expires_at > now,
+            )
+            .update({
+                EmailSubscriber.login_code: None,
+                EmailSubscriber.login_code_expires_at: None,
+                EmailSubscriber.login_code_attempts: 0,
+            }, synchronize_session=False)
+        )
+        if consumed != 1:
+            return None, "code_mismatch"
+        _clear_login_code(sub)
+    else:
+        consumed = (
+            session.query(EmailSubscriber)
+            .filter(
+                EmailSubscriber.id == sub.id,
+                EmailSubscriber.verify_code == expected,
+                EmailSubscriber.verify_code_expires_at > now,
+            )
+            .update({
+                EmailSubscriber.verified: True,
+                EmailSubscriber.active: True,
+                EmailSubscriber.verify_code: None,
+                EmailSubscriber.verify_code_expires_at: None,
+                EmailSubscriber.verify_code_attempts: 0,
+            }, synchronize_session=False)
+        )
+        if consumed != 1:
+            return None, "code_mismatch"
+        sub.verified = True
+        sub.active = True
+        _clear_verification_code(sub)
     _mark_bridge_verified(session, bridge_ticket, sub)
-    _mark_all_bridges_verified(session, sub)
     return sub, None
+
+
+def _current_subscriber(session):
+    """只从 HttpOnly 会话 Cookie 解析当前用户，不接受 URL/JSON 中的身份字段。"""
+    token = _get_session_token()
+    if not token:
+        return None
+    return (
+        session.query(EmailSubscriber)
+        .filter_by(token=token, verified=True, active=True)
+        .first()
+    )
 
 
 def _serialize_course_reminders(session, subscriber_id: int, pending_only: bool = False):
@@ -287,6 +531,24 @@ def home_page():
     return render_template("home.html")
 
 
+@app.route("/healthz")
+def healthz():
+    """供 Nginx、systemd 和部署流程使用的公开健康探活端点。"""
+    session = get_session()
+    try:
+        session.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("health check failed")
+        response = jsonify({"success": False, "status": "unavailable"})
+        response.status_code = 503
+    else:
+        response = jsonify({"success": True, "status": "ok"})
+    finally:
+        session.close()
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/admin")
 @app.route("/admin/")
 def admin_console():
@@ -308,43 +570,68 @@ def subscribe_page():
 
 @app.route("/verify/<token>")
 def verify_page(token):
-    bridge_ticket = (request.args.get("bridge") or "").strip()
+    requested_purpose = (request.args.get("purpose") or "verify").strip().lower()
+    purpose = "login" if requested_purpose == "login" else "verify"
+    is_login = purpose == "login"
     session = get_session()
     try:
-        sub, error = _verify_subscriber_token(session, token, bridge_ticket)
-        if error:
+        challenge = _load_auth_challenge(session, token, purpose)
+        now = business_now()
+        if (
+            not challenge
+            or challenge.used_at
+            or (challenge.expires_at and challenge.expires_at <= now)
+            or not session.query(EmailSubscriber).filter_by(id=challenge.subscriber_id).first()
+        ):
             return render_template(
                 "verify.html",
                 success=False,
+                pending=False,
                 portal_url="/subscribe",
-                title="验证没有完成",
-                detail="这个验证链接无效、已失效，或已经被系统清理。请回到订阅页重新发送一封新的验证邮件。",
+                is_login=is_login,
+                title="登录没有完成" if is_login else "验证没有完成",
+                detail=(
+                    "这个登录链接无效、已失效，或已经被系统清理。请回到订阅页重新发送一封新的登录邮件。"
+                    if is_login
+                    else "这个验证链接无效、已失效，或已经被系统清理。请回到订阅页重新发送一封新的验证邮件。"
+                ),
                 auto_redirect=False,
                 button_label="返回订阅页",
             )
 
-        commit_with_retry(session)
-        resp = make_response(render_template(
+        # GET 只展示待确认页面，不消费挑战，避免邮箱安全扫描器提前使用一次性链接。
+        return render_template(
             "verify.html",
-            success=True,
-            portal_url=_portal_url_for_subscriber(sub),
-            title="邮箱验证成功",
-            detail="邮箱已经验证完成。如果你是在邮箱内置浏览器里打开这个页面，稍后回到常用浏览器，点击订阅页里的“已注册用户邮箱登录”也可以进入课程门户。",
-            auto_redirect=True,
-            button_label="进入课程门户",
-        ))
-        return _set_portal_session_cookie(resp, sub.token)
+            success=False,
+            pending=True,
+            confirm_endpoint=f"/api/{purpose}/{token}/confirm",
+            is_login=is_login,
+            portal_url="/subscribe",
+            title="确认登录" if is_login else "确认验证邮箱",
+            detail=(
+                "点击下方按钮后，系统会验证这条一次性登录链接并打开课程门户。链接只能使用一次，并会在短时间后失效。"
+                if is_login
+                else "点击下方按钮后，系统会验证这条一次性验证链接并打开课程门户。链接只能使用一次，并会在短时间后失效。"
+            ),
+            auto_redirect=False,
+            button_label="返回订阅页",
+        )
     except Exception as e:
         session.rollback()
-        logger.error(f"verify page failed: {e}")
+        logger.exception("verify page failed")
         if is_database_locked_error(e):
-            logger.warning(f"验证页处理遇到数据库锁竞争: {e}")
+            logger.warning("验证页处理遇到数据库锁竞争")
             return render_template(
                 "verify.html",
                 success=False,
                 portal_url="/subscribe",
+                is_login=is_login,
                 title="系统繁忙，请稍后重试",
-                detail="当前验证请求较多，系统正在排队处理。请稍后再试，或回到订阅页重新发送一封新的验证邮件。",
+                detail=(
+                    "当前请求较多，系统正在排队处理。请稍后再试，或回到订阅页重新发送一封新的登录邮件。"
+                    if is_login
+                    else "当前验证请求较多，系统正在排队处理。请稍后再试，或回到订阅页重新发送一封新的验证邮件。"
+                ),
                 auto_redirect=False,
                 button_label="返回订阅页",
             ), 503
@@ -352,8 +639,13 @@ def verify_page(token):
             "verify.html",
             success=False,
             portal_url="/subscribe",
-            title="验证失败",
-            detail="系统处理这条验证链接时出了问题。请稍后再试，或回到订阅页重新发送一封新的验证邮件。",
+            is_login=is_login,
+            title="登录失败" if is_login else "验证失败",
+            detail=(
+                "系统处理这条登录链接时出了问题。请稍后再试，或回到订阅页重新发送一封新的登录邮件。"
+                if is_login
+                else "系统处理这条验证链接时出了问题。请稍后再试，或回到订阅页重新发送一封新的验证邮件。"
+            ),
             auto_redirect=False,
             button_label="返回订阅页",
         ), 500
@@ -379,18 +671,20 @@ def api_courses():
         available_now = request.args.get("available_now", "false").lower() == "true"
         waitlist_only = request.args.get("waitlist_only", "false").lower() == "true"
         if today_new:
-            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = business_now().replace(hour=0, minute=0, second=0, microsecond=0)
             query = query.filter(Course.first_seen >= today_start)
-
-        if not include_expired:
-            query = query.filter(Course.expired == False)  # noqa: E712
 
         if category:
             query = query.filter(Course.category.contains(category))
         if campus:
             query = query.filter(Course.campus.contains(campus))
         if self_sign == "true":
-            query = query.filter(Course.check_in_method.contains("自主"))
+            query = query.filter(
+                Course.check_in_method.contains("自主")
+                | Course.check_in_method.contains("自选")
+                | Course.sign_method.contains("自主")
+                | Course.sign_method.contains("自选")
+            )
         if keyword:
             query = query.filter(Course.name.contains(keyword))
         if available_now:
@@ -398,14 +692,21 @@ def api_courses():
         if waitlist_only:
             query = query.filter(Course.expired == False).filter((Course.capacity - Course.enrolled) <= 0)  # noqa: E712
 
-        courses = query.limit(200).all()
+        courses = query.limit(500).all()
+        if not include_expired:
+            courses = [course for course in courses if not is_course_expired(course)]
+        if available_now:
+            current_time = business_now()
+            courses = [course for course in courses if is_enrollment_open(course, current_time)]
+        courses = courses[:200]
         return jsonify({
             "success": True,
             "data": [c.to_dict() for c in courses],
             "total": len(courses),
         })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("加载课程列表失败")
+        return jsonify({"success": False, "code": "courses_unavailable", "error": "课程加载失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -413,15 +714,19 @@ def api_courses():
 @app.route("/api/public/insights")
 def api_public_insights():
     """订阅页公开洞察：可选课程数、热门课程、最近开抢倒计时"""
-    now = datetime.now()
+    now = business_now()
     session = get_session()
     try:
-        active_courses = (
+        active_candidates = (
             session.query(Course)
             .filter(Course.expired == False)  # noqa: E712
             .all()
         )
-        available = [c for c in active_courses if c.remaining > 0]
+        active_courses = [course for course in active_candidates if not is_course_expired(course, now)]
+        available = [
+            c for c in active_courses
+            if c.remaining > 0 and is_enrollment_open(c, now)
+        ]
 
         hot_since = now - timedelta(hours=48)
         hot_rows = (
@@ -515,7 +820,7 @@ def api_update_config():
     """更新筛选配置"""
     session = get_session()
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         config = session.query(FilterConfig).first()
         if not config:
             config = FilterConfig(id=1)
@@ -554,7 +859,10 @@ def api_update_config():
         if "daily_summary_time" in data:
             config.daily_summary_time = str(data["daily_summary_time"]).strip()
         if "interval_minutes" in data:
-            config.interval_minutes = int(data["interval_minutes"])
+            interval_minutes = int(data["interval_minutes"])
+            if not 1 <= interval_minutes <= 1440:
+                return jsonify({"success": False, "error": "抓取间隔必须在 1 到 1440 分钟之间"}), 400
+            config.interval_minutes = interval_minutes
             update_scheduler_interval(config.interval_minutes)
 
         session.commit()
@@ -562,9 +870,10 @@ def api_update_config():
             update_daily_summary_schedule()
         logger.info("配置已更新")
         return jsonify({"success": True, "message": "配置已保存"})
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("配置更新失败")
+        return jsonify({"success": False, "error": "配置保存失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -583,9 +892,10 @@ def api_toggle_enroll():
             "enabled": config.auto_enroll_enabled,
             "message": f"自动选课{status}",
         })
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("自动选课开关更新失败")
+        return jsonify({"success": False, "error": "自动选课开关更新失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -612,14 +922,21 @@ def api_trigger_scrape():
         if result.get("success"):
             return jsonify(result)
         return jsonify(result), 500
-    except Exception as e:
-        logger.error(f"manual scrape trigger failed: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("manual scrape trigger failed")
+        return jsonify({"success": False, "error": "抓取任务启动失败，请稍后重试"}), 500
 
 
 @app.route("/api/portal/refresh", methods=["POST"])
 def api_portal_refresh():
     """Start or join a scrape for the user portal without blocking the request."""
+    session = get_session()
+    try:
+        if not _current_subscriber(session):
+            return jsonify({"success": False, "error": "未登录"}), 401
+    finally:
+        session.close()
+
     try:
         payload = _queue_scrape_task(
             mode="quick",
@@ -628,8 +945,8 @@ def api_portal_refresh():
         )
         return jsonify(payload)
     except Exception as e:
-        logger.error(f"portal refresh trigger failed: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("portal refresh trigger failed")
+        return jsonify({"success": False, "error": "刷新课程失败，请稍后重试"}), 500
 
 
 @app.route("/api/status")
@@ -637,7 +954,7 @@ def api_status():
     """获取系统运行状态"""
     from src.scheduler import _browser_state, _push_buffer
     status = get_run_status()
-    now = datetime.now()
+    now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     session = get_session()
@@ -647,6 +964,7 @@ def api_status():
             .filter(Course.expired == False)  # noqa: E712
             .all()
         )
+        active_courses = [course for course in active_courses if not is_course_expired(course, now)]
         status["total_courses_in_db"] = session.query(Course).count()
         status["total_available_courses"] = sum(1 for course in active_courses if course.remaining > 0)
         status["hot_watch_course_count"] = sum(1 for course in active_courses if is_hot_course(course, now))
@@ -683,6 +1001,29 @@ def api_status():
     status["push_buffer_soon"] = len(_push_buffer.get("soon", []))
 
     return jsonify({"success": True, "data": status})
+
+
+@app.route("/api/portal/refresh/status")
+def api_portal_refresh_status():
+    """为已登录门户提供不含后台统计的刷新状态。"""
+    if not _get_session_token():
+        return jsonify({"success": False, "error": "未登录"}), 401
+    session = get_session()
+    try:
+        if not _current_subscriber(session):
+            return jsonify({"success": False, "error": "会话失效"}), 401
+    finally:
+        session.close()
+
+    status = get_run_status()
+    return jsonify({
+        "success": True,
+        "data": {
+            "is_running": status["is_running"],
+            "last_run": status["last_run"],
+            "last_success": status["last_success"],
+        },
+    })
 
 
 @app.route("/api/categories")
@@ -752,18 +1093,28 @@ def api_enroll_logs():
 
 # ========== RSS 端点 ==========
 
+def _public_feed_courses(session):
+    config = session.query(FilterConfig).first()
+    if config and not config.rss_enabled:
+        return None
+    courses = (
+        session.query(Course)
+        .filter(Course.expired == False)  # noqa: E712
+        .order_by(Course.first_seen.desc())
+        .limit(200)
+        .all()
+    )
+    return [course for course in courses if not is_course_expired(course)]
+
 @app.route("/rss")
 def rss_feed():
     """RSS 2.0 Feed"""
     session = get_session()
     try:
-        courses = (
-            session.query(Course)
-            .order_by(Course.first_seen.desc())
-            .limit(50)
-            .all()
-        )
-        base_url = request.host_url.rstrip("/")
+        courses = _public_feed_courses(session)
+        if courses is None:
+            return Response("RSS 已关闭", status=404, mimetype="text/plain")
+        base_url = _get_public_base_url()
         xml = generate_rss_feed(courses, base_url)
         return Response(xml, mimetype="application/rss+xml; charset=utf-8")
     finally:
@@ -775,13 +1126,10 @@ def atom_feed():
     """Atom Feed"""
     session = get_session()
     try:
-        courses = (
-            session.query(Course)
-            .order_by(Course.first_seen.desc())
-            .limit(50)
-            .all()
-        )
-        base_url = request.host_url.rstrip("/")
+        courses = _public_feed_courses(session)
+        if courses is None:
+            return Response("Atom 已关闭", status=404, mimetype="text/plain")
+        base_url = _get_public_base_url()
         xml = generate_atom_feed(courses, base_url)
         return Response(xml, mimetype="application/atom+xml; charset=utf-8")
     finally:
@@ -793,36 +1141,61 @@ def atom_feed():
 @app.route("/api/subscribe", methods=["POST"])
 def api_subscribe():
     """用户提交邮件订阅"""
-    from src.push.email_push import send_verification_email
+    from src.push.email_push import send_login_code_email, send_verification_email
 
-    data = request.get_json()
-    email = (data.get("email") or "").strip().lower()
-    if not email or "@" not in email:
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email"))
+    if not email:
         return jsonify({"success": False, "error": "请输入有效的邮箱地址"}), 400
 
+    if _check_login_email_cooldown(email):
+        return jsonify({
+            "success": True,
+            "message": "如果这个邮箱可以使用，新的邮件已经在处理中；请稍候检查收件箱。",
+            "data": {
+                "email": email,
+                "verify_code_required": True,
+                "verify_code_length": VERIFICATION_CODE_LENGTH,
+            },
+        })
+
+    _mark_login_email_sent(email)
     session = get_session()
     try:
         existing = session.query(EmailSubscriber).filter_by(email=email).first()
         if existing:
             if existing.active and existing.verified:
-                resp = jsonify({
+                login_code = _issue_login_code(existing)
+                bridge = _create_login_bridge_ticket(session, existing)
+                raw_challenge, _ = _create_auth_challenge(
+                    session, existing, "login", bridge.ticket
+                )
+                base_url = _get_public_base_url()
+                login_url = f"{base_url}/api/login/{raw_challenge}"
+                subscribe_url = f"{base_url}/subscribe"
+                ok = send_login_code_email(email, login_url, login_code, subscribe_url)
+                if not ok:
+                    session.rollback()
+                    return jsonify({"success": False, "error": "邮件发送失败，请稍后重试"}), 502
+                commit_with_retry(session)
+                _mark_login_email_sent(email)
+                return jsonify({
                     "success": True,
-                    "message": "该邮箱已注册，正在进入门户。",
+                    "message": "如果这个邮箱可以使用，邮件已经发出；请回到本页输入邮件里的验证码。",
                     "data": {
-                        "email": existing.email,
-                        "portal_url": _portal_url_for_subscriber(existing),
+                        "email": email,
+                        "verify_code_required": True,
+                        "verify_code_length": VERIFICATION_CODE_LENGTH,
+                        "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
                     },
+                    **_bridge_payload(bridge),
                 })
-                return _set_portal_session_cookie(resp, existing.token)
-            # 重新激活
+
+            # 未完成验证的记录可以重新发送验证邮件，但不会重置已有偏好。
             existing.active = True
             existing.verified = False
-            existing.campus_filter = ""
-            existing.self_sign_only = True
-            existing.categories = []
             existing.onboarding_seen_at = None
-            commit_with_retry(session)
-            token = existing.token
+            sub = existing
         else:
             sub = EmailSubscriber(
                 email=email,
@@ -832,51 +1205,67 @@ def api_subscribe():
             sub.categories = []
             sub.onboarding_seen_at = None
             session.add(sub)
-            commit_with_retry(session)
-            token = sub.token
 
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        session.flush()
         verify_code = _issue_verification_code(sub)
         bridge = _create_login_bridge_ticket(session, sub)
+        raw_challenge, _ = _create_auth_challenge(session, sub, "verify", bridge.ticket)
         base_url = _get_public_base_url()
-        verify_url = f"{base_url}/verify/{token}?bridge={bridge.ticket}"
-        subscribe_url = f"{base_url}/subscribe?email={quote(email)}"
+        verify_url = f"{base_url}/verify/{raw_challenge}"
+        subscribe_url = f"{base_url}/subscribe"
         ok = send_verification_email(email, verify_url, verify_code, subscribe_url)
 
-        if ok:
-            commit_with_retry(session)
-            return jsonify({
-                "success": True,
-                "message": f"验证邮件已经发出。推荐直接回到本页输入邮件里的 {VERIFICATION_CODE_LENGTH} 位验证码完成验证。",
-                "data": {
-                    "email": email,
-                    "verify_code_required": True,
-                    "verify_code_length": VERIFICATION_CODE_LENGTH,
-                    "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
-                },
-                **_bridge_payload(bridge),
-            })
-        return jsonify({"success": False, "error": "验证邮件发送失败，请稍后重试"}), 500
+        if not ok:
+            session.rollback()
+            return jsonify({"success": False, "error": "验证邮件发送失败，请稍后重试"}), 502
+
+        commit_with_retry(session)
+        _mark_login_email_sent(email)
+        return jsonify({
+            "success": True,
+            "message": "如果这个邮箱可以使用，邮件已经发出；请回到本页输入邮件里的验证码。",
+            "data": {
+                "email": email,
+                "verify_code_required": True,
+                "verify_code_length": VERIFICATION_CODE_LENGTH,
+                "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
+            },
+            **_bridge_payload(bridge),
+        })
     except Exception as e:
         session.rollback()
-        logger.error(f"订阅失败: {e}")
+        logger.exception("订阅流程失败")
         if is_database_locked_error(e):
-            logger.warning(f"订阅请求遇到数据库锁竞争: {e}")
             return _database_busy_json("注册")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "订阅处理失败，请稍后重试"}), 500
     finally:
         session.close()
 
 
 @app.route("/api/login/request", methods=["POST"])
 def api_login_request():
-    """已注册用户邮箱直登"""
+    """为已验证用户发送一次性登录链接和验证码。"""
+    from src.push.email_push import send_login_code_email
 
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
-    if not email or "@" not in email:
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email"))
+    if not email:
         return jsonify({"success": False, "error": "请输入有效的邮箱地址"}), 400
 
+    generic_response = {
+        "success": True,
+        "message": "如果这个邮箱已完成验证，登录邮件已经发出；请检查收件箱，或回到本页输入验证码。",
+        "data": {
+            "email": email,
+            "verify_code_required": True,
+            "verify_code_length": VERIFICATION_CODE_LENGTH,
+            "code_expires_in_minutes": VERIFICATION_CODE_TTL_MINUTES,
+        },
+    }
+    if _check_login_email_cooldown(email):
+        return jsonify(generic_response)
+
+    _mark_login_email_sent(email)
     session = get_session()
     try:
         sub = (
@@ -885,65 +1274,86 @@ def api_login_request():
             .first()
         )
         if not sub:
-            return jsonify({"success": False, "error": "该邮箱尚未注册，请先点击“订阅推送”完成首次验证"})
-        resp = jsonify({
-            "success": True,
-            "message": "识别为已注册用户，正在进入门户。",
-            "data": {
-                "email": sub.email,
-                        "portal_url": _portal_url_for_subscriber(sub),
-            },
-        })
-        return _set_portal_session_cookie(resp, sub.token)
+            return jsonify(generic_response)
+
+        login_code = _issue_login_code(sub)
+        # 独立登录请求不向前端暴露桥接票据；验证码或确认页本身即可完成登录。
+        raw_challenge, _ = _create_auth_challenge(session, sub, "login")
+        base_url = _get_public_base_url()
+        login_url = f"{base_url}/api/login/{raw_challenge}"
+        subscribe_url = f"{base_url}/subscribe"
+        if not send_login_code_email(email, login_url, login_code, subscribe_url):
+            session.rollback()
+            logger.warning("登录邮件未发送: {}", mask_email(email))
+            return jsonify(generic_response)
+
+        commit_with_retry(session)
+        _mark_login_email_sent(email)
+        # 登录请求不把桥接票据暴露给前端；避免通过响应字段区分邮箱是否存在。
+        return jsonify(generic_response)
+    except Exception as exc:
+        session.rollback()
+        logger.exception("发送登录邮件失败")
+        if is_database_locked_error(exc):
+            return _database_busy_json("登录")
+        return jsonify({"success": False, "error": "登录邮件发送失败，请稍后重试"}), 500
     finally:
         session.close()
 
 
 @app.route("/api/login/<token>")
 def api_login(token):
-    bridge_ticket = (request.args.get("bridge") or "").strip()
-    """通过邮件链接登录"""
+    """展示一次性登录链接的确认页；真正消费由随后 POST 完成。"""
+    return redirect(f"/verify/{token}?purpose=login")
+
+
+@app.route("/api/login/<token>/confirm", methods=["POST"])
+def api_login_confirm(token):
+    """消费一次性登录链接并签发门户会话。"""
     session = get_session()
     try:
-        sub = (
-            session.query(EmailSubscriber)
-            .filter_by(token=token, verified=True, active=True)
-            .first()
-        )
-        if not sub:
-            return redirect("/subscribe?result=invalid")
-        _mark_bridge_verified(session, bridge_ticket, sub)
+        sub, error = _consume_auth_challenge(session, token, "login")
+        if error:
+            return jsonify({
+                "success": False,
+                "error": "登录链接无效、已过期或已经使用，请回到订阅页重新发送登录邮件",
+            }), 404
         commit_with_retry(session)
-        resp = make_response(redirect(_portal_url_for_subscriber(sub)))
+        resp = jsonify({
+            "success": True,
+            "message": "登录成功，正在进入课程门户。",
+            "data": {
+                "email": mask_email(sub.email),
+                "portal_url": _portal_url_for_subscriber(sub),
+            },
+        })
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
-        logger.error(f"鐧诲綍澶辫触: {e}")
-        return redirect("/subscribe?result=invalid")
+        logger.exception("确认登录链接失败")
+        if is_database_locked_error(e):
+            logger.warning("登录链接确认遇到数据库锁竞争")
+            return _database_busy_json("登录")
+        return jsonify({"success": False, "error": "登录失败，请稍后重试"}), 500
     finally:
         session.close()
 
 
 @app.route("/api/verify/<token>")
 def api_verify(token):
-    bridge_ticket = (request.args.get("bridge") or "").strip()
-    """旧验证链接入口，兼容历史邮件。"""
-    target = f"/verify/{token}"
-    if bridge_ticket:
-        target = f"{target}?bridge={bridge_ticket}"
-    return redirect(target)
+    """验证链接入口。旧的长期订阅 token 不再具有验证权限。"""
+    return redirect(f"/verify/{token}")
 
 
 @app.route("/api/verify/<token>/confirm", methods=["POST"])
 def api_verify_confirm(token):
-    bridge_ticket = (request.args.get("bridge") or "").strip()
     session = get_session()
     try:
-        sub, error = _verify_subscriber_token(session, token, bridge_ticket)
+        sub, error = _consume_auth_challenge(session, token, "verify")
         if error:
             return jsonify({
                 "success": False,
-                "error": "验证链接无效或已过期，请回到订阅页重新发送验证邮件",
+                "error": "验证链接无效、已过期或已经使用，请回到订阅页重新发送验证邮件",
             }), 404
 
         commit_with_retry(session)
@@ -951,30 +1361,30 @@ def api_verify_confirm(token):
             "success": True,
             "message": "邮箱验证成功",
             "data": {
-                "email": sub.email,
+                "email": mask_email(sub.email),
                 "portal_url": _portal_url_for_subscriber(sub),
             },
         })
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
-        logger.error(f"verify confirm failed: {e}")
+        logger.exception("verify confirm failed")
         if is_database_locked_error(e):
-            logger.warning(f"邮箱验证确认遇到数据库锁竞争: {e}")
+            logger.warning("邮箱验证确认遇到数据库锁竞争")
             return _database_busy_json("验证")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "验证失败，请稍后重试"}), 500
     finally:
         session.close()
 
 
 @app.route("/api/subscribe/verify-code", methods=["POST"])
 def api_subscribe_verify_code():
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email"))
     code = _normalize_verification_code(data.get("code") or "")
     bridge_ticket = (data.get("bridge_ticket") or "").strip()
 
-    if not email or "@" not in email:
+    if not email:
         return jsonify({"success": False, "error": "请输入订阅时使用的邮箱"}), 400
     if len(code) != VERIFICATION_CODE_LENGTH:
         return jsonify({"success": False, "error": f"请输入邮件中的 {VERIFICATION_CODE_LENGTH} 位验证码"}), 400
@@ -982,13 +1392,15 @@ def api_subscribe_verify_code():
     session = get_session()
     try:
         sub, error = _verify_subscriber_code(session, email, code, bridge_ticket)
-        if error == "missing":
-            return jsonify({"success": False, "error": "没有找到这个邮箱的订阅记录，请先重新提交订阅"}), 404
-        if error == "missing_code":
-            return jsonify({"success": False, "error": "这个邮箱当前没有待验证的验证码，请重新发送验证邮件"}), 409
+        if error in {"missing", "missing_code"}:
+            return jsonify({"success": False, "error": "邮箱或验证码不正确，请回到订阅页重新获取验证码"}), 400
         if error == "expired_code":
             return jsonify({"success": False, "error": "验证码已过期，请回到订阅页重新发送验证邮件"}), 410
+        if error == "too_many_attempts":
+            commit_with_retry(session)
+            return jsonify({"success": False, "error": "验证码尝试次数过多，请重新发送邮件"}), 429
         if error in {"invalid_code", "code_mismatch"}:
+            commit_with_retry(session)
             return jsonify({"success": False, "error": f"验证码不正确，请检查邮件中的 {VERIFICATION_CODE_LENGTH} 位数字"}), 400
 
         commit_with_retry(session)
@@ -996,16 +1408,16 @@ def api_subscribe_verify_code():
             "success": True,
             "message": "邮箱验证成功，正在进入课程门户。",
             "data": {
-                "email": sub.email,
+                "email": mask_email(sub.email),
                 "portal_url": _portal_url_for_subscriber(sub),
             },
         })
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
-        logger.error(f"subscribe verify code failed: {e}")
+        logger.exception("subscribe verify code failed")
         if is_database_locked_error(e):
-            logger.warning(f"验证码验证遇到数据库锁竞争: {e}")
+            logger.warning("验证码验证遇到数据库锁竞争")
             return _database_busy_json("验证")
         return jsonify({"success": False, "error": "验证码验证失败，请稍后重试"}), 500
     finally:
@@ -1015,19 +1427,20 @@ def api_subscribe_verify_code():
 @app.route("/api/subscribe/bridge/<ticket>/status", methods=["GET"])
 def api_subscribe_bridge_status(ticket):
     """Check cross-device bridge ticket status."""
-    now = datetime.now()
+    now = business_now()
     session = get_session()
     try:
         bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
         if not bridge:
-            return jsonify({"success": False, "error": "bridge ticket not found"}), 404
-        expired = bool(bridge.expires_at and bridge.expires_at < now)
+            return jsonify({"success": False, "error": "找不到这次验证记录，请重新发送邮件"}), 404
+        expired = bool(bridge.expires_at and bridge.expires_at <= now)
+        subscriber = session.query(EmailSubscriber).filter_by(id=bridge.subscriber_id).first()
         return jsonify({
             "success": True,
             "data": {
                 "verified": bool(bridge.verified and not expired),
                 "expired": expired,
-                "email": bridge.subscriber_email,
+                "email": mask_email(subscriber.email if subscriber else ""),
                 "expires_in": max(0, int((bridge.expires_at - now).total_seconds())) if bridge.expires_at else 0,
             },
         })
@@ -1038,43 +1451,45 @@ def api_subscribe_bridge_status(ticket):
 @app.route("/api/subscribe/bridge/<ticket>/claim", methods=["POST"])
 def api_subscribe_bridge_claim(ticket):
     """Claim bridge login on current device after verification."""
-    now = datetime.now()
+    now = business_now()
     session = get_session()
     try:
         bridge = session.query(LoginBridgeTicket).filter_by(ticket=ticket).first()
         if not bridge:
-            return jsonify({"success": False, "error": "bridge ticket not found"}), 404
-        if bridge.expires_at and bridge.expires_at < now:
-            return jsonify({"success": False, "error": "bridge ticket expired, please request a new email link"}), 410
+            return jsonify({"success": False, "error": "找不到这次验证记录，请重新发送邮件"}), 404
+        if bridge.expires_at and bridge.expires_at <= now:
+            return jsonify({"success": False, "error": "验证记录已过期，请重新发送邮件"}), 410
         if not bridge.verified:
-            return jsonify({"success": False, "error": "verification not finished"}), 409
+            return jsonify({"success": False, "error": "邮箱验证还没有完成"}), 409
+        if bridge.claimed_at:
+            return jsonify({"success": False, "error": "这次验证已经领取过登录状态"}), 409
 
         sub = (
             session.query(EmailSubscriber)
-            .filter_by(token=bridge.subscriber_token, verified=True, active=True)
+            .filter_by(id=bridge.subscriber_id, verified=True, active=True)
             .first()
         )
         if not sub:
-            return jsonify({"success": False, "error": "subscriber state invalid"}), 409
+            return jsonify({"success": False, "error": "订阅状态不可用，请重新登录"}), 409
 
         bridge.claimed_at = now
         commit_with_retry(session)
         resp = jsonify({
             "success": True,
-            "message": "already logged in",
+            "message": "登录已完成",
             "data": {
-                "email": sub.email,
+                "email": mask_email(sub.email),
                 "portal_url": _portal_url_for_subscriber(sub),
             },
         })
         return _set_portal_session_cookie(resp, sub.token)
     except Exception as e:
         session.rollback()
-        logger.error(f"bridge login failed: {e}")
+        logger.exception("bridge login failed")
         if is_database_locked_error(e):
-            logger.warning(f"桥接登录遇到数据库锁竞争: {e}")
+            logger.warning("桥接登录遇到数据库锁竞争")
             return _database_busy_json("登录")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "登录失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1093,7 +1508,7 @@ def api_unsubscribe(token):
         return _clear_portal_session_cookie(resp)
     except Exception as e:
         session.rollback()
-        logger.error(f"退订失败: {e}")
+        logger.exception("退订失败")
         return redirect("/subscribe?result=invalid")
     finally:
         session.close()
@@ -1102,20 +1517,21 @@ def api_unsubscribe(token):
 @app.route("/api/pause/<token>")
 def api_pause_by_token(token):
     """邮件直达：暂停推送 24 小时"""
-    hours = max(1, min(int(request.args.get("hours", 24)), 168))
+    try:
+        hours = max(1, min(int(request.args.get("hours", 24)), 168))
+    except (TypeError, ValueError):
+        return redirect("/subscribe?result=invalid")
     session = get_session()
     try:
         sub = session.query(EmailSubscriber).filter_by(token=token).first()
         if not sub:
             return redirect("/subscribe?result=invalid")
-        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        sub.push_paused_until = business_now() + timedelta(hours=hours)
         commit_with_retry(session)
-        target = f"/portal?push=paused&hours={hours}"
-        resp = make_response(redirect(target))
-        return _set_portal_session_cookie(resp, sub.token)
+        return redirect(f"/subscribe?result=paused&hours={hours}")
     except Exception as e:
         session.rollback()
-        logger.error(f"邮件暂停推送失败: {e}")
+        logger.exception("邮件暂停推送失败")
         return redirect("/subscribe?result=invalid")
     finally:
         session.close()
@@ -1130,7 +1546,7 @@ def api_unsubscribe_session():
 
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.active = False
@@ -1139,8 +1555,8 @@ def api_unsubscribe_session():
         return _clear_portal_session_cookie(resp)
     except Exception as e:
         session.rollback()
-        logger.error(f"按会话退订失败: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("按会话退订失败")
+        return jsonify({"success": False, "error": "退订失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1148,7 +1564,7 @@ def api_unsubscribe_session():
 @app.route("/api/subscribers")
 def api_subscribers():
     """管理端：查看所有订阅者（聚合推送/提醒/活跃度数据）"""
-    now = datetime.now()
+    now = business_now()
     cutoff_7d = now - timedelta(days=7)
     dormant_cutoff = now - timedelta(days=14)
     session = get_session()
@@ -1256,10 +1672,12 @@ def api_remind(token, course_id):
     is_json = request.is_json or request.headers.get('Accept', '').startswith('application/json')
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token, active=True).first()
+        sub = session.query(EmailSubscriber).filter_by(
+            token=token, verified=True, active=True
+        ).first()
         if not sub:
             if is_json:
-                return jsonify({"success": False, "error": "无效的 token"}), 404
+                return jsonify({"success": False, "error": "邮件操作链接无效或已过期"}), 404
             return redirect("/subscribe?result=invalid")
 
         course = session.query(Course).filter_by(id=course_id).first()
@@ -1267,7 +1685,7 @@ def api_remind(token, course_id):
             if is_json:
                 return jsonify({"success": False, "error": "课程不存在"}), 404
             return redirect("/subscribe?result=invalid")
-        if course.expired or course.remaining <= 0:
+        if is_course_expired(course) or course.remaining <= 0:
             if is_json:
                 return jsonify({"success": False, "error": "该课程当前不可提醒（已满或已过期）"}), 400
             return redirect("/subscribe?result=invalid")
@@ -1286,21 +1704,21 @@ def api_remind(token, course_id):
             )
             session.add(reminder)
             commit_with_retry(session)
-            logger.info(f"选课提醒已注册: {sub.email} -> {course.name}")
+            logger.info(f"选课提醒已注册: {mask_email(sub.email)} -> {course.name}")
 
         if is_json:
             return jsonify({"success": True, "message": f"已注册提醒: {course.name}"})
         return redirect("/subscribe?result=reminded")
     except Exception as e:
         session.rollback()
-        logger.error(f"注册选课提醒失败: {e}")
+        logger.exception("注册选课提醒失败")
         if is_database_locked_error(e):
-            logger.warning(f"注册选课提醒遇到数据库锁竞争: {e}")
+            logger.warning("注册选课提醒遇到数据库锁竞争")
             if is_json:
                 return _database_busy_json("提醒")
             return redirect("/subscribe?result=invalid")
         if is_json:
-            return jsonify({"success": False, "error": str(e)}), 500
+            return jsonify({"success": False, "error": "提醒注册失败，请稍后重试"}), 500
         return redirect("/subscribe?result=invalid")
     finally:
         session.close()
@@ -1313,18 +1731,20 @@ def api_test_email():
     """发送测试邮件：用数据库中真实课程数据构建邮件并发送到指定邮箱"""
     from src.push.email_push import _build_notification_html, _send_raw_email
 
-    data = request.get_json() or {}
-    to_email = (data.get("email") or "").strip()
-    if not to_email or "@" not in to_email:
+    data = request.get_json(silent=True) or {}
+    to_email = _normalize_email(data.get("email"))
+    if not to_email:
         return jsonify({"success": False, "error": "请提供有效的目标邮箱"}), 400
 
     session = get_session()
     try:
-        courses = session.query(Course).filter(Course.expired == False).limit(4).all()  # noqa: E712
+        now = business_now()
+        candidates = session.query(Course).filter(Course.expired == False).limit(20).all()  # noqa: E712
+        courses = [course for course in candidates if not is_course_expired(course, now)][:4]
         if not courses:
             return jsonify({"success": False, "error": "数据库中没有可用课程"}), 404
 
-        base_url = request.host_url.rstrip("/")
+        base_url = _get_public_base_url()
         html = _build_notification_html(
             courses,
             unsubscribe_url=f"{base_url}/api/unsubscribe/test",
@@ -1333,13 +1753,13 @@ def api_test_email():
         )
         ok = _send_raw_email(to_email, f"[测试] 博雅课程通知 ({len(courses)} 门)", html)
         if ok:
-            logger.info(f"测试邮件发送成功 -> {to_email}")
+            logger.info(f"测试邮件发送成功 -> {mask_email(to_email)}")
             return jsonify({"success": True, "message": f"测试邮件已发送到 {to_email}，共 {len(courses)} 门课程"})
         else:
             return jsonify({"success": False, "error": "邮件发送失败，请检查 SMTP 配置"}), 500
-    except Exception as e:
-        logger.error(f"测试邮件失败: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("测试邮件失败")
+        return jsonify({"success": False, "error": "测试邮件发送失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1348,58 +1768,20 @@ def api_test_email():
 
 @app.route("/portal")
 def portal_page():
-    """用户门户页面"""
-    token = (request.args.get("token") or "").strip()
-    email = (request.args.get("email") or "").strip().lower()
-    if token:
-        session = get_session()
-        try:
-            sub = (
-                session.query(EmailSubscriber)
-                .filter_by(token=token, verified=True, active=True)
-                .first()
-            )
-        finally:
-            session.close()
-        if not sub:
-            return redirect("/subscribe?force=1")
-        resp = make_response(redirect(_portal_url_for_subscriber(sub)))
-        return _set_portal_session_cookie(resp, token)
-
-    if email and "@" in email:
-        session = get_session()
-        try:
-            sub = (
-                session.query(EmailSubscriber)
-                .filter_by(email=email, verified=True, active=True)
-                .first()
-            )
-            if sub:
-                resp = make_response(redirect(_portal_url_for_subscriber(sub)))
-                return _set_portal_session_cookie(resp, sub.token)
-        finally:
-            session.close()
-
+    """用户门户页面；身份只由 HttpOnly Cookie 确定。"""
+    if request.args.get("token"):
+        return redirect("/subscribe?result=login_required")
     return render_template("portal.html")
 
 
 @app.route("/api/subscriber/lookup", methods=["POST"])
 def api_subscriber_lookup():
-    """根据邮箱查询订阅者信息（已验证且活跃的）"""
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
-    if not email or "@" not in email:
-        return jsonify({"success": False, "error": "请输入有效的邮箱"}), 400
-
+    """返回当前会话的订阅者信息，不接受邮箱作为身份凭据。"""
     session = get_session()
     try:
-        sub = (
-            session.query(EmailSubscriber)
-            .filter_by(email=email, verified=True, active=True)
-            .first()
-        )
+        sub = _current_subscriber(session)
         if not sub:
-            return jsonify({"success": False, "error": "该邮箱尚未订阅或未验证"})
+            return jsonify({"success": False, "error": "未登录或会话已失效"}), 401
 
         return jsonify({
             "success": True,
@@ -1423,28 +1805,13 @@ def api_remind_session(course_id):
 @app.route("/api/subscriber/session", methods=["GET"])
 def api_subscriber_session():
     """从会话 Cookie 获取当前订阅者"""
-    token = _get_session_token()
-    email = (request.args.get("email") or "").strip().lower()
-
     session = get_session()
     try:
-        sub = None
-        if token:
-            sub = (
-                session.query(EmailSubscriber)
-                .filter_by(token=token, verified=True, active=True)
-                .first()
-            )
-        if not sub and email and "@" in email:
-            sub = (
-                session.query(EmailSubscriber)
-                .filter_by(email=email, verified=True, active=True)
-                .first()
-            )
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         is_first_portal_visit = sub.last_portal_seen_at is None and sub.onboarding_seen_at is None
-        now = datetime.now()
+        now = business_now()
         should_persist_last_seen = (
             sub.last_portal_seen_at is None
             or (now - sub.last_portal_seen_at) >= timedelta(minutes=10)
@@ -1454,22 +1821,19 @@ def api_subscriber_session():
             try:
                 commit_with_retry(session)
             except Exception as e:
-                logger.warning(f"skip last_portal_seen_at update due to DB contention: {e}")
+                logger.warning("skip last_portal_seen_at update due to DB contention")
                 session.rollback()
         resp = jsonify({
             "success": True,
             "data": {
                 **sub.to_dict(),
-                "token": sub.token,
                 "show_onboarding": is_first_portal_visit,
             },
         })
-        if token != sub.token:
-            return _set_portal_session_cookie(resp, sub.token)
         return resp
-    except Exception as e:
-        logger.exception(f"获取门户会话失败: {e}")
-        return jsonify({"success": False, "error": f"加载门户会话失败: {e}"}), 500
+    except Exception:
+        logger.exception("获取门户会话失败")
+        return jsonify({"success": False, "error": "加载门户会话失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1483,22 +1847,18 @@ def api_subscriber_onboarding_seen():
 
     session = get_session()
     try:
-        sub = (
-            session.query(EmailSubscriber)
-            .filter_by(token=token, verified=True, active=True)
-            .first()
-        )
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         if not sub.onboarding_seen_at:
-            sub.onboarding_seen_at = datetime.now()
+            sub.onboarding_seen_at = business_now()
             commit_with_retry(session)
         return jsonify({"success": True, "message": "首次引导已记录"})
     except Exception as e:
         session.rollback()
-        logger.error(f"mark onboarding seen failed: {e}")
+        logger.exception("mark onboarding seen failed")
         if is_database_locked_error(e):
-            logger.warning(f"标记首次引导已读遇到数据库锁竞争: {e}")
+            logger.warning("标记首次引导已读遇到数据库锁竞争")
             return _database_busy_json("保存设置")
         return jsonify({"success": False, "error": "引导状态保存失败"}), 500
     finally:
@@ -1516,16 +1876,17 @@ def api_session_clear():
 @app.route("/api/subscriber/<token>", methods=["PUT"])
 def api_subscriber_update(token=None):
     """更新订阅者偏好设置"""
-    token = (token or _get_session_token()).strip()
-    if not token:
+    if token:
+        return jsonify({"success": False, "error": "请使用会话接口更新设置"}), 410
+    if not _get_session_token():
         return jsonify({"success": False, "error": "未登录"}), 401
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
-            return jsonify({"success": False, "error": "无效的 token"}), 404
+            return jsonify({"success": False, "error": "会话失效"}), 401
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         if "categories" in data:
             sub.categories = data["categories"]
         if "campus_filter" in data:
@@ -1536,15 +1897,15 @@ def api_subscriber_update(token=None):
             sub.active = bool(data["active"])
 
         commit_with_retry(session)
-        logger.info(f"订阅者偏好已更新: {sub.email}")
+        logger.info(f"订阅者偏好已更新: {mask_email(sub.email)}")
         return jsonify({"success": True, "message": "偏好已保存", "data": sub.to_dict()})
     except Exception as e:
         session.rollback()
-        logger.error(f"更新订阅者偏好失败: {e}")
+        logger.exception("更新订阅者偏好失败")
         if is_database_locked_error(e):
-            logger.warning(f"更新订阅偏好遇到数据库锁竞争: {e}")
+            logger.warning("更新订阅偏好遇到数据库锁竞争")
             return _database_busy_json("保存设置")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "偏好保存失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1553,20 +1914,21 @@ def api_subscriber_update(token=None):
 @app.route("/api/subscriber/<token>/reminders")
 def api_subscriber_reminders(token=None):
     """获取订阅者的选课提醒列表（含课程详情）"""
-    token = (token or _get_session_token()).strip()
-    if not token:
+    if token:
+        return jsonify({"success": False, "error": "请使用会话接口查看提醒"}), 410
+    if not _get_session_token():
         return jsonify({"success": False, "error": "未登录"}), 401
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
-            return jsonify({"success": False, "error": "无效的 token"}), 404
+            return jsonify({"success": False, "error": "会话失效"}), 401
 
         result = _serialize_course_reminders(session, sub.id)
         return jsonify({"success": True, "data": result, "total": len(result)})
-    except Exception as e:
-        logger.exception(f"获取提醒列表失败: {e}")
-        return jsonify({"success": False, "error": f"获取提醒列表失败: {e}"}), 500
+    except Exception:
+        logger.exception("获取提醒列表失败")
+        return jsonify({"success": False, "error": "获取提醒列表失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1575,9 +1937,9 @@ def api_subscriber_reminders(token=None):
 @app.route("/api/subscriber/<token>/notifications")
 def api_subscriber_notifications(token=None):
     """获取订阅者通知中心时间线（默认最近 24 小时）"""
-    from datetime import datetime, timedelta
-    token = (token or _get_session_token()).strip()
-    if not token:
+    if token:
+        return jsonify({"success": False, "error": "请使用会话接口查看通知"}), 410
+    if not _get_session_token():
         return jsonify({"success": False, "error": "未登录"}), 401
 
     hours_raw = request.args.get("hours", "24")
@@ -1594,11 +1956,11 @@ def api_subscriber_notifications(token=None):
 
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
-            return jsonify({"success": False, "error": "无效的 token"}), 404
+            return jsonify({"success": False, "error": "会话失效"}), 401
 
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = business_now() - timedelta(hours=hours)
         events = (
             session.query(NotificationEvent)
             .filter(NotificationEvent.subscriber_id == sub.id)
@@ -1665,9 +2027,9 @@ def api_admin_broadcast_service_update():
             "message": f"通知发送完成：成功 {result['success']}，失败 {result['failed']}",
             "data": result,
         })
-    except Exception as e:
-        logger.error(f"发送站点调整通知失败: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("发送站点调整通知失败")
+        return jsonify({"success": False, "error": "站点通知发送失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1676,9 +2038,8 @@ def api_admin_broadcast_service_update():
 def api_manual_push():
     """手动推送指定课程给所有活跃邮件订阅者"""
     from src.push.email_push import send_email_notification
-    import asyncio
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     course_id = data.get("course_id")
     if not course_id:
         return jsonify({"success": False, "error": "缺少 course_id"}), 400
@@ -1692,10 +2053,13 @@ def api_manual_push():
         # 发送邮件推送
         try:
             loop = asyncio.new_event_loop()
-            sent_count = loop.run_until_complete(send_email_notification([course]))
-            loop.close()
-        except Exception as e:
-            return jsonify({"success": False, "error": f"推送失败: {e}"}), 500
+            try:
+                sent_count = loop.run_until_complete(send_email_notification([course]))
+            finally:
+                loop.close()
+        except Exception:
+            logger.exception("手动推送执行失败")
+            return jsonify({"success": False, "error": "推送失败，请稍后重试"}), 500
 
         if sent_count > 0:
             return jsonify({"success": True, "message": f"已发送: {course.name} ({sent_count} 个订阅者)"})
@@ -1718,11 +2082,12 @@ def api_admin_toggle_subscriber(sub_id):
         sub.active = not sub.active
         session.commit()
         status = "已激活" if sub.active else "已停用"
-        logger.info(f"管理端切换用户状态: {sub.email} -> {status}")
+        logger.info(f"管理端切换用户状态: {mask_email(sub.email)} -> {status}")
         return jsonify({"success": True, "active": sub.active, "message": f"{sub.email} {status}"})
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("管理端切换用户状态失败")
+        return jsonify({"success": False, "error": "用户状态更新失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1737,11 +2102,12 @@ def api_admin_clear_pause(sub_id):
             return jsonify({"success": False, "error": "用户不存在"}), 404
         sub.push_paused_until = None
         session.commit()
-        logger.info(f"管理端解除推送暂停: {sub.email}")
+        logger.info(f"管理端解除推送暂停: {mask_email(sub.email)}")
         return jsonify({"success": True, "message": f"{sub.email} 推送暂停已解除"})
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("管理端解除推送暂停失败")
+        return jsonify({"success": False, "error": "解除暂停失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1749,14 +2115,15 @@ def api_admin_clear_pause(sub_id):
 @app.route("/api/cleanup-expired", methods=["POST"])
 def api_cleanup_expired():
     """清理 30 天以上的过期课程"""
-    from datetime import datetime, timedelta
-
     days = request.get_json(silent=True) or {}
-    max_days = days.get("days", 30)
+    try:
+        max_days = max(1, min(int(days.get("days", 30)), 3650))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "清理天数无效"}), 400
 
     session = get_session()
     try:
-        cutoff = datetime.now() - timedelta(days=max_days)
+        cutoff = business_now() - timedelta(days=max_days)
         old_courses = (
             session.query(Course)
             .filter(Course.expired == True)  # noqa: E712
@@ -1771,10 +2138,10 @@ def api_cleanup_expired():
 
         logger.info(f"清理了 {count} 门过期超过 {max_days} 天的课程")
         return jsonify({"success": True, "deleted": count, "message": f"已清理 {count} 门课程"})
-    except Exception as e:
+    except Exception:
         session.rollback()
-        logger.error(f"清理过期课程失败: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("清理过期课程失败")
+        return jsonify({"success": False, "error": "清理过期课程失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1788,25 +2155,29 @@ def api_pause_push():
     if not token:
         return jsonify({"success": False, "error": "未登录"}), 401
 
-    data = request.get_json() or {}
-    hours = max(1, min(int(data.get("hours", 24)), 168))
+    data = request.get_json(silent=True) or {}
+    try:
+        hours = max(1, min(int(data.get("hours", 24)), 168))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "暂停时长无效，请输入 1 到 168 小时"}), 400
 
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
-        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        sub.push_paused_until = business_now() + timedelta(hours=hours)
         commit_with_retry(session)
         until_str = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
-        logger.info(f"推送已暂停 {hours} 小时: {sub.email} (至 {until_str})")
+        logger.info(f"推送已暂停 {hours} 小时: {mask_email(sub.email)} (至 {until_str})")
         return jsonify({"success": True, "message": f"推送已暂停 {hours} 小时，至 {until_str}", "paused_until": until_str})
     except Exception as e:
         session.rollback()
         if is_database_locked_error(e):
-            logger.warning(f"按会话暂停推送遇到数据库锁竞争: {e}")
+            logger.warning("按会话暂停推送遇到数据库锁竞争")
             return _database_busy_json("保存设置")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("按会话暂停推送失败")
+        return jsonify({"success": False, "error": "暂停推送失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1820,19 +2191,20 @@ def api_resume_push():
 
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
         sub.push_paused_until = None
         commit_with_retry(session)
-        logger.info(f"推送已恢复: {sub.email}")
+        logger.info(f"推送已恢复: {mask_email(sub.email)}")
         return jsonify({"success": True, "message": "推送已恢复"})
     except Exception as e:
         session.rollback()
         if is_database_locked_error(e):
-            logger.warning(f"按会话恢复推送遇到数据库锁竞争: {e}")
+            logger.warning("按会话恢复推送遇到数据库锁竞争")
             return _database_busy_json("保存设置")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("按会话恢复推送失败")
+        return jsonify({"success": False, "error": "恢复推送失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1844,27 +2216,31 @@ def api_portal_highlights():
     if not token:
         return jsonify({"success": False, "error": "未登录"}), 401
 
-    now = datetime.now()
+    now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     session = get_session()
     try:
-        sub = session.query(EmailSubscriber).filter_by(token=token).first()
+        sub = _current_subscriber(session)
         if not sub:
             return jsonify({"success": False, "error": "会话失效"}), 401
 
         # 近期开抢：选课开始时间在未来 24 小时内，且有名额
         soon_cutoff = now + timedelta(hours=24)
-        upcoming = (
+        upcoming_candidates = (
             session.query(Course)
             .filter(Course.expired == False)  # noqa: E712
             .filter(Course.enroll_start != None)  # noqa: E711
             .filter(Course.enroll_start > now)
             .filter(Course.enroll_start <= soon_cutoff)
             .order_by(Course.enroll_start)
-            .limit(5)
+            .limit(20)
             .all()
         )
+        upcoming = [
+            course for course in upcoming_candidates
+            if not is_course_expired(course, now)
+        ][:5]
         upcoming_data = [{
             "id": c.id,
             "name": c.name,
@@ -1876,12 +2252,13 @@ def api_portal_highlights():
         } for c in upcoming]
 
         # 今日新发现的课程数（first_seen 在今天）
-        today_new = (
+        today_new_candidates = (
             session.query(Course)
             .filter(Course.first_seen >= today_start)
             .filter(Course.expired == False)  # noqa: E712
-            .count()
+            .all()
         )
+        today_new = sum(1 for course in today_new_candidates if not is_course_expired(course, now))
 
         # 用户待发提醒数（此订阅者未发送的提醒）
         from src.models import CourseReminder
@@ -1908,9 +2285,9 @@ def api_portal_highlights():
                 "push_paused_until": push_paused_until,
             },
         })
-    except Exception as e:
-        logger.exception(f"获取门户亮点失败: {e}")
-        return jsonify({"success": False, "error": f"获取门户亮点失败: {e}"}), 500
+    except Exception:
+        logger.exception("获取门户亮点失败")
+        return jsonify({"success": False, "error": "获取门户亮点失败，请稍后重试"}), 500
     finally:
         session.close()
 
@@ -1930,18 +2307,19 @@ def api_admin_pause_push(sub_id):
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "暂停时长无效"}), 400
 
-        sub.push_paused_until = datetime.now() + timedelta(hours=hours)
+        sub.push_paused_until = business_now() + timedelta(hours=hours)
         session.commit()
         until_str = sub.push_paused_until.strftime("%Y-%m-%d %H:%M")
-        logger.info(f"管理端暂停推送: {sub.email} -> {until_str}")
+        logger.info(f"管理端暂停推送: {mask_email(sub.email)} -> {until_str}")
         return jsonify({
             "success": True,
             "message": f"{sub.email} 已暂停推送 {hours} 小时（至 {until_str}）",
             "paused_until": until_str,
         })
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.exception("管理员暂停推送失败")
+        return jsonify({"success": False, "error": "暂停推送失败，请稍后重试"}), 500
     finally:
         session.close()
 

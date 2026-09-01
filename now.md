@@ -1,5 +1,7 @@
 ﻿# Now
 
+> 文档状态：历史资料，不代表当前系统行为。当前事实以 [docs/project/PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md)、[docs/development/CONFIGURATION.md](docs/development/CONFIGURATION.md) 和 [docs/README.md](docs/README.md) 为准。
+
 ## 项目当前定位
 
 这是一个用于抓取北航博雅课程、做筛选、并通过门户/邮件提供提醒的项目。

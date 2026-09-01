@@ -8,6 +8,9 @@ the existing scraping pipeline.
 
 from __future__ import annotations
 
+import hashlib
+import io
+import os
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,16 +18,31 @@ from typing import Dict, Optional
 from urllib.parse import quote
 
 from loguru import logger
-from sqlalchemy import func
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
-from src.course_state import get_check_in_display_label
+from src.course_state import get_check_in_display_label, is_course_expired
 from src.models import Course, EmailSubscriber, QRCodeUpload
+from src.time_utils import now as business_now
+
+try:
+    from PIL import Image, UnidentifiedImageError
+except ImportError:  # pragma: no cover - production installs Pillow from requirements.txt
+    Image = None
+    UnidentifiedImageError = OSError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 QRCODE_UPLOAD_ROOT = BASE_DIR / "config" / "uploads" / "qrcode"
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+ALLOWED_IMAGE_FORMATS = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".gif": "GIF",
+    ".webp": "WEBP",
+}
+MAX_QRCODE_FILE_SIZE = max(64 * 1024, int(os.getenv("QRCODE_MAX_FILE_SIZE", str(5 * 1024 * 1024))))
+PUBLIC_QRCODE_STATUS = "approved"
 REWARD_THRESHOLDS = (3, 10, 30)
 LEADERBOARD_LIMIT = 10
 
@@ -52,8 +70,13 @@ def mask_contributor_email(email: str) -> str:
 
 
 def resolve_contributor(session, session_token: str = "", submitted_email: str = "") -> Dict[str, Optional[str]]:
+    """Resolve a contributor from the verified portal session only.
+
+    ``submitted_email`` remains in the signature for callers from older code,
+    but is deliberately ignored so a user cannot claim another contributor's
+    reward history by typing an email address.
+    """
     token = (session_token or "").strip()
-    email = (submitted_email or "").strip().lower()
 
     if token:
         subscriber = (
@@ -67,39 +90,57 @@ def resolve_contributor(session, session_token: str = "", submitted_email: str =
                 "subscriber_id": subscriber.id,
             }
 
-    subscriber = None
-    if email and "@" in email:
-        subscriber = session.query(EmailSubscriber).filter_by(email=email).first()
-
     return {
-        "email": email,
-        "subscriber_id": subscriber.id if subscriber else None,
+        "email": "",
+        "subscriber_id": None,
     }
 
 
-def get_contributor_stats(session, email: str) -> Dict[str, Optional[int]]:
+def get_contributor_stats(session, email: str) -> Dict[str, object]:
     normalized = (email or "").strip().lower()
     if not normalized:
         return {
-            "email": "",
+            "masked_email": "",
             "total_uploads": 0,
             "reward_threshold_reached": None,
             "next_reward_threshold": REWARD_THRESHOLDS[0],
         }
 
-    total_uploads = (
-        session.query(QRCodeUpload)
-        .filter(QRCodeUpload.contributor_email == normalized)
-        .count()
-    )
+    public_rows = session.query(QRCodeUpload).filter(
+        QRCodeUpload.contributor_email == normalized,
+        QRCodeUpload.is_active == True,  # noqa: E712
+        QRCodeUpload.verification_status == PUBLIC_QRCODE_STATUS,
+    ).all()
+    total_uploads = len(_exclude_expired_course_uploads(session, public_rows))
     reached = [value for value in REWARD_THRESHOLDS if total_uploads >= value]
     next_threshold = next((value for value in REWARD_THRESHOLDS if total_uploads < value), None)
     return {
-        "email": normalized,
+        "masked_email": mask_contributor_email(normalized),
         "total_uploads": total_uploads,
         "reward_threshold_reached": reached[-1] if reached else None,
         "next_reward_threshold": next_threshold,
     }
+
+
+def _exclude_expired_course_uploads(session, rows: list[QRCodeUpload]) -> list[QRCodeUpload]:
+    """Remove uploads linked to courses that are no longer public.
+
+    Unlinked uploads (empty ``course_id``) remain compatible with the original
+    standalone QR page. A non-empty link to a deleted course is hidden as well
+    as an expired course, so cleanup cannot leave stale images publicly visible.
+    """
+    course_ids = {row.course_id for row in rows if row.course_id}
+    if not course_ids:
+        return rows
+    courses = session.query(Course).filter(Course.id.in_(course_ids)).all()
+    known_ids = {course.id for course in courses}
+    expired_ids = {course.id for course in courses if is_course_expired(course)}
+    return [
+        row
+        for row in rows
+        if not row.course_id
+        or (row.course_id in known_ids and row.course_id not in expired_ids)
+    ]
 
 
 def _format_course_time(course: Course) -> str:
@@ -128,13 +169,13 @@ def get_qrcode_course_context(session, course_id: str) -> Optional[dict]:
         "location": course.location,
         "course_time": _format_course_time(course),
         "check_in_label": get_check_in_display_label(course),
-        "expired": bool(course.expired),
+        "expired": is_course_expired(course),
         "remaining": course.remaining,
     }
 
 
 def _period_bounds(period: str) -> tuple[Optional[datetime], str]:
-    now = datetime.now()
+    now = business_now()
     if period == "weekly":
         start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=7)
@@ -150,12 +191,9 @@ def get_contributor_leaderboard(
     limit: int = LEADERBOARD_LIMIT,
 ) -> dict:
     since, period_label = _period_bounds(period)
-    query = (
-        session.query(
-            QRCodeUpload.contributor_email,
-            func.count(QRCodeUpload.id).label("upload_count"),
-        )
-        .filter(QRCodeUpload.is_active == True)  # noqa: E712
+    query = session.query(QRCodeUpload).filter(
+        QRCodeUpload.is_active == True,  # noqa: E712
+        QRCodeUpload.verification_status == PUBLIC_QRCODE_STATUS,
     )
 
     normalized_course_id = (course_id or "").strip()
@@ -164,13 +202,12 @@ def get_contributor_leaderboard(
     if since is not None:
         query = query.filter(QRCodeUpload.created_at >= since)
 
-    rows = (
-        query
-        .group_by(QRCodeUpload.contributor_email)
-        .order_by(func.count(QRCodeUpload.id).desc(), QRCodeUpload.contributor_email.asc())
-        .limit(max(1, min(limit, 50)))
-        .all()
-    )
+    rows = _exclude_expired_course_uploads(session, query.all())
+    counts = {}
+    for row in rows:
+        counts[row.contributor_email] = counts.get(row.contributor_email, 0) + 1
+    sorted_contributors = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    rows = sorted_contributors[: max(1, min(limit, 50))]
 
     return {
         "period": period,
@@ -178,7 +215,6 @@ def get_contributor_leaderboard(
         "items": [
             {
                 "rank": index + 1,
-                "email": email,
                 "masked_email": mask_contributor_email(email),
                 "upload_count": int(upload_count or 0),
             }
@@ -192,6 +228,7 @@ def _build_public_file_url(relative_path: str) -> str:
 
 
 def save_qrcode_file(file_storage: FileStorage) -> Dict[str, str | int]:
+    """验证并保存二维码图片，返回实际格式和内容摘要。"""
     ensure_qrcode_upload_root()
     original_name = secure_filename(file_storage.filename or "")
     if not original_name:
@@ -201,21 +238,49 @@ def save_qrcode_file(file_storage: FileStorage) -> Dict[str, str | int]:
     if suffix not in ALLOWED_IMAGE_SUFFIXES:
         raise ValueError("unsupported file type")
 
-    day_dir = datetime.now().strftime("%Y%m%d")
+    if Image is None:
+        raise RuntimeError("Pillow is required to validate QR code images")
+
+    stream = getattr(file_storage, "stream", None)
+    if stream is None:
+        raise ValueError("missing file stream")
+    stream.seek(0)
+    data = stream.read(MAX_QRCODE_FILE_SIZE + 1)
+    if not data:
+        raise ValueError("empty file")
+    if len(data) > MAX_QRCODE_FILE_SIZE:
+        raise ValueError("file too large")
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            actual_format = (image.format or "").upper()
+            image.verify()
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != actual_format or image.width <= 0 or image.height <= 0:
+                raise ValueError("invalid image dimensions")
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError("invalid image content") from exc
+
+    expected_format = ALLOWED_IMAGE_FORMATS[suffix]
+    if actual_format != expected_format:
+        raise ValueError("file extension does not match image content")
+
+    day_dir = business_now().strftime("%Y%m%d")
     relative_dir = Path(day_dir)
     absolute_dir = QRCODE_UPLOAD_ROOT / relative_dir
     absolute_dir.mkdir(parents=True, exist_ok=True)
 
-    generated_name = f"{datetime.now().strftime('%H%M%S')}_{secrets.token_hex(8)}{suffix}"
+    generated_name = f"{business_now().strftime('%H%M%S')}_{secrets.token_hex(8)}{suffix}"
     absolute_path = absolute_dir / generated_name
-    file_storage.save(absolute_path)
-    file_size = absolute_path.stat().st_size if absolute_path.exists() else 0
+    absolute_path.write_bytes(data)
+    file_size = absolute_path.stat().st_size
 
     return {
         "relative_path": (relative_dir / generated_name).as_posix(),
         "original_filename": original_name,
-        "mime_type": (file_storage.mimetype or "").strip(),
+        "mime_type": Image.MIME.get(actual_format, "application/octet-stream"),
         "file_size": int(file_size),
+        "content_hash": hashlib.sha256(data).hexdigest(),
     }
 
 
@@ -232,10 +297,33 @@ def create_qrcode_upload(
     file_storage: FileStorage,
 ) -> QRCodeUpload:
     stored = save_qrcode_file(file_storage)
-    now = datetime.now()
+    normalized_course_id = (course_id or "").strip()
+    normalized_email = (contributor_email or "").strip().lower()
+    if "@" not in normalized_email:
+        _remove_saved_file(stored)
+        raise ValueError("invalid contributor email")
+
+    if normalized_course_id and not session.query(Course).filter_by(id=normalized_course_id).first():
+        _remove_saved_file(stored)
+        raise ValueError("invalid course")
+
+    duplicate = (
+        session.query(QRCodeUpload)
+        .filter(
+            QRCodeUpload.course_id == normalized_course_id,
+            QRCodeUpload.content_hash == stored["content_hash"],
+            QRCodeUpload.verification_status != "rejected",
+        )
+        .first()
+    )
+    if duplicate:
+        _remove_saved_file(stored)
+        raise ValueError("duplicate QR code")
+
+    current_time = business_now()
     upload = QRCodeUpload(
-        course_id=(course_id or "").strip(),
-        contributor_email=contributor_email,
+        course_id=normalized_course_id,
+        contributor_email=normalized_email,
         contributor_subscriber_id=contributor_subscriber_id,
         course_name=(course_name or "").strip(),
         course_time=(course_time or "").strip(),
@@ -245,21 +333,38 @@ def create_qrcode_upload(
         original_filename=str(stored["original_filename"]),
         mime_type=str(stored["mime_type"]),
         file_size=int(stored["file_size"]),
+        content_hash=str(stored["content_hash"]),
         verification_status="pending",
         is_active=True,
-        created_at=now,
-        updated_at=now,
+        created_at=current_time,
+        updated_at=current_time,
     )
-    session.add(upload)
-    session.flush()
-    logger.info(f"qrcode upload created: id={upload.id} email={upload.contributor_email}")
+    try:
+        session.add(upload)
+        session.flush()
+    except Exception:
+        _remove_saved_file(stored)
+        raise
+    logger.info("qrcode upload created: id={} contributor={}", upload.id, mask_contributor_email(upload.contributor_email))
     return upload
+
+
+def _remove_saved_file(stored: Dict[str, str | int]) -> None:
+    """删除本次请求刚写入的单个文件，避免校验失败留下孤儿文件。"""
+    path = QRCODE_UPLOAD_ROOT / str(stored["relative_path"])
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("qrcode orphan cleanup failed: {}", exc)
 
 
 def list_public_qrcode_uploads(session, limit: int = 50, course_id: str = "") -> list[dict]:
     query = (
         session.query(QRCodeUpload)
-        .filter(QRCodeUpload.is_active == True)  # noqa: E712
+        .filter(
+            QRCodeUpload.is_active == True,  # noqa: E712
+            QRCodeUpload.verification_status == PUBLIC_QRCODE_STATUS,
+        )
     )
     normalized_course_id = (course_id or "").strip()
     if normalized_course_id:
@@ -268,15 +373,18 @@ def list_public_qrcode_uploads(session, limit: int = 50, course_id: str = "") ->
     rows = (
         query
         .order_by(QRCodeUpload.created_at.desc())
-        .limit(max(1, min(limit, 100)))
+        .limit(max(1, min(limit, 100)) * 3)
         .all()
     )
 
-    count_query = session.query(QRCodeUpload.contributor_email, func.count(QRCodeUpload.id))
-    if normalized_course_id:
-        count_query = count_query.filter(QRCodeUpload.course_id == normalized_course_id)
-    count_rows = count_query.group_by(QRCodeUpload.contributor_email).all()
-    contribution_counts = {email: int(count or 0) for email, count in count_rows}
+    # 课程结束后，既不能继续上传，也不应继续出现在公开二维码列表里。
+    # 这里在应用层过滤是为了兼容旧记录中可能缺失的课程外键。
+    rows = _exclude_expired_course_uploads(session, rows)
+    rows = rows[: max(1, min(limit, 100))]
+
+    contribution_counts = {}
+    for row in rows:
+        contribution_counts[row.contributor_email] = contribution_counts.get(row.contributor_email, 0) + 1
 
     result = []
     for row in rows:

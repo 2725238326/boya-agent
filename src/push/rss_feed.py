@@ -3,11 +3,12 @@ RSS Feed 生成模块
 提供标准 RSS 2.0 / Atom Feed 端点
 """
 
-from datetime import datetime, timezone
 from typing import List
+from html import escape as html_escape
 from loguru import logger
 
 from src.course_state import get_check_in_display_label, is_self_check_in
+from src.time_utils import to_utc, utc_now
 
 try:
     from feedgen.feed import FeedGenerator
@@ -37,7 +38,7 @@ def generate_rss_feed(courses: list, base_url: str = "http://localhost:5000") ->
     fg.link(href="https://bykc.buaa.edu.cn/system/course-select", rel="alternate")
     fg.description("BUAA 博雅素质课程自动推送 - 新课程通知")
     fg.language("zh-CN")
-    fg.lastBuildDate(datetime.now(timezone.utc))
+    fg.lastBuildDate(utc_now())
 
     for course in courses:
         fe = fg.add_entry()
@@ -49,13 +50,18 @@ def generate_rss_feed(courses: list, base_url: str = "http://localhost:5000") ->
         sign_icon = "✅ 自主签课" if is_self_check_in(course) else "⚠️ " + check_in_label
 
         # 构建详情
+        course_name = html_escape(str(course.name or ""))
+        category = html_escape(str(course.category or ""))
+        teacher = html_escape(str(course.teacher or ""))
+        location = html_escape(str(course.location or ""))
+        campus = html_escape(str(course.campus or ""))
         description = f"""
-        <h3>{course.name}</h3>
+        <h3>{course_name}</h3>
         <ul>
-            <li><strong>类别:</strong> {course.category}</li>
-            <li><strong>教师:</strong> {course.teacher}</li>
-            <li><strong>地点:</strong> {course.location}</li>
-            <li><strong>校区:</strong> {course.campus}</li>
+            <li><strong>类别:</strong> {category}</li>
+            <li><strong>教师:</strong> {teacher}</li>
+            <li><strong>地点:</strong> {location}</li>
+            <li><strong>校区:</strong> {campus}</li>
             <li><strong>课程时间:</strong>
                 {course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知'}
                 ~ {course.end_time.strftime('%Y-%m-%d %H:%M') if course.end_time else '未知'}</li>
@@ -71,7 +77,7 @@ def generate_rss_feed(courses: list, base_url: str = "http://localhost:5000") ->
 
         # 使用 first_seen 作为发布时间
         if course.first_seen:
-            fe.published(course.first_seen.replace(tzinfo=timezone.utc))
+            fe.published(to_utc(course.first_seen))
 
     return fg.rss_str(pretty=True).decode("utf-8")
 
@@ -93,13 +99,15 @@ def generate_atom_feed(courses: list, base_url: str = "http://localhost:5000") -
         fe = fg.add_entry()
         fe.id(course.id)
         fe.title(f"[{course.category}] {course.name}")
+        check_in_label = get_check_in_display_label(course)
         fe.summary(
             f"{course.name} | {course.teacher} | {course.location} | "
             f"{check_in_label} | 剩余 {course.remaining} 人"
         )
         fe.link(href="https://bykc.buaa.edu.cn/system/course-select")
         if course.first_seen:
-            fe.published(course.first_seen.replace(tzinfo=timezone.utc))
-            fe.updated(course.first_seen.replace(tzinfo=timezone.utc))
+            published_at = to_utc(course.first_seen)
+            fe.published(published_at)
+            fe.updated(published_at)
 
     return fg.atom_str(pretty=True).decode("utf-8")

@@ -22,14 +22,26 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
+
+      - name: Install frontend tooling
+        run: npm ci
 
       - name: Run syntax checks
-        run: python -m py_compile web/app.py src/scheduler.py src/scraper.py src/models.py
+        run: python -m compileall -q src web tests
 
-      - name: Run regression tests
-        run: python -m unittest tests.test_scraper_scheduler_regressions
+      - name: Run frontend checks
+        run: npm run check
+
+      - name: Run Python tests
+        run: python -m pytest -q
 
   deploy:
     needs: verify
@@ -53,7 +65,7 @@ jobs:
 
             APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
-            HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/api/status}"
+            HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/healthz}"
 
             echo "Deploy branch: $DEPLOY_BRANCH"
             echo "App dir: $APP_DIR"
@@ -93,7 +105,7 @@ jobs:
             fi
 
             ./venv/bin/pip install -r requirements.txt
-            ./venv/bin/python -m py_compile web/app.py src/scheduler.py src/scraper.py src/models.py
+            ./venv/bin/python -m compileall -q src web tests
 
             sudo systemctl restart "$SERVICE_NAME"
             sudo systemctl is-active --quiet "$SERVICE_NAME"

@@ -1,5 +1,7 @@
 # 2026-03-07 变更记录
 
+> 文档状态：历史变更记录，不代表当前系统行为。当前事实以 [docs/project/PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md)、[docs/product/PRODUCT_BEHAVIOR.md](docs/product/PRODUCT_BEHAVIOR.md) 和 [docs/decisions/](docs/decisions/) 为准。
+
 ## 概述
 
 本次记录覆盖两轮连续迭代，重点解决了两个产品问题：

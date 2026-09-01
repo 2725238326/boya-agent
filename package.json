@@ -1,0 +1,14 @@
+{
+  "name": "boya-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "BOYA Agent frontend tooling",
+  "scripts": {
+    "check:js": "node scripts/check-js.mjs",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "check": "npm run check:js && npm run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

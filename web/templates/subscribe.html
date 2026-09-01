@@ -812,7 +812,7 @@
                                     <div class="guide-title">&#27880;&#20876;&#21482;&#38656;&#19977;&#27493;</div>
                                     <ol class="guide-list">
                                         <li>&#36755;&#20837;&#37038;&#31665;&#21518;&#28857;&#20987;&#8220;&#39318;&#27425;&#35746;&#38405;&#8221;&#65292;&#31995;&#32479;&#20250;&#31435;&#21363;&#21457;&#36865;&#39564;&#35777;&#37038;&#20214;&#12290;</li>
-                                        <li>&#25512;&#33616;&#30452;&#25509;&#22238;&#21040;&#26412;&#39029;&#65292;&#36755;&#20837;&#37038;&#20214;&#37324;&#30340; 4 &#20301;&#39564;&#35777;&#30721;&#23436;&#25104;&#39564;&#35777;&#12290;</li>
+                                        <li>&#25512;&#33616;&#30452;&#25509;&#22238;&#21040;&#26412;&#39029;&#65292;&#36755;&#20837;&#37038;&#20214;&#37324;&#30340; 6 &#20301;&#39564;&#35777;&#30721;&#23436;&#25104;&#39564;&#35777;&#12290;</li>
                                         <li>&#37038;&#20214;&#37324;&#30340;&#25353;&#38062;&#21482;&#26159;&#36741;&#21161;&#20837;&#21475;&#65307;&#22914;&#26524;&#22312;&#37038;&#31665;&#20869;&#32622;&#27983;&#35272;&#22120;&#37324;&#25171;&#24320;&#19981;&#31283;&#23450;&#65292;&#30452;&#25509;&#22238;&#21040;&#26412;&#39029;&#36755;&#30721;&#23601;&#34892;&#12290;</li>
                                     </ol>
                                 </div>
@@ -838,19 +838,19 @@
                             </div>
                             <div class="message" id="msgBox"></div>
                             <div class="verify-code-panel" id="verifyCodePanel">
-                                <div class="verify-code-title">&#36755;&#20837;&#37038;&#20214;&#37324;&#30340; 4 &#20301;&#39564;&#35777;&#30721;</div>
+                                <div class="verify-code-title">&#36755;&#20837;&#37038;&#20214;&#37324;&#30340; 6 &#20301;&#39564;&#35777;&#30721;</div>
                                 <div class="verify-code-note">
                                     &#39564;&#35777;&#30721;&#36755;&#20837;&#27491;&#30830;&#21518;&#20250;&#30452;&#25509;&#36827;&#20837;&#35838;&#31243;&#38376;&#25143;&#12290;
                                     &#37038;&#20214;&#37324;&#30340;&#38142;&#25509;&#25171;&#19981;&#24320;&#20063;&#19981;&#24433;&#21709;&#20351;&#29992;&#12290;
                                 </div>
                                 <div class="verify-code-row">
-                                    <input type="text" class="input" id="verifyCodeInput" inputmode="numeric" maxlength="4" autocomplete="one-time-code" placeholder="4 &#20301;&#39564;&#35777;&#30721;">
+                                    <input type="text" class="input" id="verifyCodeInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 &#20301;&#39564;&#35777;&#30721;">
                                     <button type="button" class="btn btn-secondary verify-code-btn" id="verifyCodeBtn" onclick="submitVerificationCode()">
                                         &#36755;&#20837;&#39564;&#35777;&#30721;&#23436;&#25104;&#39564;&#35777;
                                     </button>
                                 </div>
                             </div>
-                            <div class="action-hint">&#24050;&#27880;&#20876;&#29992;&#25143;&#21482;&#38656;&#36755;&#20837;&#37038;&#31665;&#21363;&#21487;&#36827;&#20837;&#38376;&#25143;&#65307;&#39318;&#27425;&#35746;&#38405;&#20250;&#21521;&#20320;&#30340;&#37038;&#31665;&#21457;&#36865;&#21253;&#21547; 4 &#20301;&#39564;&#35777;&#30721;&#30340;&#39564;&#35777;&#37038;&#20214;&#65292;&#39564;&#35777;&#21518;&#20877;&#21435;&#35774;&#32622;&#20559;&#22909;&#23601;&#34892;&#12290;</div>
+                            <div class="action-hint">&#24050;&#27880;&#20876;&#29992;&#25143;&#20250;&#25910;&#21040;&#19968;&#27425;&#24615;&#30331;&#24405;&#37038;&#20214;&#65307;&#39318;&#27425;&#35746;&#38405;&#20250;&#25910;&#21040;&#21253;&#21547; 6 &#20301;&#39564;&#35777;&#30721;&#30340;&#39564;&#35777;&#37038;&#20214;&#65292;&#39564;&#21518;&#20877;&#21435;&#35774;&#32622;&#20559;&#22909;&#23601;&#34892;&#12290;</div>
 
                             <div class="insight-panel">
                                 <div class="insight-stats">
@@ -924,7 +924,7 @@
             const codeInput = document.getElementById('verifyCodeInput');
             const btn = document.getElementById('verifyCodeBtn');
             const msg = document.getElementById('msgBox');
-            const code = (codeInput.value || '').replace(/\D/g, '').slice(0, 4);
+            const code = (codeInput.value || '').replace(/\D/g, '').slice(0, 6);
 
             if (!email || !email.includes('@')) {
                 msg.className = 'message error';
@@ -932,9 +932,9 @@
                 msg.style.display = 'block';
                 return;
             }
-            if (code.length !== 4) {
+            if (code.length !== 6) {
                 msg.className = 'message error';
-                msg.textContent = '\u8bf7\u8f93\u5165\u90ae\u4ef6\u91cc\u7684 4 \u4f4d\u9a8c\u8bc1\u7801';
+                msg.textContent = '\u8bf7\u8f93\u5165\u90ae\u4ef6\u91cc\u7684 6 \u4f4d\u9a8c\u8bc1\u7801';
                 msg.style.display = 'block';
                 return;
             }
@@ -963,9 +963,8 @@
                     msg.textContent = data.message || '\u90ae\u7bb1\u9a8c\u8bc1\u6210\u529f';
                     msg.style.display = 'block';
                     hideVerifyCodePanel();
-                    const portalUrl = data.data && data.data.portal_url;
                     setTimeout(() => {
-                        window.location.href = portalUrl || '/portal';
+                        window.location.href = '/portal';
                     }, 500);
                 } else {
                     msg.className = 'message error';
@@ -979,7 +978,7 @@
             }
 
             btn.disabled = false;
-            btn.textContent = '\u9996\u6b21\u8ba2\u9605';
+            btn.textContent = '\u8f93\u5165\u9a8c\u8bc1\u7801\u5b8c\u6210\u9a8c\u8bc1';
         }
 
         async function handleSubscribe(e) {
@@ -1011,14 +1010,7 @@
                     msg.className = 'message success';
                     msg.textContent = data.message;
                     msg.style.display = 'block';
-                    const portalUrl = data.data && data.data.portal_url;
-                    if (portalUrl) {
-                        setTimeout(() => {
-                            window.location.href = portalUrl;
-                        }, 800);
-                    } else {
-                        showVerifyCodePanel(email);
-                    }
+                    showVerifyCodePanel(email);
                 } else {
                     msg.className = 'message error';
                     msg.textContent = data.error || '\u8ba2\u9605\u5931\u8d25';
@@ -1046,7 +1038,7 @@
             }
 
             btn.disabled = true;
-            btn.textContent = '\u767b\u5f55\u4e2d...';
+            btn.textContent = '\u53d1\u9001\u4e2d...';
             msg.className = 'message';
             msg.style.display = 'none';
 
@@ -1063,18 +1055,10 @@
                     } else {
                         localStorage.removeItem('portal_last_email');
                     }
-                    hideVerifyCodePanel();
-                    sessionStorage.removeItem(BRIDGE_TICKET_KEY);
-                    sessionStorage.removeItem(BRIDGE_EXPIRES_KEY);
+                    showVerifyCodePanel(email);
                     msg.className = 'message success';
                     msg.textContent = data.message;
                     msg.style.display = 'block';
-                    const portalUrl = data.data && data.data.portal_url;
-                    if (portalUrl) {
-                        setTimeout(() => {
-                            window.location.href = portalUrl;
-                        }, 400);
-                    }
                 } else {
                     msg.className = 'message error';
                     msg.textContent = data.error || '\u767b\u5f55\u5931\u8d25';
@@ -1094,15 +1078,6 @@
         if (rememberedEmail) {
             const emailInput = document.getElementById('emailInput');
             if (emailInput) emailInput.value = rememberedEmail;
-        }
-
-        const emailFromLink = pageParams.get('email') || '';
-        if (emailFromLink) {
-            const emailInput = document.getElementById('emailInput');
-            if (emailInput) {
-                emailInput.value = emailFromLink;
-            }
-            showVerifyCodePanel(emailFromLink);
         }
 
         const pendingVerifyEmail = sessionStorage.getItem(PENDING_VERIFY_EMAIL_KEY) || '';
@@ -1174,13 +1149,18 @@
                     } else {
                         hotListEl.innerHTML = hot.map(item => `
                             <div class="insight-hot-item">
-                                <span>${item.name}</span>
-                                <span>\u5269\u4f59 ${item.remaining} | \u70ed\u5ea6 ${item.hot_score ?? '-'}</span>
+                                <span>${escapeHtml(item.name || '\u672a\u77e5\u8bfe\u7a0b')}</span>
+                                <span>\u5269\u4f59 ${Number(item.remaining || 0)} | \u70ed\u5ea6 ${Number.isFinite(Number(item.hot_score)) ? Number(item.hot_score) : '-'}</span>
                             </div>
                         `).join('');
                     }
                 }
             } catch (_) { }
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return String(text ?? '').replace(/[&<>"']/g, char => map[char]);
         }
 
         loadPublicInsights();
@@ -1195,7 +1175,7 @@
                 .then(resp => resp.json())
                 .then(data => {
                     if (data.success && data.data && data.data.email) {
-                        window.location.href = `/portal?email=${encodeURIComponent(data.data.email)}`;
+                        window.location.href = '/portal';
                     }
                 })
                 .catch(() => { });

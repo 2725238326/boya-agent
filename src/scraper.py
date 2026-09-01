@@ -12,11 +12,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Response
 
-from src.auth import ensure_logged_in, BYKC_COURSE_URL, BYKC_HOME_URL
+from src.auth import ensure_logged_in, BYKC_COURSE_URL, BYKC_HOME_URL, safe_url_for_log
 from src.models import Course, get_session
+from src.time_utils import now as business_now
 
-# 浏览器数据持久化目录
-BROWSER_DATA_DIR = "browser_data"
 COURSE_VIEW_CANDIDATES = [
     ("all", ["\u5168\u90e8\u8bfe\u7a0b", "\u8bfe\u7a0b\u5168\u90e8"]),
     ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u5373\u5c06\u5f00\u8bfe", "\u5373\u5c06\u5f00\u62a2"]),
@@ -65,7 +64,7 @@ NETWORK_FIELD_ALIASES = {
 
 async def create_browser_context() -> tuple:
     """
-    创建持久化浏览器上下文（保存登录态）
+    创建当前进程内复用的浏览器上下文（不保证跨重启保存登录态）
 
     Returns:
         (playwright, browser, context, page) 元组
@@ -296,10 +295,10 @@ class _JsonResponseRecorder:
             try:
                 extracted = _extract_courses_from_network_payload(payload)
             except Exception as e:
-                logger.debug(f"解析网络课程数据失败: {url} -> {e}")
+                logger.debug(f"解析网络课程数据失败: {safe_url_for_log(url)} -> {e}")
                 continue
             if extracted:
-                logger.info(f"网络响应命中 {len(extracted)} 条课程: {url}")
+                logger.info(f"网络响应命中 {len(extracted)} 条课程: {safe_url_for_log(url)}")
                 courses.extend(extracted)
         return _dedupe_scraped_courses(courses)
 
@@ -1406,13 +1405,13 @@ def _dedupe_scraped_courses(courses: List[dict]) -> List[dict]:
 
 
 def _is_course_snapshot_finished(course: dict, now: Optional[datetime] = None) -> bool:
-    now = now or datetime.now()
+    now = now or business_now()
     end_time = parse_datetime(course.get("end_time", ""))
     return bool(end_time and end_time <= now)
 
 
 def _drop_finished_course_snapshots(courses: List[dict]) -> List[dict]:
-    now = datetime.now()
+    now = business_now()
     active_courses = [course for course in courses if not _is_course_snapshot_finished(course, now)]
     skipped = len(courses) - len(active_courses)
     if skipped:
@@ -1442,7 +1441,7 @@ async def _refresh_course_list(page: Page) -> bool:
 
 async def _open_course_select_page(page: Page) -> bool:
     if _is_course_select_url(page.url):
-        logger.info(f"复用当前选课页: {page.url}")
+        logger.info(f"复用当前选课页: {safe_url_for_log(page.url)}")
         if not await _ensure_session_with_retry(page, "复用选课页"):
             return False
         await _refresh_course_list(page)
@@ -1487,7 +1486,7 @@ async def _open_course_select_page(page: Page) -> bool:
             await select_menu.first.click()
             await page.wait_for_timeout(5000)
             await page.wait_for_load_state("networkidle", timeout=15000)
-            logger.info(f"已点击「选择课程」，当前 URL: {page.url}")
+            logger.info(f"已点击「选择课程」，当前 URL: {safe_url_for_log(page.url)}")
         else:
             logger.warning("未找到「选择课程」菜单项")
             return False
@@ -1911,7 +1910,7 @@ async def _go_to_next_page(page: Page) -> bool:
 
 def assess_scrape_health(courses_data: List[dict]) -> dict:
     """Check whether the current scrape snapshot is plausible enough to write."""
-    now = datetime.now()
+    now = business_now()
     session = get_session()
     try:
         db_active_count = (
@@ -1972,10 +1971,10 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
     skipped_finished_rows = 0
 
     try:
-        now = datetime.now()
+        now = business_now()
         for data in courses_data:
             existing = session.query(Course).filter_by(id=data["id"]).first()
-            now = datetime.now()
+            now = business_now()
             if not existing:
                 legacy_id = data.get("legacy_id")
                 if legacy_id and legacy_id != data["id"]:
@@ -1989,7 +1988,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
             end_time_dt = parse_datetime(data.get("end_time", ""))
             enroll_end_dt = parse_datetime(data.get("enroll_end", ""))
             has_course_ended = bool(end_time_dt and end_time_dt <= now)
-            is_expired = bool(has_course_ended or (enroll_end_dt and enroll_end_dt < now))
+            is_expired = bool(has_course_ended or (enroll_end_dt and enroll_end_dt <= now))
 
             if has_course_ended and not existing:
                 skipped_finished_rows += 1
@@ -2055,7 +2054,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                     check_in_method=data.get("check_in_method", ""),
                     description=data.get("description", ""),
                     organizer=data.get("organizer", ""),
-                    first_seen=datetime.now(),
+                    first_seen=now,
                     last_seen=now,
                     pushed=False,
                     expired=is_expired,

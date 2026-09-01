@@ -26,6 +26,7 @@ from src.scraper import (
     parse_datetime,
     save_courses_to_db,
 )
+from src.time_utils import now as business_now
 
 
 apscheduler_module = types.ModuleType("apscheduler")
@@ -106,7 +107,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertNotEqual(id_a, id_b)
 
     def test_stale_hour_drift_record_is_not_reused_as_existing_course(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         try:
             existing = Course(
@@ -143,7 +144,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             session.close()
 
     def test_save_courses_to_db_keeps_parallel_offerings_separate(self):
-        now = datetime.now()
+        now = business_now()
         course_day = now + timedelta(days=2)
         enroll_day = now + timedelta(days=1)
         start_str = course_day.replace(hour=19, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
@@ -228,7 +229,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             verify.close()
 
     def test_cleanup_prefers_snapshot_with_more_remaining_seats(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         try:
             full_row = Course(
@@ -356,7 +357,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
     def test_assess_scrape_health_blocks_suspiciously_sparse_snapshot(self):
         session = self.Session()
-        now = datetime.now()
+        now = business_now()
         try:
             for index in range(20):
                 session.add(
@@ -420,7 +421,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertIn("选课时间", headers)
 
     def test_sync_course_lifecycle_marks_expired_instead_of_deleting(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         session.add(
             Course(
@@ -455,7 +456,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             verify.close()
 
     def test_sync_course_lifecycle_marks_finished_course_expired(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         session.add(
             Course(
@@ -510,10 +511,8 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
         with (
             patch("src.scraper.get_session", side_effect=lambda: self.Session()),
-            patch("src.scraper.datetime") as mocked_datetime,
+            patch("src.scraper.business_now", return_value=datetime(2026, 3, 19, 12, 30)),
         ):
-            mocked_datetime.now.return_value = datetime(2026, 3, 19, 12, 30)
-            mocked_datetime.strptime = datetime.strptime
             new_ids = save_courses_to_db([ended_row])
 
         self.assertEqual(new_ids, [])
@@ -524,7 +523,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             verify.close()
 
     def test_load_active_enrollment_targets_excludes_finished_courses(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         try:
             session.add(
@@ -562,7 +561,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertEqual([row.id for row in rows], ["active-open"])
 
     def test_load_hot_watch_targets_detects_nearly_full_course(self):
-        now = datetime.now()
+        now = business_now()
         session = self.Session()
         try:
             session.add(
@@ -602,7 +601,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
         self.assertEqual([row.id for row in hot_rows], ["hot-course"])
 
     def test_course_to_dict_exposes_hot_watch_metadata(self):
-        now = datetime.now()
+        now = business_now()
         course = Course(
             id="hot-json",
             name="热点展示课",

@@ -6,6 +6,7 @@
     const DEFAULT_TTL_SECONDS = 15 * 60;
 
     let bridgeTicket = "";
+    /** @type {ReturnType<typeof setInterval> | null} */
     let bridgePollTimer = null;
 
     function getMsgBox() {
@@ -36,7 +37,9 @@
     }
 
     function setBridgeButtonVisible(visible) {
-        const btn = document.getElementById("bridgeLoginBtn");
+        const btn = /** @type {HTMLButtonElement | null} */ (
+            document.getElementById("bridgeLoginBtn")
+        );
         if (!btn) return;
         btn.style.display = visible ? "block" : "none";
     }
@@ -111,7 +114,9 @@
 
     async function bridgeLogin() {
         if (!bridgeTicket) return;
-        const btn = document.getElementById("bridgeLoginBtn");
+        const btn = /** @type {HTMLButtonElement | null} */ (
+            document.getElementById("bridgeLoginBtn")
+        );
         if (!btn) return;
 
         btn.disabled = true;
@@ -129,7 +134,7 @@
 
             clearBridgeTicket();
             stopBridgePolling();
-            const url = data.data && data.data.portal_url ? data.data.portal_url : "/portal?login=ok";
+            const url = data.data && data.data.portal_url ? data.data.portal_url : "/portal";
             window.location.href = url;
         } catch (_) {
             showMessage("\u7f51\u7edc\u5f02\u5e38\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002", "error");
@@ -162,7 +167,7 @@
                 const method = ((init && init.method) || "GET").toUpperCase();
                 if (
                     method === "POST" &&
-                    (path === "/api/subscribe" || path === "/api/login/request")
+                    path === "/api/subscribe"
                 ) {
                     const data = await resp.clone().json().catch(() => null);
                     if (data && data.success && data.bridge_ticket) {

@@ -79,6 +79,11 @@
             box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.12);
         }
 
+        .status.pending .status-dot {
+            background: var(--blue);
+            box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
+        }
+
         .status.error .status-dot {
             background: var(--red);
             box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.12);
@@ -138,25 +143,57 @@
     <main class="card">
         <p class="eyebrow">BUAA 博雅课程</p>
         <h1>{{ title }}</h1>
-        <div class="status {{ 'success' if success else 'error' }}">
+        <div class="status {{ 'success' if success else ('pending' if pending else 'error') }}">
             <span class="status-dot"></span>
-            <span>{{ '验证已完成' if success else '验证未完成' }}</span>
+            <span>{{ ('登录已完成' if is_login else '验证已完成') if success else ('等待确认' if pending else ('登录未完成' if is_login else '验证未完成')) }}</span>
         </div>
-        <p>{{ '系统已经处理完这条验证链接。' if success else '这条验证链接没有成功完成处理。' }}</p>
+        <p>{{ ('系统已经处理完这条登录链接。' if is_login else '系统已经处理完这条验证链接。') if success else ('请确认后继续；如果这不是你发起的请求，可以直接关闭页面。' if pending else ('这条登录链接没有成功完成处理。' if is_login else '这条验证链接没有成功完成处理。')) }}</p>
 
         <section class="panel">
             <p>{{ detail }}</p>
         </section>
 
         <div class="actions">
+            {% if pending %}
+            <button class="btn" type="button" id="confirmVerifyButton">{{ '确认登录并进入门户' if is_login else '确认验证并进入门户' }}</button>
+            {% endif %}
             <a class="btn" href="{{ portal_url }}">{{ button_label }}</a>
             <a class="btn secondary" href="/subscribe">返回订阅页</a>
         </div>
 
+        {% if pending %}
+        <p class="hint" id="confirmVerifyMessage"></p>
+        <script>
+            const confirmButton = document.getElementById('confirmVerifyButton');
+            const confirmMessage = document.getElementById('confirmVerifyMessage');
+            const confirmEndpoint = {{ confirm_endpoint|tojson }};
+            const isLogin = {{ is_login|tojson }};
+            confirmButton.addEventListener('click', async () => {
+                confirmButton.disabled = true;
+                confirmButton.textContent = isLogin ? '登录中...' : '验证中...';
+                try {
+                    const response = await fetch(confirmEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!data.success) {
+                        throw new Error(data.error || (isLogin ? '登录失败' : '验证失败'));
+                    }
+                    window.location.href = (data.data && data.data.portal_url) || '/portal';
+                } catch (error) {
+                    confirmMessage.textContent = error.message || (isLogin ? '登录失败，请回到订阅页重新获取邮件。' : '验证失败，请回到订阅页重新获取邮件。');
+                    confirmButton.disabled = false;
+                    confirmButton.textContent = isLogin ? '确认登录并进入门户' : '确认验证并进入门户';
+                }
+            });
+        </script>
+        {% endif %}
+
         {% if auto_redirect %}
         <p class="hint">页面会在 1 秒后自动进入课程门户。</p>
         {% else %}
-        <p class="hint">如果你是在邮箱内置浏览器里打开这个页面，建议回到常用浏览器继续操作；已完成验证的邮箱可以在订阅页点击“已注册用户邮箱登录”进入门户。</p>
+        <p class="hint">{% if is_login %}如果你是在邮箱内置浏览器里打开这个页面，建议回到常用浏览器继续操作；如果这不是你发起的登录请求，可以直接关闭页面。{% else %}如果你是在邮箱内置浏览器里打开这个页面，建议回到常用浏览器继续操作；已完成验证的邮箱可以在订阅页点击“已注册用户邮箱登录”进入门户。{% endif %}</p>
         {% endif %}
     </main>
 </body>

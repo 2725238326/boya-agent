@@ -5,11 +5,11 @@ Telegram Bot 推送模块
 
 import os
 import asyncio
-from datetime import datetime
 from typing import List
 from loguru import logger
 
 from src.course_state import get_check_in_display_label, is_self_check_in
+from src.time_utils import now as business_now
 
 try:
     from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -161,7 +161,7 @@ async def send_daily_summary_notification(courses: list) -> bool:
     try:
         bot = get_bot()
         chat_id = get_chat_id()
-        now_text = datetime.now().strftime("%Y-%m-%d")
+        now_text = business_now().strftime("%Y-%m-%d")
 
         lines = [
             "🗓️ *博雅课程每日汇总*",
@@ -249,37 +249,6 @@ async def send_enroll_confirmation(course) -> bool:
     except Exception as e:
         logger.error(f"发送选课确认失败: {e}")
         return False
-
-
-
-async def send_enroll_confirmation(course) -> bool:
-    """发送选课确认提醒"""
-    if not HAS_TELEGRAM:
-        return False
-
-    try:
-        bot = get_bot()
-        chat_id = get_chat_id()
-
-        msg = (
-            f"🔔 *自动选课确认*\n\n"
-            f"即将为您选课:\n"
-            f"📖 *{_escape_md(course.name)}*\n"
-            f"⏰ {_escape_md(course.start_time.strftime('%Y-%m-%d %H:%M') if course.start_time else '未知')}\n"
-            f"📍 {_escape_md(course.location)}\n\n"
-            f"如需取消，请在 Web 控制台关闭自动选课开关。"
-        )
-
-        await bot.send_message(
-            chat_id=chat_id,
-            text=msg,
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return True
-    except Exception as e:
-        logger.error(f"发送选课确认失败: {e}")
-        return False
-
 
 async def send_enroll_result(course, success: bool, message: str = "") -> bool:
     """发送选课结果通知"""

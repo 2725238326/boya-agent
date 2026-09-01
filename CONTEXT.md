@@ -1,5 +1,7 @@
 # BUAA 博雅课程自动推送 Agent — 项目上下文
 
+> 文档状态：历史资料，不代表当前系统行为。当前事实以 [docs/project/PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md)、[docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) 和 [docs/README.md](docs/README.md) 为准。
+
 > 本文件供 AI 编程助手（Codex / Claude Code / Cursor 等）快速理解项目。
 
 ---

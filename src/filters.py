@@ -2,19 +2,17 @@
 过滤引擎 - 根据用户配置的筛选条件过滤课程
 """
 
-from datetime import datetime
 from typing import List, Tuple
 from loguru import logger
 
+from src.course_state import is_enrollment_closed, is_self_check_in
 from src.models import Course, FilterConfig, get_session
+from src.time_utils import now as business_now
 
 
 def _is_self_sign_course(course: Course) -> bool:
-    """判断课程是否为自主签到/自选类型"""
-    check_in = getattr(course, "check_in_method", "") or ""
-    sign = getattr(course, "sign_method", "") or ""
-    text = f"{check_in} {sign}"
-    return ("自主" in text) or ("自选" in text)
+    """兼容旧调用方；实际规则由 course_state.is_self_check_in 维护。"""
+    return is_self_check_in(course)
 
 
 def load_filter_config() -> FilterConfig:
@@ -48,6 +46,7 @@ def filter_courses(courses: List[Course], config: FilterConfig = None) -> List[T
         config = load_filter_config()
 
     results = []
+    now = business_now()
 
     for course in courses:
         score = 0
@@ -83,8 +82,7 @@ def filter_courses(courses: List[Course], config: FilterConfig = None) -> List[T
             continue
 
         # 4. 选课时间过滤（只推送选课未截止的）
-        now = datetime.now()
-        if course.enroll_end and course.enroll_end < now:
+        if is_enrollment_closed(course, now):
             passed = False
             continue
 
