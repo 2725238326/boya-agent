@@ -154,10 +154,10 @@ def security_headers(response):
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     if request.path.startswith("/static/") and response.status_code == 200:
-        response.headers.setdefault(
-            "Cache-Control",
-            "public, max-age=604800, immutable",
-        )
+        # Flask may set ``no-cache`` on static responses by default. Assets
+        # are content-addressed by the template's query-string version, so
+        # the long-lived policy must take precedence here.
+        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
     if request.is_secure or (request.headers.get("X-Forwarded-Proto") or "").lower() == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
