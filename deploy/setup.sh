@@ -5,6 +5,7 @@
 set -e
 
 APP_DIR="/home/boya-agent"
+RUNTIME_DIR="/var/lib/boya-agent"
 SERVICE_NAME="boya-agent"
 
 echo "================================================"
@@ -16,9 +17,9 @@ echo "[1/6] 安装系统依赖..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq python3 python3-pip python3-venv
 
-# 应用不以 root 运行。项目目录是专用目录，后续由该用户拥有。
+# 应用不以 root 运行。项目代码保持只读，运行时数据放入专用目录。
 if ! id -u boya-agent >/dev/null 2>&1; then
-    sudo useradd --system --user-group --home-dir /home/boya-agent --shell /usr/sbin/nologin boya-agent
+    sudo useradd --system --user-group --home-dir "$RUNTIME_DIR" --shell /usr/sbin/nologin boya-agent
 fi
 
 # 2. 创建项目目录
@@ -36,8 +37,15 @@ pip install -r requirements.txt -q
 
 # 4. 安装 Playwright 浏览器
 echo "[4/6] 安装 Playwright Chromium..."
-playwright install chromium
-playwright install-deps chromium
+sudo install -d -o boya-agent -g boya-agent -m 750 \
+    "$RUNTIME_DIR" "$RUNTIME_DIR/data" "$RUNTIME_DIR/cache" "$RUNTIME_DIR/playwright"
+sudo -u boya-agent env \
+    HOME="$RUNTIME_DIR" \
+    XDG_CACHE_HOME="$RUNTIME_DIR/cache" \
+    PLAYWRIGHT_BROWSERS_PATH="$RUNTIME_DIR/playwright" \
+    "$APP_DIR/venv/bin/playwright" install chromium
+sudo env PLAYWRIGHT_BROWSERS_PATH="$RUNTIME_DIR/playwright" \
+    "$APP_DIR/venv/bin/playwright" install-deps chromium
 
 # 5. 配置环境变量
 echo "[5/6] 配置环境变量..."
@@ -47,11 +55,61 @@ if [ ! -f .env ]; then
     echo "    nano $APP_DIR/.env"
 fi
 
-# 创建运行时目录，并将应用文件交给非 root 服务用户。
+# 创建运行时目录，并只将运行时数据交给非 root 服务用户。
 mkdir -p logs config/uploads/qrcode
-sudo chown -R boya-agent:boya-agent "$APP_DIR"
-sudo chmod 750 "$APP_DIR" logs config/uploads config/uploads/qrcode
-sudo chmod 600 .env
+
+# 将旧数据库迁移到服务专用目录，避免服务用户获得整个仓库的写权限。
+database_setting="$(sed -n 's/^DATABASE_PATH=//p' .env | tail -n 1)"
+database_setting="${database_setting:-boya_agent.db}"
+case "$database_setting" in
+    /*) database_file="$database_setting" ;;
+    *) database_file="$APP_DIR/$database_setting" ;;
+esac
+runtime_database="$RUNTIME_DIR/data/boya_agent.db"
+if [ -f "$database_file" ] && [ "$database_file" != "$runtime_database" ]; then
+    sudo cp -p "$database_file" "$runtime_database"
+    for suffix in -wal -shm; do
+        if [ -f "$database_file$suffix" ]; then
+            sudo cp -p "$database_file$suffix" "$runtime_database$suffix"
+        fi
+    done
+fi
+
+set_database_path() {
+    local config_file="$1"
+    local temp_file
+    temp_file="$(mktemp)"
+    awk -v database_path="$runtime_database" '
+    BEGIN { updated = 0 }
+    $0 ~ /^DATABASE_PATH=/ {
+        print "DATABASE_PATH=" database_path
+        updated = 1
+        next
+    }
+    { print }
+    END {
+        if (!updated) print "DATABASE_PATH=" database_path
+    }
+    ' "$config_file" > "$temp_file"
+    sudo install -o root -g boya-agent -m 640 "$temp_file" "$config_file"
+    rm -f "$temp_file"
+}
+
+set_database_path "$APP_DIR/.env"
+if [ -f "$APP_DIR/config/.env" ]; then
+    set_database_path "$APP_DIR/config/.env"
+fi
+
+sudo chown root:boya-agent "$APP_DIR/.env"
+sudo chmod 640 "$APP_DIR/.env"
+if [ -f "$APP_DIR/config/.env" ]; then
+    sudo chown root:boya-agent "$APP_DIR/config/.env"
+    sudo chmod 640 "$APP_DIR/config/.env"
+fi
+sudo chown -R boya-agent:boya-agent logs config/uploads "$RUNTIME_DIR"
+sudo find logs config/uploads -type d -exec chmod 750 {} +
+sudo find logs config/uploads -type f -exec chmod 640 {} +
+sudo chmod 755 "$APP_DIR"
 
 # 6. 部署 systemd 服务
 echo "[6/6] 部署 systemd 服务..."
