@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import timedelta
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, event
@@ -68,6 +69,59 @@ class WebOptimizationTests(unittest.TestCase):
         response = web_module.app.test_client().get("/static/home.js")
         self.assertEqual(200, response.status_code)
         self.assertIn("max-age=604800", response.headers["Cache-Control"])
+
+    def test_course_list_filters_lifecycle_and_availability_in_query(self):
+        now = web_module.business_now()
+        self.session.add_all([
+            Course(
+                id="available-course",
+                name="可选课程",
+                enroll_start=now - timedelta(minutes=10),
+                enroll_end=now + timedelta(hours=2),
+                end_time=now + timedelta(days=1),
+                capacity=20,
+                enrolled=5,
+                expired=False,
+            ),
+            Course(
+                id="future-course",
+                name="尚未开选课程",
+                enroll_start=now + timedelta(hours=1),
+                enroll_end=now + timedelta(hours=3),
+                end_time=now + timedelta(days=1),
+                capacity=20,
+                enrolled=5,
+                expired=False,
+            ),
+            Course(
+                id="full-course",
+                name="已满课程",
+                enroll_start=now - timedelta(minutes=10),
+                enroll_end=now + timedelta(hours=2),
+                end_time=now + timedelta(days=1),
+                capacity=20,
+                enrolled=20,
+                expired=False,
+            ),
+            Course(
+                id="ended-course",
+                name="已结束课程",
+                enroll_start=now - timedelta(hours=2),
+                enroll_end=now + timedelta(hours=2),
+                end_time=now - timedelta(minutes=1),
+                capacity=20,
+                enrolled=5,
+                expired=False,
+            ),
+        ])
+        self.session.commit()
+
+        with patch("web.app.get_session", return_value=self.session):
+            response = web_module.app.test_client().get("/api/courses?available_now=true")
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual(["available-course"], [item["id"] for item in payload["data"]])
 
 
 if __name__ == "__main__":

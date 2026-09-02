@@ -8,6 +8,7 @@ sqlalchemy>=2.0.0
 # Web
 flask>=3.0.0
 flask-cors>=4.0.0
+waitress>=3.0.2
 Pillow>=10.0.0
 
 # Push - Telegram

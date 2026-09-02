@@ -5,11 +5,11 @@ import sys
 import types
 from unittest.mock import AsyncMock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from src.course_state import get_check_in_display_label, is_self_check_in
-from src.models import Base, Course
+from src.models import Base, Course, CourseReminder, EmailSubscriber, FilterConfig
 from src.scraper import (
     _extract_courses_from_network_payload,
     _build_course_row_payload,
@@ -561,6 +561,63 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             session.close()
 
         self.assertEqual([row.id for row in rows], ["active-open"])
+
+    def test_check_course_reminders_uses_one_join_query(self):
+        now = business_now()
+        session = self.Session()
+        session.add(
+            Course(
+                id="reminder-course",
+                name="提醒性能测试课程",
+                enroll_start=now + timedelta(hours=2),
+                enroll_end=now + timedelta(days=1),
+                end_time=now + timedelta(days=2),
+                capacity=30,
+                enrolled=10,
+                expired=False,
+            )
+        )
+        subscriber = EmailSubscriber(
+            email="reminder-performance@example.com",
+            verified=True,
+            active=True,
+        )
+        session.add(subscriber)
+        session.flush()
+        session.add(
+            CourseReminder(
+                subscriber_id=subscriber.id,
+                course_id="reminder-course",
+                remind_before_minutes=5,
+                sent=False,
+            )
+        )
+        session.commit()
+
+        statement_count = 0
+
+        def count_statements(*_args):
+            nonlocal statement_count
+            statement_count += 1
+
+        event.listen(self.engine, "before_cursor_execute", count_statements)
+        try:
+            with (
+                patch("src.scheduler.get_session", return_value=session),
+                patch(
+                    "src.scheduler.load_filter_config",
+                    return_value=FilterConfig(
+                        id=1,
+                        email_enabled=False,
+                        telegram_enabled=False,
+                    ),
+                ),
+            ):
+                asyncio.run(scheduler.check_course_reminders())
+        finally:
+            event.remove(self.engine, "before_cursor_execute", count_statements)
+
+        self.assertEqual(1, statement_count)
 
     def test_load_hot_watch_targets_detects_nearly_full_course(self):
         now = business_now()

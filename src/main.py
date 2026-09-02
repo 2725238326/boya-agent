@@ -56,11 +56,27 @@ from web.app import app
 
 
 def run_flask():
-    """在子线程中运行 Flask Web 服务。"""
+    """在子线程中运行单进程 WSGI Web 服务。
+
+    调度器和 Playwright 浏览器都属于当前进程的全局资源，不能直接使用
+    多 worker WSGI 部署，否则会重复启动定时任务和浏览器。Waitress 的多线程
+    模式可以提高接口并发，同时保留单进程资源模型。
+    """
+    from waitress import serve
+
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "5000"))
-    logger.info(f"Web 服务启动: http://{host}:{port}")
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    threads = max(2, min(32, int(os.getenv("WEB_THREADS", "8"))))
+    logger.info(f"Web 服务启动: http://{host}:{port} (Waitress, threads={threads})")
+    serve(
+        app,
+        host=host,
+        port=port,
+        threads=threads,
+        connection_limit=1000,
+        channel_timeout=120,
+        ident="boya-agent",
+    )
 
 
 async def main():

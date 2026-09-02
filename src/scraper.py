@@ -795,73 +795,76 @@ def _cleanup_near_duplicate_courses(session, now: datetime) -> None:
         .all()
     )
 
+    # 只有四个身份字段都相同的课程才可能合并。先分组再做两两比较，避免
+    # 课程量增长后对整张活动课程表做 O(n²) 扫描。
+    candidate_groups = {}
+    for candidate in candidates:
+        identity = tuple(
+            (getattr(candidate, field) or "").strip()
+            for field in ("name", "teacher", "location", "campus")
+        )
+        candidate_groups.setdefault(identity, []).append(candidate)
+
     seen = set()
-    for i, base in enumerate(candidates):
-        if base.id in seen:
-            continue
-        for other in candidates[i + 1:]:
-            if other.id in seen:
+    for group in candidate_groups.values():
+        for i, base in enumerate(group):
+            if base.id in seen:
                 continue
-            if (base.name or "").strip() != (other.name or "").strip():
-                continue
-            if (base.teacher or "").strip() != (other.teacher or "").strip():
-                continue
-            if (base.location or "").strip() != (other.location or "").strip():
-                continue
-            if (base.campus or "").strip() != (other.campus or "").strip():
-                continue
+            for other in group[i + 1:]:
+                if other.id in seen:
+                    continue
 
-            exact_duplicate = _is_near_duplicate_triplet(
-                base.start_time,
-                other.start_time,
-                base.enroll_start,
-                other.enroll_start,
-                base.enroll_end,
-                other.enroll_end,
-            )
-            if not exact_duplicate:
-                continue
+                exact_duplicate = _is_near_duplicate_triplet(
+                    base.start_time,
+                    other.start_time,
+                    base.enroll_start,
+                    other.enroll_start,
+                    base.enroll_end,
+                    other.enroll_end,
+                )
+                if not exact_duplicate:
+                    continue
 
-            newest_seen = max(base.last_seen or now, other.last_seen or now)
-            if (
-                _minutes_diff(base.start_time, other.start_time) == 60
-                and (now - newest_seen).total_seconds() > NEAR_DUPLICATE_RECENT_HOURS * 3600
-            ):
-                continue
+                newest_seen = max(base.last_seen or now, other.last_seen or now)
+                if (
+                    _minutes_diff(base.start_time, other.start_time) == 60
+                    and (now - newest_seen).total_seconds() > NEAR_DUPLICATE_RECENT_HOURS * 3600
+                ):
+                    continue
 
-            keep, drop = (base, other) if (base.last_seen or now) >= (other.last_seen or now) else (other, base)
-            keep.category = keep.category or drop.category
-            keep.sign_method = keep.sign_method or drop.sign_method
-            keep.check_in_method = keep.check_in_method or drop.check_in_method
-            keep.description = keep.description or drop.description
-            keep.organizer = keep.organizer or drop.organizer
-            keep.status = keep.status or drop.status
-            keep.start_time = keep.start_time or drop.start_time
-            keep.end_time = keep.end_time or drop.end_time
-            keep.enroll_start = keep.enroll_start or drop.enroll_start
-            keep.enroll_end = keep.enroll_end or drop.enroll_end
+                keep, drop = (base, other) if (base.last_seen or now) >= (other.last_seen or now) else (other, base)
+                keep.category = keep.category or drop.category
+                keep.sign_method = keep.sign_method or drop.sign_method
+                keep.check_in_method = keep.check_in_method or drop.check_in_method
+                keep.description = keep.description or drop.description
+                keep.organizer = keep.organizer or drop.organizer
+                keep.status = keep.status or drop.status
+                keep.start_time = keep.start_time or drop.start_time
+                keep.end_time = keep.end_time or drop.end_time
+                keep.enroll_start = keep.enroll_start or drop.enroll_start
+                keep.enroll_end = keep.enroll_end or drop.enroll_end
 
-            keep_capacity = keep.capacity or 0
-            drop_capacity = drop.capacity or 0
-            keep_enrolled = keep.enrolled or 0
-            drop_enrolled = drop.enrolled or 0
-            keep_remaining = max(0, keep_capacity - keep_enrolled)
-            drop_remaining = max(0, drop_capacity - drop_enrolled)
+                keep_capacity = keep.capacity or 0
+                drop_capacity = drop.capacity or 0
+                keep_enrolled = keep.enrolled or 0
+                drop_enrolled = drop.enrolled or 0
+                keep_remaining = max(0, keep_capacity - keep_enrolled)
+                drop_remaining = max(0, drop_capacity - drop_enrolled)
 
-            # Prefer the snapshot with more remaining seats. This keeps a newly
-            # reopened course from being flattened back into a stale full record
-            # when two duplicate rows are merged in the same scrape window.
-            if drop_remaining > keep_remaining:
-                keep.capacity = drop_capacity
-                keep.enrolled = drop_enrolled
-            else:
-                keep.capacity = max(keep_capacity, drop_capacity)
+                # Prefer the snapshot with more remaining seats. This keeps a newly
+                # reopened course from being flattened back into a stale full record
+                # when two duplicate rows are merged in the same scrape window.
+                if drop_remaining > keep_remaining:
+                    keep.capacity = drop_capacity
+                    keep.enrolled = drop_enrolled
+                else:
+                    keep.capacity = max(keep_capacity, drop_capacity)
 
-            keep.last_seen = max(keep.last_seen or now, drop.last_seen or now)
+                keep.last_seen = max(keep.last_seen or now, drop.last_seen or now)
 
-            session.delete(drop)
-            seen.add(drop.id)
-            logger.info(f"Merged near-duplicate course: keep={keep.id}, drop={drop.id}, name={keep.name}")
+                session.delete(drop)
+                seen.add(drop.id)
+                logger.info(f"Merged near-duplicate course: keep={keep.id}, drop={drop.id}, name={keep.name}")
 
 
 async def _check_and_recover_session(page: Page) -> bool:
@@ -2045,19 +2048,41 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
 
     try:
         now = business_now()
+        lookup_ids = list(dict.fromkeys(
+            [data["id"] for data in courses_data]
+            + [
+                data["legacy_id"]
+                for data in courses_data
+                if data.get("legacy_id") and data["legacy_id"] != data["id"]
+            ]
+        ))
+        existing_by_id = {}
+        for offset in range(0, len(lookup_ids), 500):
+            rows = (
+                session.query(Course)
+                .filter(Course.id.in_(lookup_ids[offset:offset + 500]))
+                .all()
+            )
+            existing_by_id.update({course.id: course for course in rows})
+
         for data in courses_data:
-            existing = session.query(Course).filter_by(id=data["id"]).first()
-            now = business_now()
+            existing = existing_by_id.get(data["id"])
             if not existing:
                 legacy_id = data.get("legacy_id")
                 if legacy_id and legacy_id != data["id"]:
-                    legacy_existing = session.query(Course).filter_by(id=legacy_id).first()
+                    legacy_existing = existing_by_id.get(legacy_id)
                     if legacy_existing and _legacy_identity_matches(legacy_existing, data):
                         existing = legacy_existing
             if not existing:
                 existing = _find_similar_active_course(session, data, now)
                 if existing:
                     reused_similar_rows += 1
+            if existing:
+                # Also protects against duplicate rows in a single scraped snapshot.
+                existing_by_id[data["id"]] = existing
+
+            start_time_dt = parse_datetime(data.get("start_time", ""))
+            enroll_start_dt = parse_datetime(data.get("enroll_start", ""))
             end_time_dt = parse_datetime(data.get("end_time", ""))
             enroll_end_dt = parse_datetime(data.get("enroll_end", ""))
             has_course_ended = bool(end_time_dt and end_time_dt <= now)
@@ -2084,9 +2109,9 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                 existing.location = data.get("location", existing.location)
                 existing.teacher = data.get("teacher", existing.teacher)
                 existing.college = data.get("college", existing.college)
-                existing.start_time = parse_datetime(data.get("start_time", "")) or existing.start_time
-                existing.end_time = parse_datetime(data.get("end_time", "")) or existing.end_time
-                existing.enroll_start = parse_datetime(data.get("enroll_start", "")) or existing.enroll_start
+                existing.start_time = start_time_dt or existing.start_time
+                existing.end_time = end_time_dt or existing.end_time
+                existing.enroll_start = enroll_start_dt or existing.enroll_start
                 existing.enroll_end = enroll_end_dt or existing.enroll_end
                 existing.sign_method = data.get("sign_method", existing.sign_method)
                 existing.enrolled = new_enrolled
@@ -2111,9 +2136,9 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                     location=data.get("location", ""),
                     teacher=data.get("teacher", ""),
                     college=data.get("college", ""),
-                    start_time=parse_datetime(data.get("start_time", "")),
+                    start_time=start_time_dt,
                     end_time=end_time_dt,
-                    enroll_start=parse_datetime(data.get("enroll_start", "")),
+                    enroll_start=enroll_start_dt,
                     enroll_end=enroll_end_dt,
                     sign_method=data.get("sign_method", ""),
                     capacity=data.get("capacity", 0),
@@ -2133,6 +2158,7 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                     expired=is_expired,
                 )
                 session.add(course)
+                existing_by_id[data["id"]] = course
                 new_course_ids.append(data["id"])
 
         _cleanup_near_duplicate_courses(session, now)

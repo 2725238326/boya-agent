@@ -20,7 +20,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
-from src.models import Course, PushLog, get_session, FilterConfig
+from src.models import (
+    Course,
+    CourseReminder,
+    EmailSubscriber,
+    PushLog,
+    get_session,
+    FilterConfig,
+)
 from src.course_state import (
     HOT_COURSE_FILL_RATIO,
     HOT_COURSE_REMAINING_THRESHOLD,
@@ -762,36 +769,24 @@ async def flush_push_buffer(buffer_key: str):
     定时刷新推送缓冲区（由调度器调用）
     buffer_key: "urgent" 或 "soon"
     """
-    course_ids = list(set(_push_buffer.get(buffer_key, [])))
+    # 保持顺序并去重，避免同一课程在一次汇总中重复查库和推送。
+    course_ids = list(dict.fromkeys(_push_buffer.get(buffer_key, [])))
     _push_buffer[buffer_key] = []
 
     if not course_ids:
         return
 
-    # 去掉已过期的（是否还需要通知由订阅者级事件去重控制）
-    session = get_session()
-    try:
-        course_ids_to_push = []
-        for cid in course_ids:
-            c = session.query(Course).filter_by(id=cid).first()
-            if c and not is_course_expired(c):
-                course_ids_to_push.append(cid)
-    finally:
-        session.close()
-
-    if not course_ids_to_push:
-        return
-
     session = get_session()
     try:
         config = load_filter_config()
+        now = business_now()
         courses = (
             session.query(Course)
-            .filter(Course.id.in_(course_ids_to_push))
+            .filter(Course.id.in_(course_ids))
             .filter(Course.expired == False)  # noqa: E712
             .all()
         )
-        courses = [course for course in courses if not is_course_expired(course)]
+        courses = [course for course in courses if not is_course_expired(course, now)]
         if not courses:
             return
 
@@ -821,23 +816,34 @@ async def check_urgency_escalation():
     now = business_now()
     escalated_ids = []
 
-    # 检查 urgent 和 soon 缓冲区
+    # 检查 urgent 和 soon 缓冲区；每个缓冲区批量读取课程，避免按 ID 建立
+    # 独立 Session 和查询。
     for key in ["urgent", "soon"]:
+        course_ids = list(dict.fromkeys(_push_buffer.get(key, [])))
+        if not course_ids:
+            _push_buffer[key] = []
+            continue
+
+        session = get_session()
+        try:
+            courses_by_id = {
+                course.id: course
+                for course in session.query(Course).filter(Course.id.in_(course_ids)).all()
+            }
+        finally:
+            session.close()
+
         remaining = []
-        for cid in _push_buffer.get(key, []):
-            session = get_session()
-            try:
-                course = session.query(Course).filter_by(id=cid).first()
-                if not course or is_course_expired(course, now):
-                    continue  # 已过期，跳过
-                if course.enroll_start:
-                    hours_left = (course.enroll_start - now).total_seconds() / 3600
-                    if hours_left <= 1:
-                        escalated_ids.append(cid)
-                        continue  # 升级，不放回缓冲区
-                remaining.append(cid)
-            finally:
-                session.close()
+        for cid in course_ids:
+            course = courses_by_id.get(cid)
+            if not course or is_course_expired(course, now):
+                continue  # 已过期，跳过
+            if course.enroll_start:
+                hours_left = (course.enroll_start - now).total_seconds() / 3600
+                if hours_left <= 1:
+                    escalated_ids.append(cid)
+                    continue  # 升级，不放回缓冲区
+            remaining.append(cid)
         _push_buffer[key] = remaining
 
     if not escalated_ids:
@@ -951,22 +957,30 @@ def _log_push(courses, push_type, count):
 
 async def check_course_reminders():
     """检查并发送临近的选课提醒（每分钟执行）"""
-    from src.models import CourseReminder, EmailSubscriber
     session = get_session()
     try:
         now = business_now()
         config = load_filter_config()
-        # 查找未发送的提醒
-        pending_reminders = session.query(CourseReminder).filter_by(sent=False).all()
+        # 一次 JOIN 同时取提醒、课程和有效订阅者；提醒检查每分钟执行，不能
+        # 随待处理提醒数量线性增加数据库往返次数。
+        pending_reminders = (
+            session.query(CourseReminder, Course, EmailSubscriber)
+            .outerjoin(Course, Course.id == CourseReminder.course_id)
+            .outerjoin(
+                EmailSubscriber,
+                and_(
+                    EmailSubscriber.id == CourseReminder.subscriber_id,
+                    EmailSubscriber.verified.is_(True),
+                    EmailSubscriber.active.is_(True),
+                ),
+            )
+            .filter(CourseReminder.sent.is_(False))
+            .all()
+        )
         if not pending_reminders:
             return
 
-        for reminder in pending_reminders:
-            course = session.query(Course).filter_by(id=reminder.course_id).first()
-            sub = session.query(EmailSubscriber).filter_by(
-                id=reminder.subscriber_id, verified=True, active=True
-            ).first()
-
+        for reminder, course, sub in pending_reminders:
             if not course or not sub or is_course_expired(course, now):
                 reminder.sent = True  # 无效数据，标记为已发送
                 continue

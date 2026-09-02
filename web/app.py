@@ -704,7 +704,11 @@ def api_courses():
         available_now = request.args.get("available_now", "false").lower() == "true"
         waitlist_only = request.args.get("waitlist_only", "false").lower() == "true"
         if not include_expired:
-            query = query.filter(Course.expired.is_(False))
+            query = query.filter(
+                Course.expired.is_(False),
+                or_(Course.end_time.is_(None), Course.end_time > now),
+                or_(Course.enroll_end.is_(None), Course.enroll_end > now),
+            )
         if today_new:
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             query = query.filter(Course.first_seen >= today_start)
@@ -723,16 +727,19 @@ def api_courses():
         if keyword:
             query = query.filter(Course.name.contains(keyword))
         if available_now:
-            query = query.filter((Course.capacity - Course.enrolled) > 0)
+            query = query.filter(
+                Course.expired.is_(False),
+                or_(Course.end_time.is_(None), Course.end_time > now),
+                or_(Course.enroll_end.is_(None), Course.enroll_end > now),
+                or_(Course.enroll_start.is_(None), Course.enroll_start <= now),
+                (Course.capacity - Course.enrolled) > 0,
+            )
         if waitlist_only:
             query = query.filter(Course.expired.is_(False)).filter((Course.capacity - Course.enrolled) <= 0)
 
-        courses = query.limit(500).all()
-        if not include_expired:
-            courses = [course for course in courses if not is_course_expired(course, now)]
-        if available_now:
-            courses = [course for course in courses if is_enrollment_open(course, now)]
-        courses = courses[:200]
+        # 生命周期、开选状态和名额条件尽量下推到 SQL，避免先加载 500 行再在
+        # Python 中过滤，尤其是在历史课程逐渐积累后可明显降低序列化开销。
+        courses = query.limit(200).all()
         return _cached_json({
             "success": True,
             "data": [c.to_dict() for c in courses],
