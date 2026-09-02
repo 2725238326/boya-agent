@@ -9,7 +9,7 @@
 
 ## 一句话结论
 
-项目是一个单进程轻量服务：抓取北航博雅课程，写入 SQLite，按统一课程状态和用户偏好推送到邮件/Telegram，并提供公开课程页、订阅页、用户门户、二维码共享页和管理员后台。认证、管理员边界、二维码隐私、时间/课程状态、运行权限、网页首屏性能和“当前无课”空状态已完成一轮收口；`buaaboya.top` 的 HTTPS、健康检查、管理边界和非 root 服务已在生产主机实测通过。
+项目是一个单进程轻量服务：抓取北航博雅课程，写入 SQLite，按统一课程状态和用户偏好推送到邮件/Telegram，并提供公开课程页、订阅页、用户门户、二维码共享页和管理员后台。认证、管理员边界、二维码隐私、时间/课程状态、运行权限、网页首屏性能、后台查询性能和“当前无课”空状态已完成一轮收口；`buaaboya.top` 的 HTTPS、健康检查、管理边界和非 root 服务已在生产主机实测通过。
 
 ## 当前能力矩阵
 
@@ -49,6 +49,8 @@
 - 提醒序列化改为单次 JOIN，课程/提醒/通知/订阅者高频查询增加幂等组合索引；公开课程、类别、洞察和 RSS/Atom 使用短时缓存。
 - 静态资源统一使用带文件版本提示的 URL，并在 Flask/Nginx 层启用长期缓存和文本压缩；历史讨论与邮件预览移入 `docs/archive/`，本地预览改为临时目录输出。
 - 将上游选课页面的“暂无课程”识别为合法空快照；门户和管理台区分“当前无课”“筛选无结果”和“加载失败”，并提供刷新与官方选课入口。
+- Web 服务改用单进程 Waitress 多线程 WSGI；调度器和 Playwright 继续保持单进程，避免多 worker 重复执行抓取和推送。
+- 课程列表生命周期/开选/名额条件下推到 SQLite；抓取落库按批次预取已有课程，推送缓冲、提醒检查和近重复清理减少逐条查询与全表两两比较。
 
 ## 默认关闭或实验能力
 
@@ -79,21 +81,22 @@
 
 1. 在本地固定开发环境复现服务器的完整 pytest 结果，并补齐真实课程出现后的解析、筛选、通知，以及邮件、验证码、门户和二维码端到端演练。
 2. 为一次性挑战、代码并发消费、缓存策略和推送失败分类补充集成测试。
-3. 持续拆分 `web/app.py`、`src/scheduler.py` 和前端大文件；每次拆分都保留现有接口和测试保护。
+3. 观察真实课程出现后的抓取耗时、数据库规模和推送队列，再决定是否继续拆分 `web/app.py`、`src/scheduler.py` 和前端大文件；每次拆分都保留现有接口和测试保护。
 
 ## 本轮实际验证
 
 - `python -m compileall -q src web tests`：通过。
 - `web/static/` 下 6 个 JavaScript 文件逐一执行 `node --check`：通过。
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_qrcode_feature.py tests/test_course_state.py tests/test_rss_feed.py tests/test_enroll_safety.py`：`12 passed, 1 skipped`。
-- `D:\\Anaconda\\python.exe -m pytest -q tests/test_scraper_scheduler_regressions.py`：`23 passed`。
+- `D:\\Anaconda\\python.exe -m pytest -q tests/test_scraper_scheduler_regressions.py`：`26 passed`。
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_web_security.py`：未收集，当前 Anaconda 环境缺少 `flask_cors`。
 - `npm run check`：6 个 JavaScript 文件语法检查通过，TypeScript 7 类型检查通过。
 - `python -m pytest -q`：未通过收集，4 个测试模块因默认环境缺少 `sqlalchemy` 或 `playwright` 报错；未将环境阻塞伪装成测试通过。
-- 服务器临时测试环境：`48 passed`；未向生产运行虚拟环境安装 pytest 或开发依赖。
+- 服务器临时测试环境：`50 passed`；未向生产运行虚拟环境安装 pytest 或开发依赖，Waitress 作为核心生产依赖已安装。
 - 线上 `https://buaaboya.top`：主页、门户、订阅页和公开接口返回正常；`/api/courses`、`/api/categories`、`/rss` 缓存策略生效，静态资源 URL 带版本参数并返回 `public, max-age=604800, immutable`；HTTP 正确跳转 HTTPS，未授权 `/api/status` 返回 401。
 - 生产无课场景：定时抓取日志已记录“选课页面已加载，当前暂无可选课程”和“按空状态完成本轮抓取”，没有再记录“无法进入选择课程页面”。
 - 门户/管理台空状态资源：线上 `portal.js` 已包含“当前暂无可选课程 / 没有匹配的课程”分支，`portal.css` 和管理台样式已加载对应空状态布局。
 - 生产数据库：新增课程、提醒、通知和订阅者组合索引已存在；systemd 服务以 `boya-agent` 用户运行，服务和 Nginx 均 active，部署后健康检查返回 `{"status":"ok","success":true}`。
-- Git：`codex/ts7-and-hardening` 已部署至服务器；服务器工作树 clean。
+- 性能基准：线上 5 个公开接口各连续请求 20 次均为 200；首页、健康、课程、洞察、类别接口中位数约 `11.1–12.5 ms`，P95 约 `12.5–14.3 ms`；24 个并发课程请求全部返回 200，整体约 `883 ms`。
+- Git：`codex/ts7-and-hardening` 的 `1fbadd6` 已部署至服务器；服务器工作树 clean。
 - `git diff --check`：通过；仅有 Git 关于 LF/CRLF 的换行提示。
