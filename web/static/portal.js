@@ -11,6 +11,8 @@ let portalState = {
     filteredNotifications: [],
     notificationsHours: 24,
     lastCourseRefreshAt: null,
+    courseCatalogCount: null,
+    courseLoadFailed: false,
     shouldShowOnboarding: false,
     remindersLoaded: false,
     notificationsLoaded: false,
@@ -43,13 +45,18 @@ function buildPortalCourseParams() {
 function applyPortalCourses(courses) {
     const list = Array.isArray(courses) ? courses : [];
     const sorted = sortPortalCourses(list);
+    portalState.courseLoadFailed = false;
     renderCourses(sorted);
     portalState.lastCourseRefreshAt = new Date();
     renderPortalRefreshMeta();
 }
 
-async function loadFilteredCourses(initialCourses = null) {
+async function loadFilteredCourses(initialCourses = null, initialMeta = {}) {
     if (Array.isArray(initialCourses) && courseRequestSerial === 0) {
+        const catalogCount = Number(initialMeta.catalogCount);
+        if (Number.isFinite(catalogCount)) {
+            portalState.courseCatalogCount = catalogCount;
+        }
         applyPortalCourses(initialCourses);
         return { success: true, data: initialCourses };
     }
@@ -313,10 +320,18 @@ async function loadPortalData() {
 
     // Courses
     if (coursesRes.success) {
-        const activeCourses = coursesRes.data.filter(c => !c.expired);
+        const courseList = Array.isArray(coursesRes.data) ? coursesRes.data : [];
+        const catalogCount = Number(coursesRes.total);
+        portalState.courseCatalogCount = Number.isFinite(catalogCount)
+            ? catalogCount
+            : courseList.length;
+        const activeCourses = courseList.filter(c => !c.expired);
         const availableCourses = activeCourses.filter(c => c.remaining > 0);
         document.getElementById('heroCount').textContent = availableCourses.length;
-        await loadFilteredCourses(coursesRes.data);
+        await loadFilteredCourses(courseList);
+    } else {
+        portalState.courseLoadFailed = true;
+        renderCourseLoadError(coursesRes.error);
     }
 
     if (document.querySelector('.portal-tab.active')?.dataset.tab === 'notifications') {
@@ -358,17 +373,77 @@ function switchPortalTab(tabName) {
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Course Rendering 鈺愨晲鈺愨晲鈺愨晲
+function hasPortalCourseFilters() {
+    return buildPortalCourseParams().size > 0;
+}
+
+function clearPortalCourseFilters() {
+    const input = document.getElementById('portalSearch');
+    const campus = document.getElementById('portalCampus');
+    if (input) input.value = '';
+    if (campus) campus.value = '';
+
+    ['portalSelfSign', 'portalExpired', 'portalAvailableNow', 'portalWaitlistOnly'].forEach((id) => {
+        const checkbox = document.getElementById(id);
+        if (checkbox) checkbox.checked = false;
+    });
+    filterCourses();
+}
+
+function renderCourseLoadError(message = '') {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    const hint = message || '网络或服务暂时不可用，请稍后重试。';
+    grid.innerHTML = `
+        <div class="portal-empty portal-empty-course portal-empty-error">
+            <div class="portal-empty-icon" aria-hidden="true">⚠️</div>
+            <div class="portal-empty-kicker">课程数据暂时不可用</div>
+            <div class="portal-empty-text">没有加载成功</div>
+            <div class="portal-empty-hint">${escapeHtml(hint)}</div>
+            <div class="portal-empty-actions">
+                <button class="portal-empty-action primary" type="button" onclick="loadPortalData()">重新加载</button>
+            </div>
+        </div>`;
+}
+
 function renderCourses(courses) {
     const grid = document.getElementById('courseGrid');
     const existingFullSection = document.getElementById('fullCoursesSection');
+    if (!grid) return;
     if (!courses || !courses.length) {
         if (existingFullSection) existingFullSection.remove();
-        grid.innerHTML = `
-            <div class="portal-empty" style="grid-column: 1/-1;">
-                <div class="portal-empty-icon">\ud83d\udcec</div>
-                <div class="portal-empty-text">\u6682\u65e0\u8bfe\u7a0b</div>
-                <div class="portal-empty-hint">\u7b49\u5f85\u7cfb\u7edf\u6293\u53d6\u65b0\u8bfe\u7a0b</div>
-            </div>`;
+        const isFilteredEmpty = hasPortalCourseFilters();
+        const catalogIsEmpty = !isFilteredEmpty
+            && (portalState.courseCatalogCount == null || portalState.courseCatalogCount === 0);
+        if (catalogIsEmpty) {
+            grid.innerHTML = `
+                <div class="portal-empty portal-empty-course portal-empty-catalog">
+                    <div class="portal-empty-icon" aria-hidden="true">🗓️</div>
+                    <div class="portal-empty-kicker">课程池暂时空着</div>
+                    <div class="portal-empty-text">当前暂无可选课程</div>
+                    <div class="portal-empty-hint">
+                        选课窗口可能还未开放，或本轮课程还未发布。系统会继续监测；有新课时，你可以在这里设置提醒。
+                    </div>
+                    <div class="portal-empty-actions">
+                        <button class="portal-empty-action primary" type="button"
+                            onclick="refreshPortalCourses(document.getElementById('btnRefreshCourses'))">刷新课程</button>
+                        <a class="portal-empty-action secondary" href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b/system/course-select"
+                            target="_blank" rel="noopener">打开官方选课页</a>
+                    </div>
+                    <div class="portal-empty-note">当前没有异常：空页面不会覆盖可靠的历史课程数据。</div>
+                </div>`;
+        } else {
+            grid.innerHTML = `
+                <div class="portal-empty portal-empty-course portal-empty-filtered">
+                    <div class="portal-empty-icon" aria-hidden="true">🔎</div>
+                    <div class="portal-empty-kicker">换个条件试试</div>
+                    <div class="portal-empty-text">没有匹配的课程</div>
+                    <div class="portal-empty-hint">当前筛选没有结果，可以清除筛选后查看全部课程。</div>
+                    <div class="portal-empty-actions">
+                        <button class="portal-empty-action secondary" type="button" onclick="clearPortalCourseFilters()">清除筛选</button>
+                    </div>
+                </div>`;
+        }
         return;
     }
 

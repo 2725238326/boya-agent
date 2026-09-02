@@ -15,11 +15,13 @@ from src.scraper import (
     _build_course_row_payload,
     _cleanup_near_duplicate_courses,
     _collect_current_view_courses,
+    _course_page_has_empty_state,
     _dedupe_scraped_courses,
     _find_similar_active_course,
     _is_near_duplicate_triplet,
     _parse_visible_course_tables,
     _select_best_header_row,
+    _wait_course_tables_ready,
     assess_scrape_health,
     generate_course_id,
     generate_legacy_course_id,
@@ -753,6 +755,37 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(courses, [])
         self.assertEqual(next_page_mock.await_count, 0)
+
+    async def test_course_select_empty_page_is_a_valid_ready_state(self):
+        class EmptyLocator:
+            async def count(self):
+                return 0
+
+            def nth(self, index):
+                return self
+
+            async def is_visible(self):
+                return False
+
+        page = types.SimpleNamespace(
+            url="https://d.buaa.edu.cn/https/example/system/course-select",
+            locator=lambda selector: EmptyLocator(),
+            inner_text=AsyncMock(return_value="选择课程 当前暂无可选课程"),
+            wait_for_timeout=AsyncMock(),
+        )
+
+        self.assertTrue(await _course_page_has_empty_state(page))
+        self.assertTrue(await _wait_course_tables_ready(page))
+
+    async def test_empty_marker_on_non_course_page_is_not_treated_as_ready(self):
+        page = types.SimpleNamespace(
+            url="https://d.buaa.edu.cn/https/example/system/home",
+            locator=lambda selector: types.SimpleNamespace(count=AsyncMock(return_value=0)),
+            inner_text=AsyncMock(return_value="当前暂无可选课程"),
+            wait_for_timeout=AsyncMock(),
+        )
+
+        self.assertFalse(await _course_page_has_empty_state(page))
 
     async def test_parse_visible_course_tables_prefers_dom_fast_path(self):
         page = types.SimpleNamespace()

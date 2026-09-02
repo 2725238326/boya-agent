@@ -135,8 +135,29 @@ async function loadCourses() {
     const result = await api(`/api/courses?${params.toString()}`);
     const courses = Array.isArray(result.data) ? result.data : [];
 
-    if (!result.success || courses.length === 0) {
-        grid.innerHTML = '<div class="loading">暂无课程数据，可以点击右上角“立即抓取”更新一次。</div>';
+    if (!result.success) {
+        grid.innerHTML = `
+            <div class="course-empty-state error">
+                <div class="course-empty-icon">⚠️</div>
+                <div class="course-empty-title">课程数据暂时不可用</div>
+                <div class="course-empty-hint">${escapeHtml(result.error || '请稍后重试。')}</div>
+            </div>`;
+        return;
+    }
+
+    if (courses.length === 0) {
+        const hasFilters = params.size > 0;
+        grid.innerHTML = `
+            <div class="course-empty-state">
+                <div class="course-empty-icon">${hasFilters ? '🔎' : '🗓️'}</div>
+                <div class="course-empty-title">${hasFilters ? '当前筛选没有匹配课程' : '当前暂无可选课程'}</div>
+                <div class="course-empty-hint">${hasFilters
+                    ? '可以调整筛选条件，或清空筛选后查看全部课程。'
+                    : '选课窗口可能尚未开放，系统会继续监测新课程。'}</div>
+                ${hasFilters
+                    ? '<button class="btn btn-sm btn-accent" type="button" onclick="resetCourseFilters()">清空筛选</button>'
+                    : '<button class="btn btn-sm btn-accent" type="button" onclick="triggerScrape()">立即检查</button>'}
+            </div>`;
         return;
     }
 
@@ -144,6 +165,20 @@ async function loadCourses() {
     grid.querySelectorAll('[data-manual-push-course-id]').forEach((button) => {
         button.addEventListener('click', () => manualPush(button.dataset.manualPushCourseId, button));
     });
+}
+
+function resetCourseFilters() {
+    const search = document.getElementById('searchInput');
+    const category = document.getElementById('categoryFilter');
+    const campus = document.getElementById('campusFilter');
+    if (search) search.value = '';
+    if (category) category.value = '';
+    if (campus) campus.value = '';
+    ['selfSignFilter', 'showExpiredFilter', 'todayNewFilter', 'availableNowFilter', 'waitlistFilter'].forEach((id) => {
+        const checkbox = document.getElementById(id);
+        if (checkbox) checkbox.checked = false;
+    });
+    loadCourses();
 }
 
 function isConsoleCourseHot(course) {

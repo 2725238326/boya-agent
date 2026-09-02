@@ -32,6 +32,37 @@ COURSE_VIEW_CANDIDATES = [
     ),
 ]
 MAX_PAGES_PER_VIEW = 25
+COURSE_PAGE_READY_TIMEOUT_MS = 15000
+COURSE_PAGE_POLL_INTERVAL_MS = 300
+# The upstream course system renders a real page even when the current
+# selection window contains no courses. Treat these explicit empty states as
+# a successful scrape so the scheduler does not report a false navigation
+# failure or retry the same page unnecessarily.
+COURSE_PAGE_EMPTY_SELECTORS = (
+    ".el-table__empty-block",
+    ".el-table__empty-text",
+    ".ant-empty",
+    ".ant-table-placeholder",
+    ".dataTables_empty",
+    ".empty-data",
+    ".no-data",
+    ".no-result",
+)
+COURSE_PAGE_EMPTY_MARKERS = (
+    "暂无课程",
+    "暂无可选课程",
+    "暂无选课",
+    "暂无选课信息",
+    "暂无数据",
+    "无可选课程",
+    "没有可选课程",
+    "没有符合条件的课程",
+    "暂无符合条件的课程",
+    "当前没有课程",
+    "当前暂无课程",
+    "暂未发布课程",
+)
+COURSE_PAGE_CONTEXT_MARKERS = ("课程", "选课", "报名")
 MIN_FAST_PATH_ROWS = max(3, int(os.getenv("SCRAPER_MIN_FAST_PATH_ROWS", "5")))
 SCRAPE_HEALTH_MIN_BASELINE = max(5, int(os.getenv("SCRAPE_HEALTH_MIN_BASELINE", "10")))
 SCRAPE_HEALTH_MIN_ROWS = max(3, int(os.getenv("SCRAPE_HEALTH_MIN_ROWS", "5")))
@@ -903,14 +934,52 @@ async def _ensure_session_with_retry(page: Page, stage: str, retries: int = 2) -
     return False
 
 
-async def _wait_course_tables_ready(page: Page) -> bool:
-    """Wait until at least one table is present and the page has settled."""
+async def _course_page_has_empty_state(page: Page) -> bool:
+    """Return whether the authenticated course page explicitly says it is empty."""
+    if not _is_course_select_url(getattr(page, "url", "")):
+        return False
+
+    for selector in COURSE_PAGE_EMPTY_SELECTORS:
+        try:
+            candidates = page.locator(selector)
+            for index in range(await candidates.count()):
+                if await candidates.nth(index).is_visible():
+                    return True
+        except Exception:
+            continue
+
     try:
-        await page.wait_for_selector("table:visible", timeout=15000)
-        await page.wait_for_timeout(1200)
-        return True
+        body_text = re.sub(r"\s+", "", await page.inner_text("body"))
     except Exception:
         return False
+
+    has_course_context = any(marker in body_text for marker in COURSE_PAGE_CONTEXT_MARKERS)
+    has_empty_marker = any(marker in body_text for marker in COURSE_PAGE_EMPTY_MARKERS)
+    return has_course_context and has_empty_marker
+
+
+async def _wait_course_tables_ready(page: Page) -> bool:
+    """Wait for a course table or an explicit no-course state to render."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + COURSE_PAGE_READY_TIMEOUT_MS / 1000
+
+    while loop.time() < deadline:
+        try:
+            if await page.locator("table:visible").count() > 0:
+                await page.wait_for_timeout(1200)
+                return True
+            if await _course_page_has_empty_state(page):
+                logger.info("选课页面已加载，当前暂无可选课程")
+                return True
+        except Exception as exc:
+            logger.debug(f"等待选课页面状态失败: {exc}")
+
+        remaining_ms = max(0, int((deadline - loop.time()) * 1000))
+        if remaining_ms <= 0:
+            break
+        await page.wait_for_timeout(min(COURSE_PAGE_POLL_INTERVAL_MS, remaining_ms))
+
+    return False
 
 
 async def _get_visible_course_tables(page: Page) -> List[Tuple[int, Locator]]:
@@ -1515,9 +1584,13 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
         await page.screenshot(path="logs/scrape_page.png", full_page=True)
         logger.info("选课页面截图已保存")
 
+        if await _course_page_has_empty_state(page):
+            logger.info("当前选课窗口没有可选课程，按空状态完成本轮抓取")
+            return []
+
         # 等待课程表格加载
         try:
-            await page.wait_for_selector("table:visible", timeout=15000)
+            await page.wait_for_selector("table:visible", timeout=COURSE_PAGE_READY_TIMEOUT_MS)
             logger.info("课程表格已加载")
         except Exception:
             logger.warning("等待表格超时，保存 HTML 用于调试...")

@@ -507,6 +507,54 @@ body {
     gap: 14px;
 }
 
+.course-empty-state {
+    grid-column: 1 / -1;
+    min-height: 260px;
+    padding: 42px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    color: var(--text-secondary);
+    border: 1px dashed rgba(155, 176, 255, 0.22);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(145deg, rgba(22, 22, 44, 0.72), rgba(16, 16, 36, 0.54));
+}
+
+.course-empty-state.error {
+    border-color: rgba(248, 113, 113, 0.28);
+}
+
+.course-empty-icon {
+    width: 54px;
+    height: 54px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+    border-radius: 18px;
+    background: rgba(102, 126, 234, 0.14);
+    font-size: 26px;
+}
+
+.course-empty-title {
+    color: var(--text-primary);
+    font-size: 17px;
+    font-weight: 650;
+}
+
+.course-empty-hint {
+    max-width: 520px;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.course-empty-state .btn {
+    margin-top: 10px;
+}
+
 .course-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
