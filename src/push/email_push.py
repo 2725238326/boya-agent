@@ -437,13 +437,17 @@ def _email_shell(title: str, body_html: str, footer_html: str = "", eyebrow: str
 def send_login_code_email(to_email: str, login_url: str, login_code: str, subscribe_url: str) -> bool:
     """发送一次性登录链接和验证码；链接只能使用一次且会自动过期。"""
     code_digits = len(login_code or "")
+    verification_panel_body = (
+        f'本次验证码：<strong style="font-size:24px; letter-spacing:0.18em;">'
+        f'{login_code}</strong><br>验证码会在一段时间后失效，且成功使用后不能再次使用。'
+    )
     body = f"""
 <p style="margin:0 0 14px; font-size:15px; line-height:1.7; color:{_EMAIL_TEXT};">
   这是一封登录博雅课程门户的确认邮件。如果这是你发起的请求，请使用下方的一次性链接，
   或回到订阅页输入 {code_digits} 位验证码。
 </p>
 {_email_primary_button(login_url, "一次性进入课程门户")}
-{_email_info_panel("登录验证码", "输入验证码也可以登录", f"本次验证码：<strong style=\"font-size:24px; letter-spacing:0.18em;\">{login_code}</strong><br>验证码会在一段时间后失效，且成功使用后不能再次使用。")}
+{_email_info_panel("登录验证码", "输入验证码也可以登录", verification_panel_body)}
 {_email_link_fallback(subscribe_url, "如果按钮无法打开，请复制下面的订阅页地址并输入验证码：")}
 {_email_link_fallback(login_url, "备用：一次性登录链接：")}"""
     html = _email_shell("登录你的博雅课程门户", body, eyebrow="邮箱登录")
