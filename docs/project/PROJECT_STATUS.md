@@ -4,7 +4,7 @@
 面向读者：项目负责人、开发者、运维人员和评审者。
 文档状态：当前状态主文档；更新时间：2026-09-02。
 
-判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 对生产主机的只读验收结果。
+判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 对生产主机的部署和验收结果。
 重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。SMTP/Telegram 外部发送链路和北航 SSO 真实抓取链路仍需单独演练。
 
 ## 一句话结论
@@ -59,8 +59,8 @@
 
 ## 已知问题和待确认项
 
-1. 默认 Python 3.13 环境缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在收集阶段报告模块缺依赖，完整本地套件尚未运行。已有依赖较多的 Anaconda 环境可以运行二维码、课程状态、RSS 空数据、自动选课熔断和调度回归测试，但 Web 安全与 Web 优化测试仍因缺少 `flask_cors` 未收集。
-2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限和公开/管理接口边界已实测；SMTP/Telegram 可达性、真实邮件收件和外部 SSO 抓取行为尚未在本轮演练。
+1. 默认 Python 3.13 环境缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在本地收集阶段报告模块缺依赖。服务器使用临时开发依赖环境完成了全量套件验证，但本地环境仍应补齐依赖后再纳入日常开发检查。
+2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限、公开/管理接口边界和缓存策略已实测；SMTP/Telegram 可达性、真实邮件收件和外部 SSO 抓取行为尚未在本轮演练。服务器定时抓取日志仍出现“无法进入选择课程页面”，需要单独针对上游页面/SSO 流程继续排查。
 3. 订阅邮箱和通知事件仍属于业务数据，生产数据库、日志、环境文件和上传目录必须按 [SECURITY.md](../security/SECURITY.md) 保护。
 4. 邮件中的退订、暂停和选课提醒仍使用独立的长期操作 token；它们不再是门户登录凭据，但泄露后仍可能触发对应操作，后续可替换为独立的短期操作票据。
 5. SQLite 适合单实例轻量运行，不支持无协调的多实例并发写入。
@@ -76,7 +76,7 @@
 
 ## 下一阶段
 
-1. 在服务器虚拟环境运行完整 pytest，并补齐真实邮件、验证码、门户和二维码的端到端演练。
+1. 在本地固定开发环境复现服务器的完整 pytest 结果，并补齐真实邮件、验证码、门户和二维码的端到端演练。
 2. 为一次性挑战、代码并发消费、缓存策略和推送失败分类补充集成测试。
 3. 持续拆分 `web/app.py`、`src/scheduler.py` 和前端大文件；每次拆分都保留现有接口和测试保护。
 
@@ -89,4 +89,8 @@
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_web_security.py`：未收集，当前 Anaconda 环境缺少 `flask_cors`。
 - `npm run check`：6 个 JavaScript 文件语法检查通过，TypeScript 7 类型检查通过。
 - `python -m pytest -q`：未通过收集，4 个测试模块因默认环境缺少 `sqlalchemy` 或 `playwright` 报错；未将环境阻塞伪装成测试通过。
+- 服务器临时测试环境：`46 passed`；未向生产运行虚拟环境安装 pytest 或开发依赖。
+- 线上 `https://buaaboya.top`：主页、门户、订阅页和公开接口返回正常；`/api/courses`、`/api/categories`、`/rss` 缓存策略生效，静态资源 URL 带版本参数并返回 `public, max-age=604800, immutable`；HTTP 正确跳转 HTTPS，未授权 `/api/status` 返回 401。
+- 生产数据库：新增课程、提醒、通知和订阅者组合索引已存在；systemd 服务以 `boya-agent` 用户运行，服务和 Nginx 均 active，部署后健康检查返回 `{"status":"ok","success":true}`。
+- Git：`codex/ts7-and-hardening` 已部署至服务器，当前提交为 `4ee5f61`；服务器工作树 clean。
 - `git diff --check`：通过；仅有 Git 关于 LF/CRLF 的换行提示。
