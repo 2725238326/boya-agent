@@ -41,7 +41,11 @@ web/
 deploy/
   nginx_boya.conf       Nginx 示例配置
   admin_access.md       `/admin` 接入说明
+scripts/
+  check-js.mjs          前端语法检查
+  preview_email.py      本地邮件样式预览工具
 docs/                   当前状态、架构、安全、配置、部署和历史资料
+  archive/              已替代的历史讨论和邮件预览
 ```
 
 详细入口见 [docs/README.md](docs/README.md)。当前实现、默认关闭项和待确认风险以 [PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md) 为准。

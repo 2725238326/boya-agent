@@ -10,10 +10,11 @@ import hmac
 import secrets
 import time
 from datetime import timedelta
-from flask import Flask, render_template, jsonify, request, Response, redirect, make_response
+from functools import lru_cache
+from flask import Flask, render_template, jsonify, request, Response, redirect, make_response, url_for
 from flask_cors import CORS
 from loguru import logger
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -72,6 +73,22 @@ if len(WEB_SECRET_KEY) < 32 or WEB_SECRET_KEY.lower().startswith("replace-with-"
     raise RuntimeError("WEB_SECRET_KEY must be configured with a non-example value of at least 32 characters")
 app.secret_key = WEB_SECRET_KEY
 
+
+@lru_cache(maxsize=256)
+def _static_asset_version(filename: str) -> str:
+    """Return a stable content hint so browsers can cache versioned assets safely."""
+    try:
+        stat = os.stat(os.path.join(app.static_folder, filename))
+    except (OSError, TypeError):
+        return "1"
+    return f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+
+
+@app.template_global("static_asset")
+def static_asset(filename: str) -> str:
+    """Build a cache-busting URL for a checked-in static asset."""
+    return url_for("static", filename=filename, v=_static_asset_version(filename))
+
 app.wsgi_app = ProxyFix(
     app.wsgi_app,
     x_for=1,
@@ -99,6 +116,8 @@ VERIFICATION_CODE_LENGTH = 6
 _login_email_last_sent_at = {}
 _login_ip_last_sent_at = {}
 DEFAULT_PUBLIC_BASE_URL = "https://buaaboya.top"
+PUBLIC_API_CACHE_CONTROL = "public, max-age=15, stale-while-revalidate=30"
+CATEGORY_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=600"
 
 app.config["PORTAL_SESSION_COOKIE"] = PORTAL_SESSION_COOKIE
 app.config["MAX_CONTENT_LENGTH"] = max(
@@ -493,23 +512,29 @@ def _current_subscriber(session):
 
 def _serialize_course_reminders(session, subscriber_id: int, pending_only: bool = False):
     query = (
-        session.query(CourseReminder)
-        .filter_by(subscriber_id=subscriber_id)
+        session.query(
+            CourseReminder,
+            Course.name,
+            Course.category,
+            Course.teacher,
+            Course.enroll_start,
+        )
+        .outerjoin(Course, Course.id == CourseReminder.course_id)
+        .filter(CourseReminder.subscriber_id == subscriber_id)
         .order_by(CourseReminder.created_at.desc())
     )
     if pending_only:
-        query = query.filter_by(sent=False)
+        query = query.filter(CourseReminder.sent.is_(False))
 
     result = []
-    for reminder in query.all():
-        course = session.query(Course).filter_by(id=reminder.course_id).first()
+    for reminder, course_name, course_category, course_teacher, enroll_start in query.all():
         result.append({
             "id": reminder.id,
             "course_id": reminder.course_id,
-            "course_name": course.name if course else "未知课程",
-            "course_category": course.category if course else "",
-            "course_teacher": course.teacher if course else "",
-            "enroll_start": course.enroll_start.strftime("%Y-%m-%d %H:%M") if course and course.enroll_start else "",
+            "course_name": course_name or "未知课程",
+            "course_category": course_category or "",
+            "course_teacher": course_teacher or "",
+            "enroll_start": enroll_start.strftime("%Y-%m-%d %H:%M") if enroll_start else "",
             "remind_before_minutes": reminder.remind_before_minutes,
             "sent": reminder.sent,
             "created_at": reminder.created_at.strftime("%Y-%m-%d %H:%M") if reminder.created_at else "",
@@ -521,6 +546,13 @@ def _queue_scrape_task(mode: str, started_message: str, joined_message: str) -> 
     payload = queue_scrape_task(mode=mode)
     payload["message"] = joined_message if payload.get("joined_existing") else started_message
     return payload
+
+
+def _cached_json(payload: dict, cache_control: str = PUBLIC_API_CACHE_CONTROL):
+    """Return JSON with an explicit cache policy for public, short-lived data."""
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = cache_control
+    return response
 
 
 # ========== 页面路由 ==========
@@ -661,6 +693,7 @@ def api_courses():
     session = get_session()
     try:
         query = session.query(Course).order_by(Course.first_seen.desc())
+        now = business_now()
 
         category = request.args.get("category")
         campus = request.args.get("campus")
@@ -670,8 +703,10 @@ def api_courses():
         today_new = request.args.get("today_new", "false").lower() == "true"
         available_now = request.args.get("available_now", "false").lower() == "true"
         waitlist_only = request.args.get("waitlist_only", "false").lower() == "true"
+        if not include_expired:
+            query = query.filter(Course.expired.is_(False))
         if today_new:
-            today_start = business_now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             query = query.filter(Course.first_seen >= today_start)
 
         if category:
@@ -690,16 +725,15 @@ def api_courses():
         if available_now:
             query = query.filter((Course.capacity - Course.enrolled) > 0)
         if waitlist_only:
-            query = query.filter(Course.expired == False).filter((Course.capacity - Course.enrolled) <= 0)  # noqa: E712
+            query = query.filter(Course.expired.is_(False)).filter((Course.capacity - Course.enrolled) <= 0)
 
         courses = query.limit(500).all()
         if not include_expired:
-            courses = [course for course in courses if not is_course_expired(course)]
+            courses = [course for course in courses if not is_course_expired(course, now)]
         if available_now:
-            current_time = business_now()
-            courses = [course for course in courses if is_enrollment_open(course, current_time)]
+            courses = [course for course in courses if is_enrollment_open(course, now)]
         courses = courses[:200]
-        return jsonify({
+        return _cached_json({
             "success": True,
             "data": [c.to_dict() for c in courses],
             "total": len(courses),
@@ -719,7 +753,9 @@ def api_public_insights():
     try:
         active_candidates = (
             session.query(Course)
-            .filter(Course.expired == False)  # noqa: E712
+            .filter(Course.expired.is_(False))
+            .filter(or_(Course.end_time.is_(None), Course.end_time > now))
+            .filter(or_(Course.enroll_end.is_(None), Course.enroll_end > now))
             .all()
         )
         active_courses = [course for course in active_candidates if not is_course_expired(course, now)]
@@ -786,7 +822,7 @@ def api_public_insights():
                 "seconds_left": max(0, int(delta.total_seconds())),
             }
 
-        return jsonify({
+        return _cached_json({
             "success": True,
             "data": {
                 "available_count": len(available),
@@ -1031,11 +1067,17 @@ def api_categories():
     """获取所有已知课程类别"""
     session = get_session()
     try:
-        categories = session.query(Course.category).distinct().all()
-        return jsonify({
+        categories = (
+            session.query(Course.category)
+            .filter(Course.category.isnot(None))
+            .distinct()
+            .order_by(Course.category.asc())
+            .all()
+        )
+        return _cached_json({
             "success": True,
             "data": [c[0] for c in categories if c[0]],
-        })
+        }, CATEGORY_CACHE_CONTROL)
     finally:
         session.close()
 
@@ -1116,7 +1158,9 @@ def rss_feed():
             return Response("RSS 已关闭", status=404, mimetype="text/plain")
         base_url = _get_public_base_url()
         xml = generate_rss_feed(courses, base_url)
-        return Response(xml, mimetype="application/rss+xml; charset=utf-8")
+        response = Response(xml, mimetype="application/rss+xml; charset=utf-8")
+        response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
+        return response
     finally:
         session.close()
 
@@ -1131,7 +1175,9 @@ def atom_feed():
             return Response("Atom 已关闭", status=404, mimetype="text/plain")
         base_url = _get_public_base_url()
         xml = generate_atom_feed(courses, base_url)
-        return Response(xml, mimetype="application/atom+xml; charset=utf-8")
+        response = Response(xml, mimetype="application/atom+xml; charset=utf-8")
+        response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
+        return response
     finally:
         session.close()
 
@@ -2229,10 +2275,13 @@ def api_portal_highlights():
         soon_cutoff = now + timedelta(hours=24)
         upcoming_candidates = (
             session.query(Course)
-            .filter(Course.expired == False)  # noqa: E712
-            .filter(Course.enroll_start != None)  # noqa: E711
+            .filter(Course.expired.is_(False))
+            .filter(Course.enroll_start.isnot(None))
             .filter(Course.enroll_start > now)
             .filter(Course.enroll_start <= soon_cutoff)
+            .filter((Course.capacity - Course.enrolled) > 0)
+            .filter(or_(Course.end_time.is_(None), Course.end_time > now))
+            .filter(or_(Course.enroll_end.is_(None), Course.enroll_end > now))
             .order_by(Course.enroll_start)
             .limit(20)
             .all()
@@ -2252,22 +2301,17 @@ def api_portal_highlights():
         } for c in upcoming]
 
         # 今日新发现的课程数（first_seen 在今天）
-        today_new_candidates = (
-            session.query(Course)
-            .filter(Course.first_seen >= today_start)
-            .filter(Course.expired == False)  # noqa: E712
-            .all()
-        )
-        today_new = sum(1 for course in today_new_candidates if not is_course_expired(course, now))
+        today_new = session.query(func.count(Course.id)).filter(
+            Course.first_seen >= today_start,
+            Course.expired.is_(False),
+            or_(Course.end_time.is_(None), Course.end_time > now),
+            or_(Course.enroll_end.is_(None), Course.enroll_end > now),
+        ).scalar() or 0
+        today_new = int(today_new)
 
         # 用户待发提醒数（此订阅者未发送的提醒）
-        from src.models import CourseReminder
-        pending_reminders = (
-            session.query(CourseReminder)
-            .filter_by(subscriber_id=sub.id, sent=False)
-            .count()
-        )
         pending_reminder_items = _serialize_course_reminders(session, sub.id, pending_only=True)
+        pending_reminders = len(pending_reminder_items)
 
         # 推送暂停状态
         push_paused_until = None

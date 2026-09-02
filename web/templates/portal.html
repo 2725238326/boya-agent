@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>博雅课程 — 用户门户</title>
     <meta name="description" content="查看博雅课程、管理订阅偏好、设置选课提醒">
-    <link rel="stylesheet" href="/static/portal.css">
+    <link rel="stylesheet" href="{{ static_asset('portal.css') }}">
 </head>
 
 <body class="portal-body">
@@ -394,8 +394,8 @@
         </div>
     </div>
 
-    <script src="/static/persistent_login.js"></script>
-    <script src="/static/portal.js"></script>
+    <script src="{{ static_asset('persistent_login.js') }}"></script>
+    <script src="{{ static_asset('portal.js') }}"></script>
     <script>
         (function () {
             const params = new URLSearchParams(window.location.search);

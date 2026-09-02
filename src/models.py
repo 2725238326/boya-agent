@@ -570,3 +570,23 @@ def _migrate_schema_if_needed():
                 "ON qrcode_uploads (content_hash)"
             ))
 
+        # 高频列表和门户接口使用的组合索引。IF NOT EXISTS 让升级可重复执行，
+        # 不修改现有业务数据，也不要求停机做手工迁移。
+        for statement in (
+            "CREATE INDEX IF NOT EXISTS ix_courses_expired_first_seen "
+            "ON courses (expired, first_seen DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_courses_enroll_window "
+            "ON courses (expired, enroll_start, enroll_end)",
+            "CREATE INDEX IF NOT EXISTS ix_course_reminders_subscriber_sent_created "
+            "ON course_reminders (subscriber_id, sent, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_notification_events_subscriber_sent_at "
+            "ON notification_events (subscriber_id, sent_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_notification_events_sent_at_course "
+            "ON notification_events (sent_at DESC, course_id)",
+            "CREATE INDEX IF NOT EXISTS ix_email_subscribers_verified_active "
+            "ON email_subscribers (verified, active)",
+            "CREATE INDEX IF NOT EXISTS ix_email_subscribers_last_portal_seen "
+            "ON email_subscribers (last_portal_seen_at)",
+        ):
+            conn.execute(text(statement))
+

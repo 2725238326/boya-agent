@@ -898,6 +898,8 @@
         const pageParams = new URLSearchParams(window.location.search);
         let insightSecondsLeft = null;
         let insightTimer = null;
+        let insightRefreshTimer = null;
+        let insightRequestInFlight = false;
 
         function showVerifyCodePanel(email) {
             const panel = document.getElementById('verifyCodePanel');
@@ -1114,6 +1116,7 @@
         function startInsightTimer() {
             if (insightTimer) clearInterval(insightTimer);
             insightTimer = setInterval(() => {
+                if (document.visibilityState === 'hidden') return;
                 if (insightSecondsLeft === null) return;
                 insightSecondsLeft = Math.max(0, insightSecondsLeft - 1);
                 renderCountdownText();
@@ -1121,8 +1124,12 @@
         }
 
         async function loadPublicInsights() {
+            if (insightRequestInFlight || document.visibilityState === 'hidden') return;
+            insightRequestInFlight = true;
             try {
-                const resp = await fetch('/api/public/insights');
+                const resp = await fetch('/api/public/insights', {
+                    headers: { Accept: 'application/json' },
+                });
                 const data = await resp.json();
                 if (!data.success) return;
                 const d = data.data || {};
@@ -1156,6 +1163,9 @@
                     }
                 }
             } catch (_) { }
+            finally {
+                insightRequestInFlight = false;
+            }
         }
 
         function escapeHtml(text) {
@@ -1165,7 +1175,10 @@
 
         loadPublicInsights();
         startInsightTimer();
-        setInterval(loadPublicInsights, 30000);
+        insightRefreshTimer = setInterval(loadPublicInsights, 30000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') loadPublicInsights();
+        });
 
         // 自动跳转：如果会话仍有效，直接进入门户
         const params = pageParams;
@@ -1215,8 +1228,8 @@
             }
         }
     </script>
-    <script src="/static/persistent_login.js"></script>
-    <script src="/static/subscribe_bridge.js"></script>
+    <script src="{{ static_asset('persistent_login.js') }}"></script>
+    <script src="{{ static_asset('subscribe_bridge.js') }}"></script>
 </body>
 
 </html>

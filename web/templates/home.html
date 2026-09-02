@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BUAA 博雅课程提醒</title>
     <meta name="description" content="北航博雅课程提醒、邮箱订阅与个人门户。">
-    <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+    <link rel="stylesheet" href="{{ static_asset('home.css') }}">
 </head>
 <body class="home-body">
     <header class="home-nav">
@@ -85,6 +85,6 @@
         </section>
     </main>
 
-    <script src="{{ url_for('static', filename='home.js') }}"></script>
+    <script src="{{ static_asset('home.js') }}"></script>
 </body>
 </html>

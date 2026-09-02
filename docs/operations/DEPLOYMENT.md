@@ -3,7 +3,7 @@
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
 文档状态：当前部署方案；更新时间：2026-09-02。
-事实范围：部署样例和启动代码已经核对，但本机没有真实服务器、证书或外部账号，因此“可上线”仍需现场验证。
+事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd 和公开/管理边界验收。SMTP/Telegram 与北航 SSO 仍需业务演练。
 
 ## 部署拓扑
 
@@ -26,7 +26,7 @@ BOYA Agent（Flask + APScheduler，专用 boya-agent 用户）
 ## 上线前条件
 
 - Ubuntu 或兼容的 Linux 主机；Python 3、`python3-venv`、Nginx 和 certbot 已可安装。
-- DNS 已将 `APP_PUBLIC_BASE_URL` 对应域名指向这台主机。配置样例中的 `buaaboya.top` 只是仓库现有示例，不能当作实际部署信息。
+- 当前生产 DNS 已将 `buaaboya.top` 指向 `49.233.248.86`；其他实例仍必须核对自己的域名和解析。
 - 已准备北航登录凭据、SMTP 应用密码，以及需要时的 Telegram 凭据。
 - 已生成随机 `WEB_SECRET_KEY`（至少 32 个字符），并设置管理员认证。服务在缺少这些配置时应拒绝启动。
 - 已决定数据库和上传目录的备份位置。
@@ -47,7 +47,8 @@ bash deploy/setup.sh
 
 ```bash
 sudoedit /home/boya-agent/.env
-sudo chmod 600 /home/boya-agent/.env
+sudo chown root:boya-agent /home/boya-agent/.env
+sudo chmod 640 /home/boya-agent/.env
 ```
 
 至少填写：
@@ -61,7 +62,7 @@ ADMIN_PASSWORD=...
 APP_PUBLIC_BASE_URL=https://你的域名
 APP_ALLOWED_ORIGINS=https://你的域名
 APP_TIMEZONE=Asia/Shanghai
-DATABASE_PATH=boya_agent.db
+DATABASE_PATH=/var/lib/boya-agent/data/boya_agent.db
 ```
 
 邮件、Telegram 和各项业务默认值见 [CONFIGURATION.md](../development/CONFIGURATION.md)。不要把真实 `.env`、SMTP 密码、课程系统密码或 Bot token 提交到 Git。
@@ -102,11 +103,11 @@ sudo systemctl status boya-agent --no-pager
 sudo journalctl -u boya-agent -n 100 --no-pager
 ```
 
-服务以 `boya-agent` 用户运行，`UMask=027`，不会以 root 身份运行应用。数据库、日志、上传目录和应用目录必须允许该用户访问；`.env` 仍应保持 `600`。`ProtectSystem=full` 与 `ReadWritePaths` 已写入单元，若现场把数据库或浏览器数据放到其他目录，需要同步调整权限和单元。
+服务以 `boya-agent` 用户运行，`UMask=027`，不会以 root 身份运行应用。数据库、日志、上传目录和应用目录必须允许该用户访问；`.env` 使用 `root:boya-agent`、`640`，以便服务读取但不向其他用户开放。`ProtectSystem=full` 与 `ReadWritePaths` 已写入单元，若现场把数据库或浏览器数据放到其他目录，需要同步调整权限和单元。
 
 ## 上线后验收
 
-以下检查需要在真实域名和真实证书环境执行，当前工作区没有执行结果：
+以下检查适用于每次更新后的验收：
 
 ```bash
 curl -I https://你的域名/
@@ -119,8 +120,10 @@ curl -i https://你的域名/api/courses
 
 应确认：HTTP 跳转到 HTTPS；`/healthz` 返回 `200` 和 `status=ok`；未认证的后台状态返回 401；认证后的后台状态返回 JSON；课程页和订阅页可访问；响应包含 `HttpOnly`/`Secure` 会话 Cookie（由 HTTPS 下的验证或登录接口产生）；Nginx 日志中没有把 `.env`、上传目录或数据库暴露为静态文件。
 
+本项目在 2026-09-02 已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。
+
 ## 更新原则
 
-更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段和二维码哈希字段，不会删除旧字段。
+更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。当前生产数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段、二维码哈希字段和查询索引，不会删除旧字段。
 
 更新后按 [RUNBOOK.md](RUNBOOK.md) 做健康检查。不要在没有备份和现场确认的情况下删除数据库、上传文件或旧日志。

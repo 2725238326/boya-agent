@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if qrcode_course %}{{ qrcode_course.name }} 签到二维码{% else %}签到二维码共享{% endif %} | 博雅课程</title>
     <meta name="description" content="上传和查看课程签到二维码，支持课程直达入口、共享二维码展示和贡献排行。">
-    <link rel="stylesheet" href="{{ url_for('static', filename='qrcode.css') }}">
+    <link rel="stylesheet" href="{{ static_asset('qrcode.css') }}">
 </head>
 <body class="qrcode-body" data-course-id="{{ qrcode_course.id if qrcode_course else '' }}">
     <header class="qrcode-header">
@@ -187,6 +187,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='qrcode.js') }}"></script>
+    <script src="{{ static_asset('qrcode.js') }}"></script>
 </body>
 </html>

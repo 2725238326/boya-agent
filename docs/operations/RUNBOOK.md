@@ -3,7 +3,7 @@
 文档用途：提供可复制的启动、检查、备份和故障处理步骤。
 面向读者：值班维护者。
 文档状态：当前运行手册；更新时间：2026-09-02。
-注意：命令中的域名、路径和凭据均需替换为现场值。
+当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。其他环境执行命令前仍需核对域名、路径和凭据。
 
 ## 服务控制
 
@@ -74,11 +74,11 @@ curl -su 管理员用户名:管理员密码 https://你的域名/api/logs/enroll
 
 ## 数据库备份与恢复
 
-默认数据库是工作目录下的 `boya_agent.db`；实际位置由 `DATABASE_PATH` 决定。先查看 `.env` 和运行目录，确认目标是单个明确的数据库文件，再备份：
+实际位置由 `DATABASE_PATH` 决定；当前生产数据库是 `/var/lib/boya-agent/data/boya_agent.db`。先查看 `.env` 和运行目录，确认目标是单个明确的数据库文件，再备份：
 
 ```bash
 sudo systemctl stop boya-agent
-sudo cp -p /home/boya-agent/boya_agent.db /safe/backup/path/boya_agent-$(date +%F-%H%M).db
+sudo cp -p /var/lib/boya-agent/data/boya_agent.db /safe/backup/path/boya_agent-$(date +%F-%H%M).db
 sudo systemctl start boya-agent
 ```
 

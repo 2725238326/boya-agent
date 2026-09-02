@@ -12,6 +12,7 @@
 - 所有 POST/PUT/PATCH/DELETE 默认检查 `Origin` 或 `Referer`。没有这两个头的受控脚本请求保持兼容；带头请求必须是当前 Host 或 `APP_ALLOWED_ORIGINS` 中的来源。
 - 邮件验证码、一次性链接和邮件操作 token 都是 bearer secret。接口不应把它们写进普通响应、日志或公开页面。
 - 旧的 `/api/subscriber/<token>/*` 门户设置接口保留路径兼容，但返回 410；邮件退订/暂停/提醒操作 token 是尚未完全替换的独立风险边界，见 [SECURITY.md](../security/SECURITY.md)。
+- 公开课程、类别和洞察接口使用短时 `Cache-Control`；门户会话、提醒、通知和管理接口不应被公共缓存。
 
 ## 页面和公开读取
 

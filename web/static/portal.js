@@ -12,8 +12,15 @@ let portalState = {
     notificationsHours: 24,
     lastCourseRefreshAt: null,
     shouldShowOnboarding: false,
+    remindersLoaded: false,
+    notificationsLoaded: false,
 };
 const PORTAL_TAB_KEY = 'portal_active_tab';
+let courseSearchTimeout = null;
+let courseRequestController = null;
+let courseRequestSerial = 0;
+let portalRemindersRequest = null;
+let portalNotificationsRequest = null;
 
 function buildPortalCourseParams() {
     const params = new URLSearchParams();
@@ -33,15 +40,36 @@ function buildPortalCourseParams() {
     return params;
 }
 
-async function loadFilteredCourses() {
+function applyPortalCourses(courses) {
+    const list = Array.isArray(courses) ? courses : [];
+    const sorted = sortPortalCourses(list);
+    renderCourses(sorted);
+    portalState.lastCourseRefreshAt = new Date();
+    renderPortalRefreshMeta();
+}
+
+async function loadFilteredCourses(initialCourses = null) {
+    if (Array.isArray(initialCourses) && courseRequestSerial === 0) {
+        applyPortalCourses(initialCourses);
+        return { success: true, data: initialCourses };
+    }
+
+    const requestSerial = ++courseRequestSerial;
+    if (courseRequestController) courseRequestController.abort();
+    courseRequestController = new AbortController();
     const params = buildPortalCourseParams();
     const qs = params.toString();
-    const res = await portalApi(`/api/courses${qs ? `?${qs}` : ''}`);
+    const res = await portalApi(`/api/courses${qs ? `?${qs}` : ''}`, {
+        signal: courseRequestController.signal,
+        suppressErrorToast: true,
+    });
+    if (requestSerial !== courseRequestSerial || res.aborted) {
+        return { success: false, aborted: true };
+    }
     if (res.success) {
-        const sorted = sortPortalCourses(res.data);
-        renderCourses(sorted);
-        portalState.lastCourseRefreshAt = new Date();
-        renderPortalRefreshMeta();
+        applyPortalCourses(res.data);
+    } else {
+        showPortalToast(res.error || '课程加载失败，请稍后重试', 'error');
     }
     return res;
 }
@@ -200,14 +228,14 @@ function toggleMobileFilters(forceOpen = null) {
 async function portalApi(url, options = {}) {
     const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
     try {
-        const resp = await fetch(url, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                ...headers,
-            },
-            ...fetchOptions,
+        const requestHeaders = new Headers({
+            'Accept': 'application/json',
+            ...headers,
         });
+        if (typeof fetchOptions.body === 'string' && !requestHeaders.has('Content-Type')) {
+            requestHeaders.set('Content-Type', 'application/json');
+        }
+        const resp = await fetch(url, { ...fetchOptions, headers: requestHeaders });
 
         const contentType = (resp.headers.get('content-type') || '').toLowerCase();
         if (contentType.includes('application/json')) {
@@ -238,9 +266,12 @@ async function portalApi(url, options = {}) {
             bodyPreview,
         };
     } catch (err) {
+        if (err && err.name === 'AbortError') {
+            return { success: false, aborted: true };
+        }
         console.error('API Error:', err);
         if (!suppressErrorToast) {
-            showPortalToast('缃戠粶璇锋眰澶辫触', 'error');
+            showPortalToast('网络请求失败', 'error');
         }
         return { success: false, error: err.message };
     }
@@ -260,10 +291,9 @@ async function loadPortalData() {
     portalState.subscriber = sessionRes.data;
     portalState.shouldShowOnboarding = Boolean(sessionRes.data.show_onboarding);
 
-    // Load in parallel
-    const [coursesRes, remindersRes, categoriesRes, highlightsRes] = await Promise.all([
+    // 首屏只加载课程、设置和亮点；提醒/通知在打开对应页签时再加载。
+    const [coursesRes, categoriesRes, highlightsRes] = await Promise.all([
         portalApi('/api/courses'),
-        portalApi('/api/subscriber/session/reminders'),
         portalApi('/api/categories'),
         portalApi('/api/portal/highlights'),
     ]);
@@ -275,6 +305,10 @@ async function loadPortalData() {
     // Highlights
     if (highlightsRes.success) {
         renderPortalHighlights(highlightsRes.data);
+        const pendingItems = Array.isArray(highlightsRes.data?.pending_reminder_items)
+            ? highlightsRes.data.pending_reminder_items
+            : [];
+        applyPortalReminderState(pendingItems);
     }
 
     // Courses
@@ -282,29 +316,15 @@ async function loadPortalData() {
         const activeCourses = coursesRes.data.filter(c => !c.expired);
         const availableCourses = activeCourses.filter(c => c.remaining > 0);
         document.getElementById('heroCount').textContent = availableCourses.length;
-        await loadFilteredCourses();
+        await loadFilteredCourses(coursesRes.data);
     }
 
-    // Reminders
-    if (remindersRes.success) {
-        const highlightReminderItems = highlightsRes.success && highlightsRes.data && Array.isArray(highlightsRes.data.pending_reminder_items)
-            ? highlightsRes.data.pending_reminder_items
-            : [];
-        const reminderItems = remindersRes.data.length ? remindersRes.data : highlightReminderItems;
-        portalState.reminderCourseIds = new Set(reminderItems.map(r => r.course_id));
-        renderReminders(reminderItems);
-        // Update reminder count badge
-        const pendingCount = reminderItems.filter(r => !r.sent).length;
-        const badge = document.getElementById('reminderBadge');
-        if (pendingCount > 0) {
-            badge.textContent = pendingCount;
-            badge.style.display = 'inline-block';
-        } else {
-            badge.style.display = 'none';
-        }
+    if (document.querySelector('.portal-tab.active')?.dataset.tab === 'notifications') {
+        void reloadNotifications(false);
     }
-
-    await reloadNotifications();
+    if (document.querySelector('.portal-tab.active')?.dataset.tab === 'manage') {
+        void loadPortalReminders();
+    }
 
     if (portalState.shouldShowOnboarding) {
         switchPortalTab('courses');
@@ -322,9 +342,19 @@ function initTabs() {
 function switchPortalTab(tabName) {
     document.querySelectorAll('.portal-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.portal-tab-panel').forEach(p => p.classList.remove('active'));
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-    document.getElementById(`panel-${tabName}`).classList.add('active');
+    const tab = document.querySelector(`[data-tab="${tabName}"]`);
+    const panel = document.getElementById(`panel-${tabName}`);
+    if (!tab || !panel) return;
+    tab.classList.add('active');
+    panel.classList.add('active');
     localStorage.setItem(PORTAL_TAB_KEY, tabName);
+
+    if (tabName === 'notifications' && portalState.subscriber) {
+        void reloadNotifications(false);
+    }
+    if (tabName === 'manage' && portalState.subscriber) {
+        void loadPortalReminders();
+    }
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Course Rendering 鈺愨晲鈺愨晲鈺愨晲
@@ -685,9 +715,8 @@ async function registerReminder(courseId, btnEl) {
         btnEl.classList.add('reminded');
         showPortalToast('\u9009\u8bfe\u63d0\u9192\u5df2\u6ce8\u518c\uff0c\u5f00\u59cb\u524d 5 \u5206\u949f\u901a\u77e5\u4f60', 'success');
 
-        // Refresh reminders
-        const remRes = await portalApi('/api/subscriber/session/reminders');
-        if (remRes.success) renderReminders(remRes.data);
+        // Refresh reminder state so the badge and settings panel stay consistent.
+        await loadPortalReminders(true);
     } else {
         btnEl.disabled = false;
         btnEl.textContent = '\ud83d\udd14 \u63d0\u9192\u6211\u9009\u8bfe';
@@ -752,7 +781,42 @@ async function saveSettings() {
     btn.textContent = '保存设置';
 }
 
-// 鈺愨晲鈺愨晲鈺愨晲 Reminders Rendering 鈺愨晲鈺愨晲鈺愨晲
+function applyPortalReminderState(reminders) {
+    const items = Array.isArray(reminders) ? reminders : [];
+    portalState.reminderCourseIds = new Set(items.map((item) => item.course_id));
+
+    const pendingCount = items.filter((item) => !item.sent).length;
+    const badge = document.getElementById('reminderBadge');
+    if (!badge) return;
+    badge.textContent = String(pendingCount);
+    badge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+}
+
+async function loadPortalReminders(force = false) {
+    if (!portalState.subscriber) return { success: false, error: '未登录' };
+    if (portalState.remindersLoaded && !force) {
+        return { success: true };
+    }
+    if (portalRemindersRequest && !force) return portalRemindersRequest;
+
+    portalRemindersRequest = portalApi('/api/subscriber/session/reminders', {
+        suppressErrorToast: true,
+    }).then((res) => {
+        if (res.success) {
+            portalState.remindersLoaded = true;
+            applyPortalReminderState(res.data);
+            renderReminders(res.data);
+        } else if (!res.aborted) {
+            showPortalToast(res.error || '提醒列表加载失败，请稍后重试', 'error');
+        }
+        return res;
+    }).finally(() => {
+        portalRemindersRequest = null;
+    });
+    return portalRemindersRequest;
+}
+
+// Reminders Rendering
 function renderReminders(reminders) {
     const container = document.getElementById('reminderList');
     if (!reminders || !reminders.length) {
@@ -847,14 +911,27 @@ function applyNotificationFilters() {
     renderNotifications(filtered);
 }
 
-async function reloadNotifications() {
+async function reloadNotifications(force = true) {
+    if (!portalState.subscriber) return { success: false, error: '未登录' };
+    if (portalState.notificationsLoaded && !force) {
+        return { success: true };
+    }
     const hours = Number(document.getElementById('notifyRangeFilter')?.value || portalState.notificationsHours || 24);
     portalState.notificationsHours = Math.max(1, Math.min(168, hours));
-    const res = await portalApi(`/api/subscriber/session/notifications?hours=${portalState.notificationsHours}&limit=300`);
+    if (portalNotificationsRequest && !force) return portalNotificationsRequest;
+    portalNotificationsRequest = portalApi(`/api/subscriber/session/notifications?hours=${portalState.notificationsHours}&limit=300`, {
+        suppressErrorToast: true,
+    });
+    const res = await portalNotificationsRequest;
     if (res.success) {
         portalState.notifications = res.data || [];
+        portalState.notificationsLoaded = true;
         applyNotificationFilters();
+    } else if (!res.aborted) {
+        showPortalToast(res.error || '通知加载失败，请稍后重试', 'error');
     }
+    portalNotificationsRequest = null;
+    return res;
 }
 
 function exportNotificationsCsv() {

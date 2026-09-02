@@ -19,11 +19,20 @@ web/templates/          服务端模板
 web/static/             无构建步骤的原生 JavaScript/CSS
 config/                 配置样例和运行时目录
 deploy/                 Nginx、systemd 和部署脚本
+scripts/                前端检查和本地邮件预览工具
 tests/                  回归、安全、状态、RSS 和二维码测试
 docs/                   当前文档、ADR 和历史资料索引
 ```
 
 当前没有前端打包系统，也没有为了目录美观引入新的框架。修改大文件前，先确认是否能在现有边界内新增 service/helper 和测试。
+
+邮件样式预览：
+
+```bash
+python scripts/preview_email.py
+```
+
+该脚本只生成本地预览，不发送邮件；邮件预览 HTML 归档在 `docs/archive/email-previews/`。
 
 ## TypeScript 7 渐进式检查
 

@@ -8,7 +8,7 @@
     <meta name="description" content="BUAA 博雅课程抓取与提醒系统后台。">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ static_asset('style.css') }}">
 </head>
 
 <body>
@@ -548,7 +548,7 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ static_asset('app.js') }}"></script>
 </body>
 
 </html>

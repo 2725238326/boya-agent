@@ -4,10 +4,12 @@
 """
 import sys
 import os
+import tempfile
 import webbrowser
 from datetime import datetime
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+sys.path.insert(0, PROJECT_ROOT)
 
 from src.push.email_push import (
     _build_notification_html,
@@ -125,8 +127,10 @@ remind_body = f"""
 html_reminder = _email_shell("选课即将开始", remind_body)
 
 # ── 写出文件 ─────────────────────────────────────────────────
-out_notification = os.path.join(os.path.dirname(__file__), "preview_notification.html")
-out_reminder = os.path.join(os.path.dirname(__file__), "preview_reminder.html")
+# 预览是临时产物，不写入源码目录，避免运行脚本后污染 Git 工作区。
+preview_dir = tempfile.mkdtemp(prefix="boya-email-preview-")
+out_notification = os.path.join(preview_dir, "preview_notification.html")
+out_reminder = os.path.join(preview_dir, "preview_reminder.html")
 
 with open(out_notification, "w", encoding="utf-8") as f:
     f.write(html_notification)

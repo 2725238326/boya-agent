@@ -153,6 +153,11 @@ def security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if request.path.startswith("/static/") and response.status_code == 200:
+        response.headers.setdefault(
+            "Cache-Control",
+            "public, max-age=604800, immutable",
+        )
     if request.is_secure or (request.headers.get("X-Forwarded-Proto") or "").lower() == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
