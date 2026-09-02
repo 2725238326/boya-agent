@@ -12,10 +12,14 @@ ExecStart=/home/boya-agent/venv/bin/python src/main.py
 Restart=always
 RestartSec=10
 EnvironmentFile=/home/boya-agent/.env
+Environment=HOME=/var/lib/boya-agent
+Environment=XDG_CACHE_HOME=/var/lib/boya-agent/cache
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright
+StateDirectory=boya-agent
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/home/boya-agent /home/boya-agent/logs /home/boya-agent/config
+ReadWritePaths=/home/boya-agent/logs /home/boya-agent/config/uploads /var/lib/boya-agent
 
 # 日志
 StandardOutput=journal
