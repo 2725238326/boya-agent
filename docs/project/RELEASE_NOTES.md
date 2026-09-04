@@ -31,7 +31,7 @@
 
 - 本地提交：`2eb1e2a feat: harden scrape and notification delivery`。
 - 服务器工作树已从 `ead117d` 快进到 `2eb1e2a`，发布前后均为 clean。
-- 服务器 GitHub deploy key 被标记为 read-only，无法把同名功能分支推回 GitHub；本机到 GitHub 的 SSH/HTTPS 路径也未在超时内返回。因此“服务器已部署”与“GitHub 远端分支已推送”是两个不同状态，远端分支同步仍是待处理项。
+- 服务器 GitHub deploy key 被标记为 read-only，仅用于拉取；本次使用已授权的 HTTPS Git 凭据完成推送。GitHub `codex/ts7-and-hardening` 已指向 `657432b`，本地分支已设置 upstream，核对结果为 ahead/behind `0/0`，服务器分支与其一致。
 
 ### 数据库迁移与备份
 
@@ -52,6 +52,6 @@
 - 主 SMTP 仍有连接/响应超时，下一轮应记录每个阶段耗时、回退比例和最终收件结果，并评估是否需要调整 SMTP 配置或超时策略。
 - outbox 目前只覆盖课程推送；选课提醒、每日汇总和站点通知仍需分批迁移和测试。
 - 真实课程只代表本次观察窗口，不能代替长期稳定性、Telegram 可达性或完整用户体验演练。
-- 远端功能分支需要在具备写权限的 GitHub 凭据或用户完成授权后推送，再让后续发布回到“远端提交—CI—服务器提交”完全一致的闭环。
+- 后续生产发布仍应通过合并到 `main/master` 触发 CI 和自动部署；当前功能分支已同步，但不会因为功能分支推送而自动触发生产工作流。
 
 回滚优先使用已审阅的 Git revert 提交；紧急恢复时保留数据库和 outbox 记录，使用已确认的旧提交恢复代码，并按 [DEPLOYMENT.md](../operations/DEPLOYMENT.md) 补齐正式发布记录。

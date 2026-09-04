@@ -102,7 +102,7 @@
 
 ## 本轮部署观察
 
-- Git（本轮部署，2026-09-04）：服务器 `codex/ts7-and-hardening` 已快进至 `2eb1e2a`，工作树 clean；服务器 deploy key 为 read-only，GitHub 同名功能分支尚未成功推送，详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+- Git（本轮部署，2026-09-04）：本地、GitHub `codex/ts7-and-hardening` 和服务器已核对到同一提交 `657432b`，本地分支 ahead/behind 为 `0/0`，服务器工作树 clean；服务器 deploy key 仅保留拉取权限，生产推送使用已授权的 HTTPS Git 凭据完成，详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 - 生产主进程于 `21:32:46 CST` 重启后保持 active；本机和 `https://buaaboya.top/healthz` 返回 200；主页、订阅页、门户、课程/类别接口和 RSS 返回 200；未授权 `/api/status` 返回 401；HTTP 正确跳转 HTTPS。
 - 生产数据库中的 `notification_jobs` 表、唯一幂等键和状态/渠道索引存在，SQLite `integrity_check` 为 `ok`；部署前已生成一致性备份，邮件任务观察窗口内为 `22 succeeded`、无未解决任务。
 
