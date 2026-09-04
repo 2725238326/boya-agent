@@ -4,8 +4,8 @@
 面向读者：项目负责人、开发者、运维人员和评审者。
 文档状态：当前状态主文档；更新时间：2026-09-04。
 
-判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 至 2026-09-03 对生产主机的部署和验收结果。
-重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。SMTP/Telegram 外部发送链路和北航 SSO 真实抓取链路仍需单独演练。
+判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果。
+重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。本轮主 SMTP 出现超时但回退/重试完成，Telegram 仍关闭，长期通知稳定性和真实收件结果仍需持续观察。
 
 ## 一句话结论
 
@@ -65,7 +65,7 @@
 ## 已知问题和待确认项
 
 1. 默认 Python 3.13 环境仍缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在本地收集阶段报告模块缺依赖。当前 `D:\\Anaconda\\python.exe` 已补齐 `flask-cors` 并通过全量套件，但两个解释器尚未统一，后续仍需固定开发环境或 CI 入口。
-2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限、公开/管理接口边界和缓存策略已实测；SMTP/Telegram 可达性、真实邮件收件和外部 SSO 抓取行为尚未在本轮完整演练。当前无课页面已在生产抓取轮次中识别为成功空状态，但真实课程出现后的解析、筛选和通知链路仍需继续演练。
+2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限、公开/管理接口边界和缓存策略已实测。2026-09-04 重启后的真实首轮成功抓取 3 门课程，其中 2 门通过筛选；外部 SSO 登录和邮件 outbox 已实际运行，22 个邮件任务在观察窗口内全部成功，但主 SMTP 多次超时后才由重试/回退完成，不能据此承诺长期稳定。
 3. 订阅邮箱和通知事件仍属于业务数据，生产数据库、日志、环境文件和上传目录必须按 [SECURITY.md](../security/SECURITY.md) 保护。
 4. 邮件中的退订、暂停和选课提醒仍使用独立的长期操作 token；它们不再是门户登录凭据，但泄露后仍可能触发对应操作，后续可替换为独立的短期操作票据。
 5. SQLite 适合单实例轻量运行，不支持无协调的多实例并发写入。
@@ -88,7 +88,7 @@
 1. 固定本地和 CI 的完整测试环境，真实记录未运行的检查。
 2. 建立模拟课程、无课、登录失效、解析失败、通知失败和重复投递样例。
 3. 扩展通知 outbox 到提醒、每日汇总和管理端通知，再逐步拆分 Playwright、调度器、后端路由和门户前端。
-4. 每个阶段通过测试后再部署；生产默认保持邮件、Telegram 和自动选课关闭，真实课程出现后再补外部业务演练。
+4. 每个阶段通过测试后再部署；代码样例默认关闭邮件、Telegram 和自动选课，但当前生产 `FilterConfig` 实际为邮件和每日摘要开启、Telegram 与自动选课关闭，后续变更前必须核对现场开关。
 
 本阶段改进和部署汇报按照 [REPORTING_STANDARD.md](REPORTING_STANDARD.md) 执行，用户可见文字按照根目录的 [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../../PLAIN_LANGUAGE_REVIEW_PROMPT.md) 审阅。
 
@@ -98,7 +98,13 @@
 - 调度器已消费结构化结果；失败结果不会进入课程落库流程，并会记录 `last_scrape_status`。
 - 保留旧的 `scrape_courses()` 列表接口，便于后续按批次迁移调用方。
 - 课程邮件和课程 Telegram 推送已接入 SQLite outbox，支持幂等创建、处理租约、指数退避和定时恢复；提醒及每日汇总路径暂未迁移。
-- 本地已完成 65 项测试、1 项跳过、Python 编译检查、前端 `npm run check` 和差异检查；本批尚未部署到服务器。
+- 本地已完成 65 项测试、1 项跳过、Python 编译检查、前端 `npm run check` 和差异检查；本批已部署到服务器并完成线上复核。
+
+## 本轮部署观察
+
+- Git（本轮部署，2026-09-04）：服务器 `codex/ts7-and-hardening` 已快进至 `2eb1e2a`，工作树 clean；服务器 deploy key 为 read-only，GitHub 同名功能分支尚未成功推送，详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+- 生产主进程于 `21:32:46 CST` 重启后保持 active；本机和 `https://buaaboya.top/healthz` 返回 200；主页、订阅页、门户、课程/类别接口和 RSS 返回 200；未授权 `/api/status` 返回 401；HTTP 正确跳转 HTTPS。
+- 生产数据库中的 `notification_jobs` 表、唯一幂等键和状态/渠道索引存在，SQLite `integrity_check` 为 `ok`；部署前已生成一致性备份，邮件任务观察窗口内为 `22 succeeded`、无未解决任务。
 
 ## 本轮实际验证
 
@@ -116,7 +122,7 @@
 - 门户/管理台空状态资源：线上 `portal.js` 已包含“当前暂无可选课程 / 没有匹配的课程”分支，`portal.css` 和管理台样式已加载对应空状态布局。
 - 生产数据库：新增课程、提醒、通知和订阅者组合索引已存在；systemd 服务以 `boya-agent` 用户运行，服务和 Nginx 均 active，部署后健康检查返回 `{"status":"ok","success":true}`。
 - 性能基准：线上 5 个公开接口各连续请求 20 次均为 200；首页、健康、课程、洞察、类别接口中位数约 `11.1–12.5 ms`，P95 约 `12.5–14.3 ms`；24 个并发课程请求全部返回 200，整体约 `883 ms`。
-- Git：`codex/ts7-and-hardening` 的 `1fbadd6` 已部署至服务器；服务器工作树 clean。
+- Git（历史部署记录，2026-09-03）：`codex/ts7-and-hardening` 的 `1fbadd6` 已部署至服务器；服务器工作树 clean。
 - `git diff --check`：通过；仅有 Git 关于 LF/CRLF 的换行提示。
 - 本轮新增：`D:\\Anaconda\\python.exe -m pytest -q tests/test_scrape_outcome.py tests/test_scraper_scheduler_regressions.py`：`34 passed`；`python -m compileall -q src web tests`：通过。
 - 本轮新增通知 outbox：`D:\\Anaconda\\python.exe -m pytest -q tests/test_notification_jobs.py tests/test_scraper_scheduler_regressions.py`：`34 passed`。

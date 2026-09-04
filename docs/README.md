@@ -25,12 +25,14 @@
 | 项目改进工作提示词 | [PROJECT_IMPROVEMENT_PROMPT.md](development/PROJECT_IMPROVEMENT_PROMPT.md) |
 | 改进清单和验收目标 | [IMPROVEMENT_BACKLOG.md](project/IMPROVEMENT_BACKLOG.md) |
 | 进度、测试和部署汇报标准 | [REPORTING_STANDARD.md](project/REPORTING_STANDARD.md) |
+| 发布与部署记录 | [RELEASE_NOTES.md](project/RELEASE_NOTES.md) |
 | 通用清晰表达提示词 | [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../PLAIN_LANGUAGE_REVIEW_PROMPT.md) |
 
 ## 快速入口
 
 - 本地安装和启动：先看 [README.md](../README.md) 与 [DEVELOPMENT.md](development/DEVELOPMENT.md)。
 - 生产上线：先看 [DEPLOYMENT.md](operations/DEPLOYMENT.md)，再按 [RUNBOOK.md](operations/RUNBOOK.md) 做上线后检查。
+- 常规更新：代码先通过本地/CI 验收，再形成 Git 提交；`main/master` 推送会触发生产工作流，功能分支只有在明确核对后才手动部署。
 - 常规更新：代码先通过本地/CI 验收，再形成 Git 提交；`main/master` 推送会触发生产工作流，功能分支只有在明确核对后才手动部署。
 - 修改环境变量：只按 [CONFIGURATION.md](development/CONFIGURATION.md) 操作，不从历史文档复制默认值。
 - 修改认证、课程状态、二维码或管理员边界：先阅读对应 ADR，再补回归测试。

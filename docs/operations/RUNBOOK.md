@@ -87,6 +87,8 @@ curl -su 管理员用户名:管理员密码 \
 
 课程推送是否自动发送由数据库中的 `FilterConfig.email_enabled`、`telegram_enabled`、`daily_summary_enabled` 控制；这些开关默认关闭。手动推送接口是管理员明确要求的邮件发送动作，不能把它当作自动通道开关的健康检查。
 
+课程邮件已经接入持久化 outbox。日志中的主 SMTP 超时不等于任务立即丢失，应先查看 `notification_jobs` 的状态汇总；只有任务进入 `failed` 且达到重试上限，才需要按收件人范围和失败原因进一步处理。不要为了验证通道而重复触发整批手动推送。
+
 查看推送记录：
 
 ```bash

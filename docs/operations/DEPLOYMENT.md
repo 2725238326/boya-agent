@@ -3,7 +3,7 @@
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
 文档状态：当前部署方案；更新时间：2026-09-04。
-事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd 和公开/管理边界验收。SMTP/Telegram 与北航 SSO 仍需业务演练。
+事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd 和公开/管理边界验收。2026-09-04 已观察到真实课程抓取和邮件 outbox 投递；主 SMTP 出现超时但回退/重试完成，Telegram 仍关闭，后续继续观察长期稳定性。
 
 ## 部署拓扑
 
@@ -124,7 +124,7 @@ curl -i https://你的域名/api/courses
 
 ## 更新原则
 
-更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。当前生产数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段、二维码哈希字段和查询索引，不会删除旧字段。
+更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。当前生产数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段、二维码哈希字段、查询索引和 `notification_jobs` 表，不会删除旧字段。
 
 更新后按 [RUNBOOK.md](RUNBOOK.md) 做健康检查。不要在没有备份和现场确认的情况下删除数据库、上传文件或旧日志。
 
