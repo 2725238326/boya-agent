@@ -21,6 +21,11 @@ from urllib.parse import quote
 from loguru import logger
 
 from src.course_state import get_check_in_display_label, is_course_expired, is_self_check_in
+from src.notification_jobs import (
+    NotificationDeliveryResult,
+    drain_notification_jobs,
+    enqueue_notification_job,
+)
 from src.time_utils import now as business_now
 
 
@@ -1037,8 +1042,8 @@ async def send_email_to_subscribers(
     event_type: str = "new",
     delivery_mode: str = "instant",
 ) -> int:
-    """Send course notifications to all active verified subscribers."""
-    from src.models import EmailSubscriber, NotificationEvent, get_session
+    """创建并投递课程邮件任务，返回成功投递的订阅者数量。"""
+    from src.models import EmailSubscriber, get_session
 
     base_url = (base_url or os.getenv("APP_PUBLIC_BASE_URL") or "https://buaaboya.top").rstrip("/")
     session = get_session()
@@ -1052,7 +1057,7 @@ async def send_email_to_subscribers(
             logger.info("\u6ca1\u6709\u6d3b\u8dc3\u7684\u90ae\u4ef6\u8ba2\u9605\u8005")
             return 0
 
-        sent_count = 0
+        queued_jobs = []
         now = business_now()
         for sub in subs:
             # 检查用户是否已暂停推送
@@ -1066,43 +1071,136 @@ async def send_email_to_subscribers(
             if not filtered:
                 continue
 
-            unsub_url = f"{base_url}/api/unsubscribe/{sub.token}" if base_url else ""
-            pause_url = f"{base_url}/api/pause/{sub.token}?hours=24" if base_url else ""
-            html = _build_notification_html(
-                filtered,
-                unsub_url,
-                pause_url,
-                sub_token=sub.token,
-                base_url=base_url,
+            dedupe_material = ";".join(
+                sorted(f"{course.id}:{getattr(course, 'remaining', '')}" for course in filtered)
+            )
+            job = enqueue_notification_job(
+                session,
+                channel="email",
+                subscriber_id=sub.id,
+                subscriber_email=sub.email,
+                course_ids=[course.id for course in filtered],
                 event_type=event_type,
                 delivery_mode=delivery_mode,
-                subscriber=sub,
+                priority=100 if delivery_mode == "priority" else 50,
+                payload={"base_url": base_url},
+                dedupe_material=dedupe_material,
             )
-            subject = _build_notification_subject(event_type, delivery_mode, len(filtered))
-            ok = _send_raw_email(sub.email, subject, html, from_kind="notify")
-            if ok:
-                sent_count += 1
-                logger.info(f"\u90ae\u4ef6\u63a8\u9001\u6210\u529f: {len(filtered)} \u95e8\u8bfe\u7a0b -> {_mask_email(sub.email)}")
-            else:
-                logger.warning(f"\u90ae\u4ef6\u63a8\u9001\u5931\u8d25: {_mask_email(sub.email)}")
+            queued_jobs.append(job)
 
-            for course in filtered:
-                event = NotificationEvent(
-                    subscriber_id=sub.id,
-                    subscriber_email=sub.email,
+        session.commit()
+        if not queued_jobs:
+            return 0
+
+        delivery = await drain_notification_jobs(
+            {"email": deliver_email_notification_job},
+            limit=len(queued_jobs),
+        )
+        return int(delivery["delivered_count"])
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+async def deliver_email_notification_job(job) -> NotificationDeliveryResult:
+    """投递一条已持久化的邮件任务；重启后由同一处理器继续执行。"""
+    from src.models import Course, EmailSubscriber, NotificationEvent, get_session
+
+    session = get_session()
+    try:
+        course_ids = job.course_ids
+        if not course_ids:
+            return NotificationDeliveryResult(True, message="任务没有课程")
+
+        subscriber = (
+            session.query(EmailSubscriber)
+            .filter(EmailSubscriber.id == job.subscriber_id)
+            .first()
+        )
+        if not subscriber or not subscriber.verified or not subscriber.active:
+            return NotificationDeliveryResult(True, message="订阅者已停用，跳过投递")
+
+        now = business_now()
+        if subscriber.push_paused_until and now < subscriber.push_paused_until:
+            return NotificationDeliveryResult(True, message="订阅者处于暂停期，跳过投递")
+
+        course_map = {
+            course.id: course
+            for course in session.query(Course).filter(Course.id.in_(course_ids)).all()
+        }
+        courses = [course_map[course_id] for course_id in course_ids if course_id in course_map]
+        courses = [course for course in courses if not is_course_expired(course, now)]
+        if not courses:
+            return NotificationDeliveryResult(True, message="课程已不可用，跳过投递")
+
+        successful_ids = {
+            row[0]
+            for row in (
+                session.query(NotificationEvent.course_id)
+                .filter(NotificationEvent.subscriber_id == subscriber.id)
+                .filter(NotificationEvent.channel == "email")
+                .filter(NotificationEvent.event_type == job.event_type)
+                .filter(NotificationEvent.success.is_(True))
+                .filter(NotificationEvent.course_id.in_([course.id for course in courses]))
+                .all()
+            )
+        }
+        courses = [course for course in courses if course.id not in successful_ids]
+        if not courses:
+            return NotificationDeliveryResult(True, message="已有成功投递记录，跳过重复发送")
+
+        # 发送前再次应用用户偏好，避免任务排队期间的设置变更被忽略。
+        courses = _filter_for_subscriber(courses, subscriber)
+        if not courses:
+            return NotificationDeliveryResult(True, message="用户偏好已变化，跳过投递")
+
+        payload = job.payload
+        base_url = (payload.get("base_url") or os.getenv("APP_PUBLIC_BASE_URL") or "https://buaaboya.top").rstrip("/")
+        unsub_url = f"{base_url}/api/unsubscribe/{subscriber.token}" if base_url else ""
+        pause_url = f"{base_url}/api/pause/{subscriber.token}?hours=24" if base_url else ""
+        html = _build_notification_html(
+            courses,
+            unsub_url,
+            pause_url,
+            sub_token=subscriber.token,
+            base_url=base_url,
+            event_type=job.event_type,
+            delivery_mode=job.delivery_mode,
+            subscriber=subscriber,
+        )
+        subject = _build_notification_subject(job.event_type, job.delivery_mode, len(courses))
+        ok = _send_raw_email(subscriber.email, subject, html, from_kind="notify")
+
+        for course in courses:
+            session.add(
+                NotificationEvent(
+                    subscriber_id=subscriber.id,
+                    subscriber_email=subscriber.email,
                     course_id=course.id,
                     course_name=course.name,
                     course_category=getattr(course, "category", "") or "",
-                    event_type=event_type,
-                    delivery_mode=delivery_mode,
+                    event_type=job.event_type,
+                    delivery_mode=job.delivery_mode,
                     channel="email",
                     success=ok,
-                    message=f"matched={len(filtered)};remaining={getattr(course, 'remaining', '')}",
+                    message=(
+                        f"attempt={job.attempts};matched={len(courses)};"
+                        f"remaining={getattr(course, 'remaining', '')}"
+                    ),
                 )
-                session.add(event)
-
+            )
         session.commit()
-        return sent_count
+
+        if ok:
+            logger.info(
+                f"邮件推送成功: {len(courses)} 门课程 -> {_mask_email(subscriber.email)}"
+            )
+            return NotificationDeliveryResult(True, delivered_count=1, message="邮件已发送")
+
+        logger.warning(f"邮件推送失败: {_mask_email(subscriber.email)}")
+        return NotificationDeliveryResult(False, message="邮件发送失败")
     except Exception:
         session.rollback()
         raise

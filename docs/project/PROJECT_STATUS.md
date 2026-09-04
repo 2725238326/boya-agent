@@ -2,7 +2,7 @@
 
 文档用途：回答“当前项目是什么、哪些能力可用、哪些风险未确认”。
 面向读者：项目负责人、开发者、运维人员和评审者。
-文档状态：当前状态主文档；更新时间：2026-09-03。
+文档状态：当前状态主文档；更新时间：2026-09-04。
 
 判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 至 2026-09-03 对生产主机的部署和验收结果。
 重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。SMTP/Telegram 外部发送链路和北航 SSO 真实抓取链路仍需单独演练。
@@ -26,6 +26,7 @@
 | 管理后台和管理 API | 已实现，应用层和 Nginx 双层保护 | `web/security.py`、`deploy/nginx_boya.conf` |
 | TypeScript 7 前端检查 | 已接入，渐进式检查，当前不改变运行时加载 | `package.json`、`tsconfig.json`、`scripts/check-js.mjs` |
 | 邮件课程推送 | 已实现，默认关闭 | `FilterConfig.email_enabled` |
+| SQLite 通知投递任务 | 部分实现，课程推送已接入 | `src/models.py`、`src/notification_jobs.py` |
 | Telegram 课程/摘要/提醒/告警 | 已实现，默认关闭 | `src/push/telegram_bot.py`、`src/scheduler.py` |
 | 自动选课 | 实验能力，默认关闭 | `src/enroll.py`、`FilterConfig.auto_enroll_enabled` |
 | 跨重启 Playwright 持久会话 | 未实现 | 当前仅复用进程内 browser/context/page |
@@ -51,6 +52,7 @@
 - 将上游选课页面的“暂无课程”识别为合法空快照；门户和管理台区分“当前无课”“筛选无结果”和“加载失败”，并提供刷新与官方选课入口。
 - Web 服务改用单进程 Waitress 多线程 WSGI；调度器和 Playwright 继续保持单进程，避免多 worker 重复执行抓取和推送。
 - 课程列表生命周期/开选/名额条件下推到 SQLite；抓取落库按批次预取已有课程，推送缓冲、提醒检查和近重复清理减少逐条查询与全表两两比较。
+- 课程推送新增 SQLite outbox：按订阅者/课程建立幂等任务，记录处理中租约、指数退避和成功/失败状态；服务重启后由定时恢复任务继续处理。
 
 ## 默认关闭或实验能力
 
@@ -62,12 +64,14 @@
 
 ## 已知问题和待确认项
 
-1. 默认 Python 3.13 环境缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在本地收集阶段报告模块缺依赖。服务器使用临时开发依赖环境完成了全量套件验证，但本地环境仍应补齐依赖后再纳入日常开发检查。
+1. 默认 Python 3.13 环境仍缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在本地收集阶段报告模块缺依赖。当前 `D:\\Anaconda\\python.exe` 已补齐 `flask-cors` 并通过全量套件，但两个解释器尚未统一，后续仍需固定开发环境或 CI 入口。
 2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限、公开/管理接口边界和缓存策略已实测；SMTP/Telegram 可达性、真实邮件收件和外部 SSO 抓取行为尚未在本轮完整演练。当前无课页面已在生产抓取轮次中识别为成功空状态，但真实课程出现后的解析、筛选和通知链路仍需继续演练。
 3. 订阅邮箱和通知事件仍属于业务数据，生产数据库、日志、环境文件和上传目录必须按 [SECURITY.md](../security/SECURITY.md) 保护。
 4. 邮件中的退订、暂停和选课提醒仍使用独立的长期操作 token；它们不再是门户登录凭据，但泄露后仍可能触发对应操作，后续可替换为独立的短期操作票据。
 5. SQLite 适合单实例轻量运行，不支持无协调的多实例并发写入。
 6. `confirm_before_enroll` 当前只发送 Telegram 确认提醒，不会等待用户确认；自动选课虽已有当天失败熔断，但仍应视为高风险实验能力。
+7. 本轮 outbox 已覆盖课程邮件和课程 Telegram 推送；选课提醒、每日 Telegram 汇总和站点调整通知仍保留旧的直投路径，后续继续统一。
+8. outbox 对外部通道提供“至少一次”投递语义；若进程在外部服务已接受消息后、任务状态落库前崩溃，仍存在极窄的重复投递窗口，不能宣称绝对 exactly-once。
 
 ## Breaking changes
 
@@ -79,9 +83,22 @@
 
 ## 下一阶段
 
-1. 在本地固定开发环境复现服务器的完整 pytest 结果，并补齐真实课程出现后的解析、筛选、通知，以及邮件、验证码、门户和二维码端到端演练。
-2. 为一次性挑战、代码并发消费、缓存策略和推送失败分类补充集成测试。
-3. 观察真实课程出现后的抓取耗时、数据库规模和推送队列，再决定是否继续拆分 `web/app.py`、`src/scheduler.py` 和前端大文件；每次拆分都保留现有接口和测试保护。
+下一阶段按 [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) 执行，先处理 P0 正确性和可控性，再推进 P1 可靠性、性能和用户体验，最后处理 P2 结构与文档整理。
+
+1. 固定本地和 CI 的完整测试环境，真实记录未运行的检查。
+2. 建立模拟课程、无课、登录失效、解析失败、通知失败和重复投递样例。
+3. 扩展通知 outbox 到提醒、每日汇总和管理端通知，再逐步拆分 Playwright、调度器、后端路由和门户前端。
+4. 每个阶段通过测试后再部署；生产默认保持邮件、Telegram 和自动选课关闭，真实课程出现后再补外部业务演练。
+
+本阶段改进和部署汇报按照 [REPORTING_STANDARD.md](REPORTING_STANDARD.md) 执行，用户可见文字按照根目录的 [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../../PLAIN_LANGUAGE_REVIEW_PROMPT.md) 审阅。
+
+## 当前推进（2026-09-04）
+
+- 抓取器新增结构化结果契约，区分正常有课、正常无课、登录失效、上游不可用、解析失败和超时。
+- 调度器已消费结构化结果；失败结果不会进入课程落库流程，并会记录 `last_scrape_status`。
+- 保留旧的 `scrape_courses()` 列表接口，便于后续按批次迁移调用方。
+- 课程邮件和课程 Telegram 推送已接入 SQLite outbox，支持幂等创建、处理租约、指数退避和定时恢复；提醒及每日汇总路径暂未迁移。
+- 本地已完成 65 项测试、1 项跳过、Python 编译检查、前端 `npm run check` 和差异检查；本批尚未部署到服务器。
 
 ## 本轮实际验证
 
@@ -89,9 +106,10 @@
 - `web/static/` 下 6 个 JavaScript 文件逐一执行 `node --check`：通过。
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_qrcode_feature.py tests/test_course_state.py tests/test_rss_feed.py tests/test_enroll_safety.py`：`12 passed, 1 skipped`。
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_scraper_scheduler_regressions.py`：`26 passed`。
-- `D:\\Anaconda\\python.exe -m pytest -q tests/test_web_security.py`：未收集，当前 Anaconda 环境缺少 `flask_cors`。
+- `D:\\Anaconda\\python.exe -m pytest -q tests/test_web_security.py`：已纳入全量测试并通过。
 - `npm run check`：6 个 JavaScript 文件语法检查通过，TypeScript 7 类型检查通过。
 - `python -m pytest -q`：未通过收集，4 个测试模块因默认环境缺少 `sqlalchemy` 或 `playwright` 报错；未将环境阻塞伪装成测试通过。
+- `D:\\Anaconda\\python.exe -m pytest -q`：`65 passed, 1 skipped`；本轮补齐了该解释器中项目已声明但缺失的 `flask-cors` 和 `apscheduler`。
 - 服务器临时测试环境：`50 passed`；未向生产运行虚拟环境安装 pytest 或开发依赖，Waitress 作为核心生产依赖已安装。
 - 线上 `https://buaaboya.top`：主页、门户、订阅页和公开接口返回正常；`/api/courses`、`/api/categories`、`/rss` 缓存策略生效，静态资源 URL 带版本参数并返回 `public, max-age=604800, immutable`；HTTP 正确跳转 HTTPS，未授权 `/api/status` 返回 401。
 - 生产无课场景：定时抓取日志已记录“选课页面已加载，当前暂无可选课程”和“按空状态完成本轮抓取”，没有再记录“无法进入选择课程页面”。
@@ -100,3 +118,7 @@
 - 性能基准：线上 5 个公开接口各连续请求 20 次均为 200；首页、健康、课程、洞察、类别接口中位数约 `11.1–12.5 ms`，P95 约 `12.5–14.3 ms`；24 个并发课程请求全部返回 200，整体约 `883 ms`。
 - Git：`codex/ts7-and-hardening` 的 `1fbadd6` 已部署至服务器；服务器工作树 clean。
 - `git diff --check`：通过；仅有 Git 关于 LF/CRLF 的换行提示。
+- 本轮新增：`D:\\Anaconda\\python.exe -m pytest -q tests/test_scrape_outcome.py tests/test_scraper_scheduler_regressions.py`：`34 passed`；`python -m compileall -q src web tests`：通过。
+- 本轮新增通知 outbox：`D:\\Anaconda\\python.exe -m pytest -q tests/test_notification_jobs.py tests/test_scraper_scheduler_regressions.py`：`34 passed`。
+- 本轮最终全量：`D:\\Anaconda\\python.exe -m pytest -q`：`64 passed, 1 skipped`；`npm run check`：通过。
+- 本轮最终全量更新：`D:\\Anaconda\\python.exe -m pytest -q`：`65 passed, 1 skipped`；已补充过期 processing 租约恢复回归。

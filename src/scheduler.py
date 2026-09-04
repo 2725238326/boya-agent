@@ -34,13 +34,18 @@ from src.course_state import (
     is_course_expired,
     is_hot_course,
 )
-from src.scraper import assess_scrape_health, create_browser_context, scrape_courses, save_courses_to_db
+from src.scraper import assess_scrape_health, create_browser_context, scrape_courses_result, save_courses_to_db
 from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
-from src.push.email_push import send_email_notification, send_enroll_reminder_email
+from src.notification_jobs import drain_notification_jobs, enqueue_notification_job
+from src.push.email_push import (
+    deliver_email_notification_job,
+    send_email_notification,
+    send_enroll_reminder_email,
+)
 from src.enroll import auto_enroll_if_enabled
 from src.push.telegram_bot import (
-    send_batch_notifications,
+    deliver_telegram_notification_job,
     send_daily_summary_notification,
     send_reminder_telegram,
     send_status_message,
@@ -63,6 +68,7 @@ run_status = {
     "is_running": False,
     "last_error": None,
     "last_scrape_health": None,
+    "last_scrape_status": None,
     "last_daily_summary": None,
 }
 
@@ -112,6 +118,7 @@ ACTIVE_ENROLL_JUST_STARTED_MINUTES = max(5, int(os.getenv("ACTIVE_ENROLL_JUST_ST
 ACTIVE_ENROLL_NOTIFY_MIN_REMAINING = max(3, int(os.getenv("ACTIVE_ENROLL_NOTIFY_MIN_REMAINING", "8")))
 HOT_COURSE_WATCH_SECONDS = max(10, int(os.getenv("HOT_COURSE_WATCH_SECONDS", "15")))
 HOT_COURSE_STALE_SECONDS = max(HOT_COURSE_WATCH_SECONDS, int(os.getenv("HOT_COURSE_STALE_SECONDS", "25")))
+NOTIFICATION_DRAIN_SECONDS = max(10, min(300, int(os.getenv("NOTIFICATION_DRAIN_SECONDS", "30"))))
 
 
 # ═══════════════════════════════════════════════════════
@@ -411,30 +418,53 @@ async def _run_scrape_task_impl(mode: str = "full"):
 
         courses_data = None
         last_scrape_error = None
+        last_scrape_status = None
+        scrape_status = None
         for attempt in range(2):
             if attempt > 0:
                 logger.warning("scrape failed, recreate browser and retry once")
             page = await _ensure_browser(force_recreate=attempt > 0)
             if not page:
                 last_scrape_error = "browser/login unavailable"
+                last_scrape_status = "browser_unavailable"
                 continue
 
             _sync_course_lifecycle()
             try:
-                courses_data = await scrape_courses(page, include_details=(mode != "quick"))
+                outcome = await scrape_courses_result(page, include_details=(mode != "quick"))
                 _mark_browser_used()
+                scrape_status = outcome.status.value
+                if not outcome.success:
+                    last_scrape_error = outcome.message or outcome.status.value
+                    last_scrape_status = outcome.status.value
+                    logger.error(
+                        f"scrape attempt {attempt + 1}/2 failed: status={outcome.status.value}"
+                    )
+                    await close_browser()
+                    continue
+                courses_data = outcome.courses
                 break
             except Exception as e:
                 last_scrape_error = str(e)
+                last_scrape_status = "task_failed"
                 logger.error(f"scrape attempt {attempt + 1}/2 failed: {e}")
                 await close_browser()
 
         if courses_data is None:
             run_status["last_error"] = last_scrape_error or "scrape failed"
+            run_status["last_scrape_status"] = last_scrape_status or "scrape_failed"
             _consecutive_failures += 1
             await _check_and_alert_failures()
-            return _scrape_result(False, run_status["last_error"], scraped_count=0, new_courses=0, mode=mode)
+            return _scrape_result(
+                False,
+                run_status["last_error"],
+                scraped_count=0,
+                new_courses=0,
+                mode=mode,
+                scrape_status=run_status["last_scrape_status"],
+            )
 
+        run_status["last_scrape_status"] = scrape_status
         scraped_count = len(courses_data)
         if not courses_data:
             scrape_health = assess_scrape_health([])
@@ -449,7 +479,15 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 logger.error(msg)
                 _consecutive_failures += 1
                 await _check_and_alert_failures()
-                return _scrape_result(False, msg, scraped_count=0, new_courses=0, mode=mode, scrape_health=scrape_health)
+                return _scrape_result(
+                    False,
+                    msg,
+                    scraped_count=0,
+                    new_courses=0,
+                    mode=mode,
+                    scrape_health=scrape_health,
+                    scrape_status=scrape_status,
+                )
 
             logger.info("no courses scraped")
             run_status["last_success"] = business_now()
@@ -462,6 +500,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 new_courses=0,
                 mode=mode,
                 scrape_health=scrape_health,
+                scrape_status=scrape_status,
             )
 
         scrape_health = assess_scrape_health(courses_data)
@@ -486,6 +525,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 new_courses=0,
                 mode=mode,
                 scrape_health=scrape_health,
+                scrape_status=scrape_status,
             )
 
         new_course_ids = save_courses_to_db(courses_data)
@@ -561,6 +601,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                     passed_courses=0,
                     mode=mode,
                     scrape_health=run_status.get("last_scrape_health"),
+                    scrape_status=scrape_status,
                 )
 
             logger.info(f"{len(passed_courses)} courses passed filters")
@@ -608,6 +649,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
             soon_buffer=len(_push_buffer['soon']),
             mode=mode,
             scrape_health=run_status.get("last_scrape_health"),
+            scrape_status=scrape_status,
         )
 
     except Exception as e:
@@ -615,7 +657,15 @@ async def _run_scrape_task_impl(mode: str = "full"):
         logger.error(f"scrape task failed: {e}")
         _consecutive_failures += 1
         await _check_and_alert_failures()
-        return _scrape_result(False, str(e), scraped_count=scraped_count, new_courses=len(new_course_ids), mode=mode)
+        run_status["last_scrape_status"] = "task_failed"
+        return _scrape_result(
+            False,
+            str(e),
+            scraped_count=scraped_count,
+            new_courses=len(new_course_ids),
+            mode=mode,
+            scrape_status="task_failed",
+        )
     finally:
         run_status["is_running"] = False
 
@@ -651,6 +701,7 @@ async def _execute_scrape_task(mode: str = "full"):
             new_courses=0,
             mode=mode,
             timed_out=True,
+            scrape_status="timeout",
         )
 
 
@@ -722,7 +773,7 @@ async def run_scrape_task(mode: str = "full", join_existing: bool = True):
 # ═══════════════════════════════════════════════════════
 
 async def _do_push(courses, config, session, event_type: str = "new", delivery_mode: str = "instant"):
-    """按统一配置执行已启用的课程推送通道。"""
+    """按统一配置创建持久化通知任务并执行有限数量的投递。"""
     pushed_count = 0
 
     if config.email_enabled:
@@ -734,13 +785,58 @@ async def _do_push(courses, config, session, event_type: str = "new", delivery_m
             _log_push(courses, "email", len(courses))
 
     if config.telegram_enabled:
-        telegram_count = await send_batch_notifications(courses)
+        telegram_jobs = []
+        for course in courses:
+            telegram_jobs.append(
+                enqueue_notification_job(
+                    session,
+                    channel="telegram",
+                    course_ids=[course.id],
+                    event_type=event_type,
+                    delivery_mode=delivery_mode,
+                    priority=100 if delivery_mode == "priority" else 50,
+                    dedupe_material=f"{course.id}:{getattr(course, 'remaining', '')}",
+                )
+            )
+        session.commit()
+        delivery = await drain_notification_jobs(
+            {"telegram": deliver_telegram_notification_job},
+            limit=len(telegram_jobs),
+        )
+        telegram_count = int(delivery["delivered_count"])
         if telegram_count > 0:
             pushed_count += telegram_count
             run_status["total_push_telegram"] += telegram_count
             _log_push(courses, "telegram", telegram_count)
 
     return pushed_count
+
+
+async def drain_pending_notification_jobs():
+    """定时恢复服务重启或外部通道故障后留下的通知任务。"""
+    config = load_filter_config()
+
+    handlers = {}
+    if config.email_enabled:
+        handlers["email"] = deliver_email_notification_job
+    if config.telegram_enabled:
+        handlers["telegram"] = deliver_telegram_notification_job
+    if not handlers:
+        return
+
+    result = await drain_notification_jobs(
+        handlers,
+        limit=20,
+        worker_id="scheduled-drain",
+    )
+    if result["claimed"]:
+        logger.info(
+            "通知任务恢复完成: claimed={} succeeded={} failed={} delivered={}",
+            result["claimed"],
+            result["succeeded"],
+            result["failed"],
+            result["delivered_count"],
+        )
 
 
 async def _check_and_alert_failures():
@@ -1066,6 +1162,13 @@ def start_scheduler(interval_minutes: int = DEFAULT_SCRAPE_INTERVAL_MINUTES):
         replace_existing=True,
     )
     scheduler.add_job(
+        drain_pending_notification_jobs,
+        trigger=IntervalTrigger(seconds=NOTIFICATION_DRAIN_SECONDS),
+        id="notification_jobs_drain_task",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
         monitor_active_enrollment_courses,
         trigger=IntervalTrigger(seconds=ACTIVE_ENROLL_SCRAPE_SECONDS),
         id="active_enrollment_watch_task",
@@ -1265,5 +1368,6 @@ def get_run_status() -> dict:
         "is_running": run_status["is_running"],
         "last_error": run_status["last_error"],
         "last_scrape_health": run_status["last_scrape_health"],
+        "last_scrape_status": run_status["last_scrape_status"],
         "last_daily_summary": run_status["last_daily_summary"].strftime("%Y-%m-%d %H:%M:%S") if run_status["last_daily_summary"] else None,
     }

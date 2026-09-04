@@ -10,10 +10,29 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
-from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Response
+from playwright.async_api import (
+    async_playwright,
+    Page,
+    BrowserContext,
+    Locator,
+    Response,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
-from src.auth import ensure_logged_in, BYKC_COURSE_URL, BYKC_HOME_URL, safe_url_for_log
+from src.auth import (
+    _is_sso_login_page,
+    ensure_logged_in,
+    BYKC_COURSE_URL,
+    BYKC_HOME_URL,
+    safe_url_for_log,
+)
 from src.models import Course, get_session
+from src.scrape_outcome import (
+    ScrapeNavigationError,
+    ScrapeOutcome,
+    ScrapePageNotReadyError,
+    ScrapeStatus,
+)
 from src.time_utils import now as business_now
 
 COURSE_VIEW_CANDIDATES = [
@@ -1569,7 +1588,7 @@ async def _open_course_select_page(page: Page) -> bool:
     return await _wait_course_tables_ready(page)
 
 
-async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
+async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
     """
@@ -1581,7 +1600,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
         response_recorder.start()
         if not await _open_course_select_page(page):
             logger.error("无法进入选择课程页面")
-            return []
+            raise ScrapeNavigationError("无法进入选择课程页面")
 
         # 截图
         await page.screenshot(path="logs/scrape_page.png", full_page=True)
@@ -1600,7 +1619,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
             html = await page.content()
             with open("logs/scrape_page.json", "w", encoding="utf-8") as f:
                 f.write(html)
-            return []
+            raise ScrapePageNotReadyError("课程列表未在限定时间内出现")
 
         await _reset_course_filters(page)
 
@@ -1646,6 +1665,73 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
     deduped_courses = _drop_finished_course_snapshots(deduped_courses)
     logger.info(f"共抓取到 {len(courses)} 条课程，去重后 {len(deduped_courses)} 条")
     return deduped_courses
+
+
+def _classify_scrape_exception(page: Page, error: Exception) -> tuple[ScrapeStatus, str]:
+    """把技术异常映射为稳定的业务状态，避免上层依赖异常文本。"""
+
+    current_url = ""
+    try:
+        current_url = page.url or ""
+    except Exception:
+        pass
+
+    if _is_sso_login_page(current_url):
+        return ScrapeStatus.AUTH_EXPIRED, "课程系统登录状态已失效"
+    if isinstance(error, ScrapeNavigationError):
+        return ScrapeStatus.UPSTREAM_UNAVAILABLE, "课程系统页面无法打开"
+    if isinstance(error, ScrapePageNotReadyError):
+        return ScrapeStatus.PARSE_FAILED, "课程页面结构未按预期加载"
+    if isinstance(error, (asyncio.TimeoutError, PlaywrightTimeoutError)):
+        return ScrapeStatus.TIMEOUT, "课程系统响应超时"
+
+    error_text = str(error).lower()
+    if "timeout" in error_text or "timed out" in error_text:
+        return ScrapeStatus.TIMEOUT, "课程系统响应超时"
+    return ScrapeStatus.PARSE_FAILED, "课程页面解析失败"
+
+
+async def scrape_courses_result(page: Page, include_details: bool = True) -> ScrapeOutcome:
+    """执行一次抓取并返回结构化结果。
+
+    这里不把失败降级为空列表；只有页面明确呈现空状态时才返回
+    ``SUCCESS_EMPTY``，从而阻止错误快照覆盖数据库或触发误通知。
+    """
+
+    try:
+        courses = await _scrape_courses_impl(page, include_details=include_details)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        status, message = _classify_scrape_exception(page, error)
+        logger.error(
+            f"课程抓取结果: status={status.value}, exception={type(error).__name__}"
+        )
+        return ScrapeOutcome(
+            status=status,
+            message=message,
+            metadata={"exception_type": type(error).__name__},
+        )
+
+    if courses:
+        return ScrapeOutcome(
+            status=ScrapeStatus.SUCCESS_WITH_COURSES,
+            courses=courses,
+            message=f"抓取到 {len(courses)} 门课程",
+        )
+    return ScrapeOutcome(
+        status=ScrapeStatus.SUCCESS_EMPTY,
+        message="当前选课窗口没有可选课程",
+    )
+
+
+async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]:
+    """兼容旧调用方的列表接口；新代码应使用 :func:`scrape_courses_result`。"""
+
+    outcome = await scrape_courses_result(page, include_details=include_details)
+    if not outcome.success:
+        logger.error(f"兼容列表接口收到失败结果: status={outcome.status.value}")
+    return outcome.courses
 
 
 async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:

@@ -8,7 +8,8 @@ import asyncio
 from typing import List
 from loguru import logger
 
-from src.course_state import get_check_in_display_label, is_self_check_in
+from src.course_state import get_check_in_display_label, is_course_expired, is_self_check_in
+from src.notification_jobs import NotificationDeliveryResult
 from src.time_utils import now as business_now
 
 try:
@@ -145,6 +146,37 @@ async def send_batch_notifications(courses: list) -> int:
         # Telegram API 限频：每秒最多 1 条
         await asyncio.sleep(1.5)
     return success_count
+
+
+async def deliver_telegram_notification_job(job) -> NotificationDeliveryResult:
+    """投递一条持久化 Telegram 课程任务。任务按课程拆分，避免部分成功重复发送。"""
+    from src.models import Course, get_session
+
+    course_ids = job.course_ids
+    if not course_ids:
+        return NotificationDeliveryResult(True, message="任务没有课程")
+
+    session = get_session()
+    try:
+        course_map = {
+            course.id: course
+            for course in session.query(Course).filter(Course.id.in_(course_ids)).all()
+        }
+        courses = [course_map[course_id] for course_id in course_ids if course_id in course_map]
+        courses = [course for course in courses if not is_course_expired(course)]
+        if not courses:
+            return NotificationDeliveryResult(True, message="课程已不可用，跳过投递")
+    finally:
+        session.close()
+
+    sent_count = await send_batch_notifications(courses)
+    if sent_count == len(courses):
+        return NotificationDeliveryResult(True, delivered_count=sent_count, message="Telegram 已发送")
+    return NotificationDeliveryResult(
+        False,
+        delivered_count=sent_count,
+        message=f"Telegram 部分或全部发送失败: {sent_count}/{len(courses)}",
+    )
 
 
 async def send_daily_summary_notification(courses: list) -> bool:

@@ -9,7 +9,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from src.course_state import get_check_in_display_label, is_self_check_in
-from src.models import Base, Course, CourseReminder, EmailSubscriber, FilterConfig
+from src.models import Base, Course, CourseReminder, EmailSubscriber, FilterConfig, NotificationJob
+from src.scrape_outcome import ScrapeOutcome, ScrapeStatus
 from src.scraper import (
     _extract_courses_from_network_payload,
     _build_course_row_payload,
@@ -715,6 +716,7 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         scheduler._active_scrape_task_lock = None
         scheduler.run_status["is_running"] = False
         scheduler.run_status["last_error"] = None
+        scheduler.run_status["last_scrape_status"] = None
 
     async def asyncTearDown(self):
         task = scheduler._active_scrape_task
@@ -728,6 +730,66 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         scheduler._active_scrape_task_lock = None
         scheduler.run_status["is_running"] = False
         scheduler.run_status["last_error"] = None
+        scheduler.run_status["last_scrape_status"] = None
+
+    async def test_structured_scrape_failure_is_not_treated_as_empty_snapshot(self):
+        outcome = ScrapeOutcome(
+            status=ScrapeStatus.AUTH_EXPIRED,
+            message="课程系统登录状态已失效",
+        )
+
+        with (
+            patch.object(scheduler, "_ensure_browser", new=AsyncMock(return_value=object())),
+            patch.object(scheduler, "_sync_course_lifecycle"),
+            patch.object(scheduler, "scrape_courses_result", new=AsyncMock(return_value=outcome)),
+            patch.object(scheduler, "close_browser", new=AsyncMock()) as close_browser_mock,
+            patch.object(scheduler, "_check_and_alert_failures", new=AsyncMock()),
+            patch.object(scheduler, "save_courses_to_db") as save_courses_mock,
+        ):
+            result = await scheduler._run_scrape_task_impl(mode="quick")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["scrape_status"], ScrapeStatus.AUTH_EXPIRED.value)
+        self.assertEqual(scheduler.run_status["last_scrape_status"], ScrapeStatus.AUTH_EXPIRED.value)
+        save_courses_mock.assert_not_called()
+        self.assertEqual(close_browser_mock.await_count, 2)
+
+    async def test_telegram_push_is_persisted_before_the_delivery_handler_runs(self):
+        now = business_now()
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        course = Course(
+            id="queued-telegram-course",
+            name="排队测试课程",
+            enroll_start=now - timedelta(minutes=1),
+            enroll_end=now + timedelta(hours=1),
+            end_time=now + timedelta(hours=2),
+            capacity=20,
+            enrolled=5,
+            expired=False,
+        )
+        session.add(course)
+        session.commit()
+
+        config = types.SimpleNamespace(email_enabled=False, telegram_enabled=True)
+        delivery_summary = {"claimed": 1, "succeeded": 1, "failed": 0, "delivered_count": 1}
+        try:
+            with (
+                patch.object(scheduler, "drain_notification_jobs", new=AsyncMock(return_value=delivery_summary)),
+                patch.object(scheduler, "_log_push"),
+            ):
+                pushed = await scheduler._do_push([course], config, session)
+
+            jobs = session.query(NotificationJob).all()
+            self.assertEqual(pushed, 1)
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(jobs[0].channel, "telegram")
+            self.assertEqual(jobs[0].course_ids, [course.id])
+            self.assertEqual(jobs[0].status, "pending")
+        finally:
+            session.close()
+            engine.dispose()
 
     async def test_trigger_scrape_task_returns_immediately_when_scrape_is_already_running(self):
         async def _long_running():

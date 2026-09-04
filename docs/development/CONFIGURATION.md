@@ -2,7 +2,7 @@
 
 文档用途：作为配置名称、默认值、来源和生效方式的单一说明。
 面向读者：开发者和部署维护者。
-文档状态：当前配置事实；更新时间：2026-09-02。
+文档状态：当前配置事实；更新时间：2026-09-04。
 来源优先级：启动/运行代码和数据库模型 > `config/.env.example` > `config/default_config.json` > 历史文档。
 
 ## 两类配置
@@ -50,6 +50,7 @@
 | `BROWSER_DEFER_RECYCLE_WHEN_HOT` | `true` | 否 | 重启 | 热点监控期间是否延后回收 |
 | `SCRAPE_TASK_TIMEOUT_SECONDS` | `900`，最少 `180` | 否 | 重启 | 单次抓取超时 |
 | `AUTO_ENROLL_FAILURE_LIMIT` | `3`，最少 `1` | 否 | 重启 | 自动选课当天累计失败达到阈值后暂停后续尝试 |
+| `NOTIFICATION_DRAIN_SECONDS` | `30`，限制为 `10..300` | 否 | 重启 | 持久化通知任务恢复/投递扫描间隔 |
 
 `VERIFICATION_CODE_LENGTH` 固定为 6，不是环境变量。所有时间字符串和数据库中的旧 naive 时间按 `APP_TIMEZONE` 解释；RSS/Atom 对外发布时间转成 UTC。
 

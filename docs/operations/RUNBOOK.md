@@ -2,7 +2,7 @@
 
 文档用途：提供可复制的启动、检查、备份和故障处理步骤。
 面向读者：值班维护者。
-文档状态：当前运行手册；更新时间：2026-09-02。
+文档状态：当前运行手册；更新时间：2026-09-04。
 当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。其他环境执行命令前仍需核对域名、路径和凭据。
 
 ## 服务控制
@@ -15,6 +15,28 @@ sudo systemctl start boya-agent
 sudo systemctl status nginx --no-pager
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+## 常规更新后的最小闭环
+
+每次代码更新后记录以下信息，不以“服务能启动”代替完整验收：
+
+```bash
+cd /home/boya-agent
+git branch --show-current
+git rev-parse --short HEAD
+git status --short
+sudo systemctl is-active boya-agent
+curl -fsS https://buaaboya.top/healthz
+curl -fsS https://buaaboya.top/api/courses
+```
+
+随后查看最近启动和抓取日志，确认没有迁移异常或连续启动失败：
+
+```bash
+sudo journalctl -u boya-agent -n 80 --no-pager
+```
+
+课程为空时，`/api/courses` 返回空列表可以是正常业务状态；应结合日志中的结构化抓取状态判断是“成功无课”还是“抓取失败”，不能因为页面没有课程就手动清空数据库。
 
 看最近日志：
 
@@ -71,6 +93,15 @@ curl -su 管理员用户名:管理员密码 \
 curl -su 管理员用户名:管理员密码 https://你的域名/api/logs/push
 curl -su 管理员用户名:管理员密码 https://你的域名/api/logs/enroll
 ```
+
+查看通知任务汇总时只输出状态和数量，不输出邮箱、Bot token 或 payload：
+
+```bash
+sudo sqlite3 /var/lib/boya-agent/data/boya_agent.db \
+  "SELECT status, channel, COUNT(*) FROM notification_jobs GROUP BY status, channel ORDER BY status, channel;"
+```
+
+如果服务器没有 `sqlite3` 命令，使用项目虚拟环境中的只读 Python/SQLAlchemy 查询；不要为检查方便把生产数据库复制进仓库。
 
 ## 数据库备份与恢复
 

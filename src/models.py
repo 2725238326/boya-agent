@@ -345,6 +345,80 @@ class CourseReminder(Base):
     created_at = Column(DateTime, default=business_now)
 
 
+class NotificationJob(Base):
+    """持久化通知任务，作为外部投递前的 outbox。"""
+
+    __tablename__ = "notification_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idempotency_key = Column(String(255), unique=True, nullable=False, index=True)
+    job_type = Column(String(32), nullable=False, default="course_push")
+    channel = Column(String(32), nullable=False, default="email", index=True)
+    subscriber_id = Column(Integer, nullable=True, index=True)
+    subscriber_email = Column(String, default="")
+    course_ids_json = Column(Text, default="[]")
+    event_type = Column(String(32), default="new")
+    delivery_mode = Column(String(32), default="instant")
+    payload_json = Column(Text, default="{}")
+    priority = Column(Integer, default=0)
+    status = Column(String(16), nullable=False, default="pending", index=True)
+    attempts = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=3)
+    available_at = Column(DateTime, default=business_now, index=True)
+    locked_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, default="")
+    created_at = Column(DateTime, default=business_now)
+    updated_at = Column(DateTime, default=business_now, onupdate=business_now)
+
+    @property
+    def course_ids(self) -> list:
+        try:
+            value = json.loads(self.course_ids_json or "[]")
+        except (TypeError, ValueError):
+            return []
+        return value if isinstance(value, list) else []
+
+    @course_ids.setter
+    def course_ids(self, value: list):
+        self.course_ids_json = json.dumps(value or [], ensure_ascii=False)
+
+    @property
+    def payload(self) -> dict:
+        try:
+            value = json.loads(self.payload_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @payload.setter
+    def payload(self, value: dict):
+        self.payload_json = json.dumps(value or {}, ensure_ascii=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "idempotency_key": self.idempotency_key,
+            "job_type": self.job_type,
+            "channel": self.channel,
+            "subscriber_id": self.subscriber_id,
+            "subscriber_email": self.subscriber_email,
+            "course_ids": self.course_ids,
+            "event_type": self.event_type,
+            "delivery_mode": self.delivery_mode,
+            "priority": self.priority,
+            "status": self.status,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "available_at": self.available_at.strftime("%Y-%m-%d %H:%M:%S") if self.available_at else None,
+            "locked_at": self.locked_at.strftime("%Y-%m-%d %H:%M:%S") if self.locked_at else None,
+            "completed_at": self.completed_at.strftime("%Y-%m-%d %H:%M:%S") if self.completed_at else None,
+            "last_error": self.last_error or "",
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else None,
+        }
+
+
 class NotificationEvent(Base):
     """Subscriber-facing notification event."""
     __tablename__ = "notification_events"
@@ -583,6 +657,10 @@ def _migrate_schema_if_needed():
             "ON notification_events (subscriber_id, sent_at DESC)",
             "CREATE INDEX IF NOT EXISTS ix_notification_events_sent_at_course "
             "ON notification_events (sent_at DESC, course_id)",
+            "CREATE INDEX IF NOT EXISTS ix_notification_jobs_status_available_at "
+            "ON notification_jobs (status, available_at, priority DESC, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_notification_jobs_channel_status "
+            "ON notification_jobs (channel, status, available_at)",
             "CREATE INDEX IF NOT EXISTS ix_email_subscribers_verified_active "
             "ON email_subscribers (verified, active)",
             "CREATE INDEX IF NOT EXISTS ix_email_subscribers_last_portal_seen "

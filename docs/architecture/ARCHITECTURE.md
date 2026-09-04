@@ -2,7 +2,7 @@
 
 文档用途：解释当前组件、数据流、数据库和外部依赖。
 面向读者：开发者、测试人员和运维人员。
-文档状态：当前实现说明；更新时间：2026-09-02。
+文档状态：当前实现说明；更新时间：2026-09-04。
 相关代码：`src/`、`web/`、`deploy/`。
 
 ## 总体拓扑
@@ -38,6 +38,7 @@ asyncio + APScheduler
 | `src/filters.py` | 全局筛选和自动选课候选 | 邮件 HTML |
 | `src/scheduler.py` | 周期任务、浏览器生命周期、缓冲区、推送触发、课程生命周期 | 页面渲染 |
 | `src/models.py` | SQLAlchemy 模型、SQLite 初始化和增量迁移 | 请求权限判断 |
+| `src/notification_jobs.py` | 持久化通知任务、幂等键、租约、退避和结果收口 | 渠道模板和课程状态判断 |
 | `src/push/email_push.py` | SMTP、邮件模板、用户筛选、通知事件和邮件去重 | Flask 路由 |
 | `src/push/telegram_bot.py` | Telegram 通知、提醒和告警 | 用户门户会话 |
 | `src/push/rss_feed.py` | RSS/Atom XML | 数据库查询 |
@@ -54,7 +55,7 @@ asyncio + APScheduler
 4. 课程按名称、时间、教师、地点、校区等字段生成稳定 ID，并处理视图合并和近重复。
 5. 健康检查发现快照过稀或异常时拒绝覆盖数据库。
 6. 正常数据写入 SQLite；已结束或报名已截止的记录进入生命周期同步，长期过期记录由清理任务处理。
-7. 新课、退课补位和已开选监控分别进入即时推送或摘要缓冲区。
+7. 新课、退课补位和已开选监控分别进入即时推送或摘要缓冲区；课程邮件/Telegram 投递再进入 SQLite outbox，由独立扫描任务领取。
 
 ## 课程状态单一来源
 
@@ -97,6 +98,8 @@ asyncio + APScheduler
 - 每日摘要：由 `daily_summary_enabled` 控制，且每个通道仍受对应开关控制。
 - RSS/Atom：由 `rss_enabled` 控制公开源，不依赖邮件或 Telegram 开关。
 - 所有用户通知时间和去重记录写入 `notification_events`；传统课程推送记录写入 `push_logs`。
+- 课程邮件和课程 Telegram 推送按订阅者/课程生成幂等任务。任务经过 `pending → processing → succeeded/failed` 状态流转，处理中的任务带租约，临时失败按指数退避，服务重启后由 `NOTIFICATION_DRAIN_SECONDS` 定时任务继续处理。
+- 当前 outbox 只覆盖课程推送；选课提醒、每日汇总和站点调整通知仍保留旧的直投路径，不能在汇报中写成“所有通知已统一”。
 
 ## 二维码流
 
@@ -104,4 +107,4 @@ asyncio + APScheduler
 
 ## 数据库边界
 
-SQLite 使用 WAL、`busy_timeout` 和有限重试，单进程部署时由各请求/任务创建短生命周期 Session。`init_db()` 先 `create_all()`，再为旧库增加缺失字段和索引；本次新增 `email_auth_challenges` 表、邮箱代码字段和二维码内容哈希字段，不删除旧字段。
+SQLite 使用 WAL、`busy_timeout` 和有限重试，单进程部署时由各请求/任务创建短生命周期 Session。`init_db()` 先 `create_all()`，再为旧库增加缺失字段和索引；本次新增 `email_auth_challenges`、`notification_jobs` 表、邮箱代码字段和二维码内容哈希字段，以及对应索引，不删除旧字段。outbox 对外部渠道保持至少一次语义，不能宣称绝对 exactly-once。
