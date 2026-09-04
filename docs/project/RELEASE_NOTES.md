@@ -31,7 +31,7 @@
 
 - 本地提交：`2eb1e2a feat: harden scrape and notification delivery`。
 - 服务器工作树已从 `ead117d` 快进到 `2eb1e2a`，发布前后均为 clean。
-- 服务器 GitHub deploy key 被标记为 read-only，仅用于拉取；本次使用已授权的 HTTPS Git 凭据完成推送。GitHub `codex/ts7-and-hardening` 已指向 `657432b`，本地分支已设置 upstream，核对结果为 ahead/behind `0/0`，服务器分支与其一致。
+- 服务器 GitHub deploy key 被标记为 read-only，仅用于拉取；本次使用已授权的 HTTPS Git 凭据完成推送。GitHub `codex/ts7-and-hardening` 已包含本次应用与文档提交，本地分支已设置 upstream，核对结果为 ahead/behind `0/0`，服务器分支与其一致。
 
 ### 数据库迁移与备份
 
