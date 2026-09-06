@@ -99,11 +99,12 @@
 - 门户请求增加超时、取消和重复初始化合并；课程列表、刷新按钮和页签增加状态反馈、可访问性语义和窄屏样式支持。
 - 根目录旧审计快照已移入 `docs/archive/legacy/`；新增 `scripts/verify_release.py` 作为统一发布候选版本验证入口。
 - TypeScript 7 检查范围扩展到首页、二维码、持久登录和订阅桥接脚本；门户和管理台脚本暂不一次性改写。
+- 功能分支已推送到 GitHub，CI 检查通过；服务器只获取了候选远端引用，当前检出版本、工作树和运行中的服务均保持不变。
 
 ## 候选版本自动化验证（2026-09-07）
 
 - `D:\Anaconda\python.exe scripts/verify_release.py`：`66 passed, 1 skipped`；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和 `git diff --check HEAD` 均通过。
-- 本地工作树仍包含本批待提交改动，因此尚未执行 `--require-clean`；提交拆分完成后再次运行该参数。
+- `D:\Anaconda\python.exe scripts/verify_release.py --require-clean`：已通过；工作树无未提交或未跟踪文件。
 - 本批改动未部署到服务器，生产服务继续运行上一轮已记录版本；邮件、Telegram 和自动选课配置未作变更。
 
 ## 当前推进（2026-09-04）
