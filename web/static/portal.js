@@ -18,11 +18,18 @@ let portalState = {
     notificationsLoaded: false,
 };
 const PORTAL_TAB_KEY = 'portal_active_tab';
+const PORTAL_REQUEST_TIMEOUT_MS = 12000;
 let courseSearchTimeout = null;
 let courseRequestController = null;
 let courseRequestSerial = 0;
 let portalRemindersRequest = null;
 let portalNotificationsRequest = null;
+let portalDataRequest = null;
+
+function setCourseGridBusy(isBusy) {
+    const grid = document.getElementById('courseGrid');
+    if (grid) grid.setAttribute('aria-busy', String(Boolean(isBusy)));
+}
 
 function buildPortalCourseParams() {
     const params = new URLSearchParams();
@@ -46,6 +53,7 @@ function applyPortalCourses(courses) {
     const list = Array.isArray(courses) ? courses : [];
     const sorted = sortPortalCourses(list);
     portalState.courseLoadFailed = false;
+    setCourseGridBusy(false);
     renderCourses(sorted);
     portalState.lastCourseRefreshAt = new Date();
     renderPortalRefreshMeta();
@@ -64,6 +72,7 @@ async function loadFilteredCourses(initialCourses = null, initialMeta = {}) {
     const requestSerial = ++courseRequestSerial;
     if (courseRequestController) courseRequestController.abort();
     courseRequestController = new AbortController();
+    setCourseGridBusy(true);
     const params = buildPortalCourseParams();
     const qs = params.toString();
     const res = await portalApi(`/api/courses${qs ? `?${qs}` : ''}`, {
@@ -76,6 +85,7 @@ async function loadFilteredCourses(initialCourses = null, initialMeta = {}) {
     if (res.success) {
         applyPortalCourses(res.data);
     } else {
+        setCourseGridBusy(false);
         showPortalToast(res.error || '课程加载失败，请稍后重试', 'error');
     }
     return res;
@@ -229,11 +239,39 @@ function toggleMobileFilters(forceOpen = null) {
     extra.classList.toggle('is-collapsed', !shouldOpen);
     toggle.textContent = shouldOpen ? '\u6536\u8d77\u7b5b\u9009' : '\u66f4\u591a\u7b5b\u9009';
     toggle.classList.toggle('active', shouldOpen);
+    toggle.setAttribute('aria-expanded', String(shouldOpen));
 }
 
 // API Helper
 async function portalApi(url, options = {}) {
-    const { suppressErrorToast = false, headers = {}, ...fetchOptions } = options;
+    const {
+        suppressErrorToast = false,
+        headers = {},
+        signal: callerSignal = null,
+        timeoutMs = PORTAL_REQUEST_TIMEOUT_MS,
+        ...fetchOptions
+    } = options;
+    const requestController = new AbortController();
+    const requestTimeout = Number.isFinite(Number(timeoutMs))
+        ? Math.max(1000, Number(timeoutMs))
+        : PORTAL_REQUEST_TIMEOUT_MS;
+    let timedOut = false;
+    let removeCallerAbort = null;
+    const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        requestController.abort();
+    }, requestTimeout);
+
+    if (callerSignal) {
+        const abortRequest = () => requestController.abort();
+        if (callerSignal.aborted) {
+            abortRequest();
+        } else {
+            callerSignal.addEventListener('abort', abortRequest, { once: true });
+            removeCallerAbort = () => callerSignal.removeEventListener('abort', abortRequest);
+        }
+    }
+
     try {
         const requestHeaders = new Headers({
             'Accept': 'application/json',
@@ -242,7 +280,11 @@ async function portalApi(url, options = {}) {
         if (typeof fetchOptions.body === 'string' && !requestHeaders.has('Content-Type')) {
             requestHeaders.set('Content-Type', 'application/json');
         }
-        const resp = await fetch(url, { ...fetchOptions, headers: requestHeaders });
+        const resp = await fetch(url, {
+            ...fetchOptions,
+            headers: requestHeaders,
+            signal: requestController.signal,
+        });
 
         const contentType = (resp.headers.get('content-type') || '').toLowerCase();
         if (contentType.includes('application/json')) {
@@ -273,6 +315,12 @@ async function portalApi(url, options = {}) {
             bodyPreview,
         };
     } catch (err) {
+        if (timedOut) {
+            if (!suppressErrorToast) {
+                showPortalToast('请求超时，请稍后重试', 'error');
+            }
+            return { success: false, error: '请求超时，请稍后重试', timedOut: true };
+        }
         if (err && err.name === 'AbortError') {
             return { success: false, aborted: true };
         }
@@ -280,14 +328,26 @@ async function portalApi(url, options = {}) {
         if (!suppressErrorToast) {
             showPortalToast('网络请求失败', 'error');
         }
-        return { success: false, error: err.message };
+        return { success: false, error: err?.message || '网络请求失败' };
+    } finally {
+        window.clearTimeout(timeoutId);
+        removeCallerAbort?.();
     }
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Data Loading 鈺愨晲鈺愨晲鈺愨晲
 async function loadPortalData() {
+    if (portalDataRequest) return portalDataRequest;
+    portalDataRequest = loadPortalDataOnce().finally(() => {
+        portalDataRequest = null;
+    });
+    return portalDataRequest;
+}
+
+async function loadPortalDataOnce() {
     const sessionRes = await portalApi('/api/subscriber/session');
     if (!sessionRes.success) {
+        setCourseGridBusy(false);
         if (sessionRes.status === 401) {
             window.location.href = '/subscribe';
             return;
@@ -349,19 +409,44 @@ async function loadPortalData() {
 
 // 鈺愨晲鈺愨晲鈺愨晲 Tabs 鈺愨晲鈺愨晲鈺愨晲
 function initTabs() {
-    document.querySelectorAll('.portal-tab').forEach(tab => {
+    const tabs = Array.from(document.querySelectorAll('.portal-tab'));
+    tabs.forEach(tab => {
         tab.addEventListener('click', () => switchPortalTab(tab.dataset.tab));
+        tab.addEventListener('keydown', (event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const currentIndex = tabs.indexOf(tab);
+            if (currentIndex < 0) return;
+            let nextIndex = currentIndex;
+            if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+            if (event.key === 'Home') nextIndex = 0;
+            if (event.key === 'End') nextIndex = tabs.length - 1;
+            const nextTab = tabs[nextIndex];
+            nextTab.focus();
+            switchPortalTab(nextTab.dataset.tab);
+        });
     });
 }
 
 function switchPortalTab(tabName) {
-    document.querySelectorAll('.portal-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.portal-tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.portal-tab').forEach(t => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+        t.setAttribute('tabindex', '-1');
+    });
+    document.querySelectorAll('.portal-tab-panel').forEach(p => {
+        p.classList.remove('active');
+        p.hidden = true;
+    });
     const tab = document.querySelector(`[data-tab="${tabName}"]`);
     const panel = document.getElementById(`panel-${tabName}`);
     if (!tab || !panel) return;
     tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    tab.setAttribute('tabindex', '0');
     panel.classList.add('active');
+    panel.hidden = false;
     localStorage.setItem(PORTAL_TAB_KEY, tabName);
 
     if (tabName === 'notifications' && portalState.subscriber) {
@@ -393,12 +478,13 @@ function clearPortalCourseFilters() {
 function renderCourseLoadError(message = '') {
     const grid = document.getElementById('courseGrid');
     if (!grid) return;
+    setCourseGridBusy(false);
     const hint = message || '网络或服务暂时不可用，请稍后重试。';
     grid.innerHTML = `
         <div class="portal-empty portal-empty-course portal-empty-error">
             <div class="portal-empty-icon" aria-hidden="true">⚠️</div>
             <div class="portal-empty-kicker">课程数据暂时不可用</div>
-            <div class="portal-empty-text">没有加载成功</div>
+            <div class="portal-empty-text">请稍后重新加载</div>
             <div class="portal-empty-hint">${escapeHtml(hint)}</div>
             <div class="portal-empty-actions">
                 <button class="portal-empty-action primary" type="button" onclick="loadPortalData()">重新加载</button>
@@ -419,7 +505,7 @@ function renderCourses(courses) {
             grid.innerHTML = `
                 <div class="portal-empty portal-empty-course portal-empty-catalog">
                     <div class="portal-empty-icon" aria-hidden="true">🗓️</div>
-                    <div class="portal-empty-kicker">课程池暂时空着</div>
+                    <div class="portal-empty-kicker">当前暂无课程</div>
                     <div class="portal-empty-text">当前暂无可选课程</div>
                     <div class="portal-empty-hint">
                         选课窗口可能还未开放，或本轮课程还未发布。系统会继续监测；有新课时，你可以在这里设置提醒。
@@ -430,13 +516,13 @@ function renderCourses(courses) {
                         <a class="portal-empty-action secondary" href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b/system/course-select"
                             target="_blank" rel="noopener">打开官方选课页</a>
                     </div>
-                    <div class="portal-empty-note">当前没有异常：空页面不会覆盖可靠的历史课程数据。</div>
+                    <div class="portal-empty-note">这不是系统错误：空页面不会覆盖可靠的历史课程数据。</div>
                 </div>`;
         } else {
             grid.innerHTML = `
                 <div class="portal-empty portal-empty-course portal-empty-filtered">
                     <div class="portal-empty-icon" aria-hidden="true">🔎</div>
-                    <div class="portal-empty-kicker">换个条件试试</div>
+                    <div class="portal-empty-kicker">当前筛选无结果</div>
                     <div class="portal-empty-text">没有匹配的课程</div>
                     <div class="portal-empty-hint">当前筛选没有结果，可以清除筛选后查看全部课程。</div>
                     <div class="portal-empty-actions">
@@ -722,37 +808,48 @@ function togglePortalQuickFilter(mode) {
 async function refreshPortalCourses(btnEl) {
     if (!btnEl) return;
     btnEl.disabled = true;
+    btnEl.setAttribute('aria-busy', 'true');
     const originalText = btnEl.textContent;
     btnEl.textContent = '\u5237\u65b0\u4e2d...';
 
-    const requestedAt = Date.now();
-    const result = await portalApi('/api/portal/refresh', { method: 'POST' });
-    if (result.success) {
-        if (result.joined_existing) {
-            showPortalToast('\u540e\u53f0\u5df2\u6709\u5237\u65b0\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
+    try {
+        const requestedAt = Date.now();
+        const result = await portalApi('/api/portal/refresh', { method: 'POST' });
+        if (result.success) {
+            if (result.joined_existing) {
+                showPortalToast('\u540e\u53f0\u5df2\u6709\u5237\u65b0\u4efb\u52a1\uff0c\u6b63\u5728\u4e3a\u4f60\u540c\u6b65\u6700\u65b0\u7ed3\u679c', 'info');
+            } else {
+                showPortalToast('\u5df2\u5f00\u59cb\u5237\u65b0\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u66f4\u65b0', 'info');
+            }
+            await waitForPortalRefresh(requestedAt);
         } else {
-            showPortalToast('\u5df2\u5f00\u59cb\u5237\u65b0\u8bfe\u7a0b\uff0c\u7a0d\u540e\u81ea\u52a8\u66f4\u65b0', 'info');
+            showPortalToast(result.error || '刷新失败', 'error');
         }
-        await waitForPortalRefresh(requestedAt);
-    } else {
-        showPortalToast(result.error || '刷新失败', 'error');
+    } finally {
+        btnEl.disabled = false;
+        btnEl.removeAttribute('aria-busy');
+        btnEl.textContent = originalText;
     }
-
-    btnEl.disabled = false;
-    btnEl.textContent = originalText;
 }
 
 async function waitForPortalRefresh(requestedAt) {
     const deadline = Date.now() + 70000;
     const threshold = requestedAt - 5000;
+    let pollMs = 1000;
 
     while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
         const statusRes = await portalApi('/api/portal/refresh/status', { suppressErrorToast: true });
-        if (!statusRes.success) continue;
+        if (!statusRes.success) {
+            pollMs = Math.min(5000, Math.round(pollMs * 1.5));
+            continue;
+        }
 
         const data = statusRes.data || {};
-        if (data.is_running) continue;
+        if (data.is_running) {
+            pollMs = Math.min(5000, Math.round(pollMs * 1.5));
+            continue;
+        }
 
         const lastSuccess = data.last_success
             ? new Date(String(data.last_success).replace(' ', 'T')).getTime()
