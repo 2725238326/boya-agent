@@ -896,6 +896,20 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await _course_page_has_empty_state(page))
         self.assertTrue(await _wait_course_tables_ready(page))
 
+    async def test_course_page_wait_prefers_browser_side_condition(self):
+        wait_for_function = AsyncMock()
+        page = types.SimpleNamespace(
+            url="https://d.buaa.edu.cn/https/example/system/course-select",
+            wait_for_function=wait_for_function,
+        )
+
+        self.assertTrue(await _wait_course_tables_ready(page))
+        wait_for_function.assert_awaited_once()
+        self.assertEqual(
+            wait_for_function.await_args.kwargs["polling"],
+            300,
+        )
+
     async def test_empty_marker_on_non_course_page_is_not_treated_as_ready(self):
         page = types.SimpleNamespace(
             url="https://d.buaa.edu.cn/https/example/system/home",

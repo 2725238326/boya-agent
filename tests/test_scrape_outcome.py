@@ -23,6 +23,8 @@ class ScrapeOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.is_empty)
         self.assertEqual(outcome.courses, [])
         self.assertEqual(outcome.to_dict()["scraped_count"], 0)
+        self.assertGreaterEqual(outcome.metadata["duration_ms"], 0)
+        self.assertTrue(outcome.metadata["include_details"])
 
     async def test_courses_are_returned_as_a_successful_snapshot(self):
         courses = [{"id": "course-1", "name": "测试课程"}]
@@ -36,6 +38,7 @@ class ScrapeOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(outcome.is_empty)
         self.assertEqual(outcome.courses, courses)
         self.assertEqual(outcome.to_dict()["scraped_count"], 1)
+        self.assertGreaterEqual(outcome.metadata["duration_ms"], 0)
 
     async def test_sso_page_is_classified_as_auth_expired(self):
         page = SimpleNamespace(url="https://sso.buaa.edu.cn/login")

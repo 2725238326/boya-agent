@@ -35,6 +35,14 @@ from src.scrape_outcome import (
 )
 from src.time_utils import now as business_now
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 COURSE_VIEW_CANDIDATES = [
     ("all", ["\u5168\u90e8\u8bfe\u7a0b", "\u8bfe\u7a0b\u5168\u90e8"]),
     ("near", ["\u8fd1\u671f\u8bfe\u7a0b", "\u5373\u5c06\u5f00\u8bfe", "\u5373\u5c06\u5f00\u62a2"]),
@@ -53,6 +61,11 @@ COURSE_VIEW_CANDIDATES = [
 MAX_PAGES_PER_VIEW = 25
 COURSE_PAGE_READY_TIMEOUT_MS = 15000
 COURSE_PAGE_POLL_INTERVAL_MS = 300
+COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS = max(
+    1000,
+    int(os.getenv("COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS", "5000")),
+)
+SCRAPE_CAPTURE_DIAGNOSTICS = _env_flag("SCRAPE_CAPTURE_DIAGNOSTICS", False)
 # The upstream course system renders a real page even when the current
 # selection window contains no courses. Treat these explicit empty states as
 # a successful scrape so the scheduler does not report a false navigation
@@ -906,13 +919,12 @@ async def _check_and_recover_session(page: Page) -> bool:
         for btn_text in ["跳转", "继续", "确定", "确认", "前往", "点击"]:
             btn = page.locator(f'button:has-text("{btn_text}"), a:has-text("{btn_text}")')
             if await btn.count() > 0:
-                visible = await btn.first.is_visible()
-                if visible:
-                    logger.info(f"检测到跳转/确认按钮: '{btn_text}'，自动点击...")
-                    await btn.first.click()
-                    await page.wait_for_timeout(2000)
-                    await page.wait_for_load_state("networkidle", timeout=15000)
-                    break
+                    visible = await btn.first.is_visible()
+                    if visible:
+                        logger.info(f"检测到跳转/确认按钮: '{btn_text}'，自动点击...")
+                        await btn.first.click()
+                        await _wait_for_network_idle(page)
+                        break
     except Exception as e:
         logger.debug(f"检查弹窗: {e}")
 
@@ -927,7 +939,6 @@ async def _check_and_recover_session(page: Page) -> bool:
             if await close_btn.count() > 0:
                 await close_btn.first.click()
                 logger.info("已关闭弹窗")
-                await page.wait_for_timeout(1000)
     except Exception:
         pass
 
@@ -980,15 +991,73 @@ async def _course_page_has_empty_state(page: Page) -> bool:
     return has_course_context and has_empty_marker
 
 
+async def _wait_for_network_idle(page: Page, timeout_ms: int = COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS) -> bool:
+    """Wait for a navigation to settle without adding an unconditional delay."""
+    try:
+        await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        return True
+    except Exception as exc:
+        logger.debug(f"等待页面网络空闲超时，继续检查页面状态: {exc}")
+        return False
+
+
 async def _wait_course_tables_ready(page: Page) -> bool:
-    """Wait for a course table or an explicit no-course state to render."""
+    """Wait for course rows or an explicit no-course state to render.
+
+    Real Playwright pages use a browser-side condition, which avoids repeated
+    Python-to-browser round trips. Small test doubles without
+    ``wait_for_function`` use the polling fallback below.
+    """
+    wait_for_function = getattr(page, "wait_for_function", None)
+    if callable(wait_for_function):
+        try:
+            await wait_for_function(
+                r"""
+                () => {
+                  const visible = (element) => {
+                    if (!element) return false;
+                    const style = window.getComputedStyle(element);
+                    if (!style || style.display === "none" || style.visibility === "hidden") {
+                      return false;
+                    }
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                  };
+
+                  const hasRows = Array.from(document.querySelectorAll("table"))
+                    .some((table) => visible(table) && table.querySelectorAll("tbody tr").length > 0);
+                  if (hasRows) return true;
+
+                  const emptySelectors = [
+                    ".el-table__empty-block", ".el-table__empty-text", ".ant-empty",
+                    ".ant-table-placeholder", ".dataTables_empty", ".empty-data",
+                    ".no-data", ".no-result",
+                  ];
+                  if (emptySelectors.some((selector) =>
+                    Array.from(document.querySelectorAll(selector)).some(visible))) {
+                    return true;
+                  }
+
+                  const bodyText = (document.body?.innerText || "").replace(/\s+/g, "");
+                  return /课程|选课|报名/.test(bodyText)
+                    && /暂无课程|暂无可选课程|暂无选课|暂无选课信息|暂无数据|无可选课程|没有可选课程|没有符合条件的课程|暂无符合条件的课程|当前没有课程|当前暂无课程|暂未发布课程/.test(bodyText);
+                }
+                """,
+                timeout=COURSE_PAGE_READY_TIMEOUT_MS,
+                polling=COURSE_PAGE_POLL_INTERVAL_MS,
+            )
+            return True
+        except PlaywrightTimeoutError:
+            return await _course_page_has_empty_state(page)
+        except Exception as exc:
+            logger.debug(f"浏览器内等待选课页面状态失败，使用兼容轮询: {exc}")
+
     loop = asyncio.get_running_loop()
     deadline = loop.time() + COURSE_PAGE_READY_TIMEOUT_MS / 1000
 
     while loop.time() < deadline:
         try:
-            if await page.locator("table:visible").count() > 0:
-                await page.wait_for_timeout(1200)
+            if await page.locator("table:visible tbody tr").count() > 0:
                 return True
             if await _course_page_has_empty_state(page):
                 logger.info("选课页面已加载，当前暂无可选课程")
@@ -1250,11 +1319,7 @@ async def _try_click_view_alias(page: Page, alias: str) -> bool:
                 if not text or normalized_alias not in text:
                     continue
                 await candidate.click(timeout=4000)
-                await page.wait_for_timeout(1500)
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=8000)
-                except Exception:
-                    pass
+                await _wait_for_network_idle(page)
                 await _wait_course_tables_ready(page)
                 logger.info(f"Switched course view with alias [{alias}]")
                 return True
@@ -1288,11 +1353,7 @@ async def _click_visible_text_control(page: Page, labels: List[str]) -> bool:
                     if not await candidate.is_visible():
                         continue
                     await candidate.click(timeout=4000)
-                    await page.wait_for_timeout(1500)
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=8000)
-                    except Exception:
-                        pass
+                    await _wait_for_network_idle(page)
                     return True
                 except Exception:
                     continue
@@ -1357,9 +1418,8 @@ async def _reset_course_filters(page: Page) -> bool:
     if not changed:
         return False
 
-    await page.wait_for_timeout(1200)
-    if await _click_visible_text_control(page, ["查询", "搜索", "检索", "刷新列表", "刷新"]):
-        await _wait_course_tables_ready(page)
+    await _click_visible_text_control(page, ["查询", "搜索", "检索", "刷新列表", "刷新"])
+    await _wait_course_tables_ready(page)
     logger.info("Reset course filters via DOM fallback")
     return True
 
@@ -1411,7 +1471,7 @@ async def _load_current_view_page_courses(page: Page) -> List[dict]:
     if page_courses:
         return page_courses
 
-    await page.wait_for_timeout(1200)
+    await _wait_course_tables_ready(page)
     return await _parse_visible_course_tables(page)
 
 
@@ -1522,7 +1582,7 @@ async def _refresh_course_list(page: Page) -> bool:
 
     try:
         await page.reload(wait_until="networkidle", timeout=20000)
-        await page.wait_for_timeout(1200)
+        await _wait_course_tables_ready(page)
         logger.info("Reloaded current course-select page")
         return True
     except Exception as e:
@@ -1541,7 +1601,6 @@ async def _open_course_select_page(page: Page) -> bool:
     try:
         logger.info(f"直接导航到选课页: {BYKC_COURSE_URL}")
         await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30000)
-        await page.wait_for_timeout(2000)
         if not await _ensure_session_with_retry(page, "直达选课页后"):
             return False
         if await _wait_course_tables_ready(page):
@@ -1551,7 +1610,6 @@ async def _open_course_select_page(page: Page) -> bool:
 
     logger.info(f"导航到博雅首页: {BYKC_HOME_URL}")
     await page.goto(BYKC_HOME_URL, wait_until="networkidle", timeout=30000)
-    await page.wait_for_timeout(3000)
 
     if not await _ensure_session_with_retry(page, "进入首页后"):
         logger.error("会话恢复失败")
@@ -1562,7 +1620,6 @@ async def _open_course_select_page(page: Page) -> bool:
         my_course_menu = page.locator('li:has-text("我的课程"), span:has-text("我的课程")')
         if await my_course_menu.count() > 0:
             await my_course_menu.first.click()
-            await page.wait_for_timeout(1500)
             logger.info("已点击「我的课程」")
     except Exception as e:
         logger.warning(f"展开菜单失败: {e}")
@@ -1575,8 +1632,7 @@ async def _open_course_select_page(page: Page) -> bool:
 
         if await select_menu.count() > 0:
             await select_menu.first.click()
-            await page.wait_for_timeout(5000)
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await _wait_for_network_idle(page)
             logger.info(f"已点击「选择课程」，当前 URL: {safe_url_for_log(page.url)}")
         else:
             logger.warning("未找到「选择课程」菜单项")
@@ -1594,32 +1650,33 @@ async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List
     """
     courses = []
     response_recorder = _JsonResponseRecorder(page)
+    capture_diagnostics = SCRAPE_CAPTURE_DIAGNOSTICS
 
     try:
-        os.makedirs("logs", exist_ok=True)
+        if capture_diagnostics:
+            os.makedirs("logs", exist_ok=True)
         response_recorder.start()
         if not await _open_course_select_page(page):
             logger.error("无法进入选择课程页面")
             raise ScrapeNavigationError("无法进入选择课程页面")
 
-        # 截图
-        await page.screenshot(path="logs/scrape_page.png", full_page=True)
-        logger.info("选课页面截图已保存")
+        if capture_diagnostics:
+            await page.screenshot(path="logs/scrape_page.png", full_page=True)
+            logger.info("选课页面诊断截图已保存")
 
         if await _course_page_has_empty_state(page):
             logger.info("当前选课窗口没有可选课程，按空状态完成本轮抓取")
             return []
 
-        # 等待课程表格加载
-        try:
-            await page.wait_for_selector("table:visible", timeout=COURSE_PAGE_READY_TIMEOUT_MS)
-            logger.info("课程表格已加载")
-        except Exception:
+        # 等待课程行或明确的无课状态。
+        if not await _wait_course_tables_ready(page):
             logger.warning("等待表格超时，保存 HTML 用于调试...")
+            os.makedirs("logs", exist_ok=True)
             html = await page.content()
             with open("logs/scrape_page.json", "w", encoding="utf-8") as f:
                 f.write(html)
             raise ScrapePageNotReadyError("课程列表未在限定时间内出现")
+        logger.info("选课页面状态已加载")
 
         await _reset_course_filters(page)
 
@@ -1650,6 +1707,7 @@ async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List
     except Exception as e:
         logger.error(f"抓取课程列表失败: {e}")
         try:
+            os.makedirs("logs", exist_ok=True)
             await page.screenshot(path="logs/scrape_error.png", full_page=True)
         except Exception:
             pass
@@ -1698,6 +1756,17 @@ async def scrape_courses_result(page: Page, include_details: bool = True) -> Scr
     ``SUCCESS_EMPTY``，从而阻止错误快照覆盖数据库或触发误通知。
     """
 
+    started_at = asyncio.get_running_loop().time()
+
+    def timing_metadata() -> Dict[str, Any]:
+        return {
+            "duration_ms": max(
+                0,
+                int((asyncio.get_running_loop().time() - started_at) * 1000),
+            ),
+            "include_details": include_details,
+        }
+
     try:
         courses = await _scrape_courses_impl(page, include_details=include_details)
     except asyncio.CancelledError:
@@ -1710,7 +1779,10 @@ async def scrape_courses_result(page: Page, include_details: bool = True) -> Scr
         return ScrapeOutcome(
             status=status,
             message=message,
-            metadata={"exception_type": type(error).__name__},
+            metadata={
+                "exception_type": type(error).__name__,
+                **timing_metadata(),
+            },
         )
 
     if courses:
@@ -1718,10 +1790,12 @@ async def scrape_courses_result(page: Page, include_details: bool = True) -> Scr
             status=ScrapeStatus.SUCCESS_WITH_COURSES,
             courses=courses,
             message=f"抓取到 {len(courses)} 门课程",
+            metadata=timing_metadata(),
         )
     return ScrapeOutcome(
         status=ScrapeStatus.SUCCESS_EMPTY,
         message="当前选课窗口没有可选课程",
+        metadata=timing_metadata(),
     )
 
 
@@ -1757,8 +1831,7 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
 
             # 点击详细介绍
             await detail_link.first.click()
-            await page.wait_for_timeout(3000)
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await _wait_for_network_idle(page)
 
             # 解析详情页
             try:
@@ -1805,9 +1878,8 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
                 await back_btn.first.click()
             else:
                 await page.go_back()
-            await page.wait_for_timeout(2000)
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            await page.wait_for_selector("table:visible", timeout=15000)
+            await _wait_for_network_idle(page)
+            await _wait_course_tables_ready(page)
 
         except Exception as e:
             logger.warning(f"抓取课程[{i}]详情失败: {e}")
@@ -1816,10 +1888,11 @@ async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
                 back_btn = page.locator('a:has-text("返回")')
                 if await back_btn.count() > 0:
                     await back_btn.first.click()
-                    await page.wait_for_timeout(2000)
+                    await _wait_for_network_idle(page)
                 else:
                     await page.go_back()
-                    await page.wait_for_timeout(2000)
+                    await _wait_for_network_idle(page)
+                await _wait_course_tables_ready(page)
             except Exception:
                 pass
 
@@ -2056,8 +2129,8 @@ async def _go_to_next_page(page: Page) -> bool:
             is_disabled = await candidate.is_disabled() or aria_disabled or disabled_attr or "disabled" in classes
             if not is_disabled:
                 await candidate.click()
-                await page.wait_for_timeout(3000)
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await _wait_for_network_idle(page)
+                await _wait_course_tables_ready(page)
                 after_signature = await _capture_visible_course_table_signature(page)
                 if after_signature == before_signature:
                     logger.warning("下一页点击后课程表格没有变化，停止翻页以避免死循环")

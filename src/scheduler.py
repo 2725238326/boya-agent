@@ -69,6 +69,7 @@ run_status = {
     "last_error": None,
     "last_scrape_health": None,
     "last_scrape_status": None,
+    "last_scrape_duration_ms": None,
     "last_daily_summary": None,
 }
 
@@ -404,6 +405,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
 
     run_status["is_running"] = True
     run_status["last_run"] = business_now()
+    run_status["last_scrape_duration_ms"] = None
     run_status["total_runs"] += 1
 
     pushed_count = 0
@@ -434,6 +436,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 outcome = await scrape_courses_result(page, include_details=(mode != "quick"))
                 _mark_browser_used()
                 scrape_status = outcome.status.value
+                run_status["last_scrape_duration_ms"] = outcome.metadata.get("duration_ms")
                 if not outcome.success:
                     last_scrape_error = outcome.message or outcome.status.value
                     last_scrape_status = outcome.status.value
@@ -1369,5 +1372,6 @@ def get_run_status() -> dict:
         "last_error": run_status["last_error"],
         "last_scrape_health": run_status["last_scrape_health"],
         "last_scrape_status": run_status["last_scrape_status"],
+        "last_scrape_duration_ms": run_status["last_scrape_duration_ms"],
         "last_daily_summary": run_status["last_daily_summary"].strftime("%Y-%m-%d %H:%M:%S") if run_status["last_daily_summary"] else None,
     }
