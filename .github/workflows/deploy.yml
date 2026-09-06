@@ -53,6 +53,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_SHA: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
           HEALTHCHECK_URL: ${{ secrets.SERVER_HEALTHCHECK_URL }}
@@ -61,15 +62,18 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          envs: DEPLOY_BRANCH,APP_DIR,SERVICE_NAME,HEALTHCHECK_URL
+          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME,HEALTHCHECK_URL
           script: |
             set -euo pipefail
 
             APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
             HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/healthz}"
+            DEPLOY_SHA="${DEPLOY_SHA:?github.sha was not provided}"
+            DEPLOY_SHA_SHORT="$(printf '%s' "$DEPLOY_SHA" | cut -c1-7)"
 
             echo "Deploy branch: $DEPLOY_BRANCH"
+            echo "Deploy commit: $DEPLOY_SHA"
             echo "App dir: $APP_DIR"
             echo "Service: $SERVICE_NAME"
             echo "Healthcheck: $HEALTHCHECK_URL"
@@ -92,6 +96,38 @@ jobs:
               exit 1
             fi
 
+            DATABASE_PATH="$(awk -F= '$1 == "DATABASE_PATH" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
+            DATABASE_PATH="${DATABASE_PATH:-/var/lib/boya-agent/data/boya_agent.db}"
+            case "$DATABASE_PATH" in
+              /*) ;;
+              *) DATABASE_PATH="$APP_DIR/$DATABASE_PATH" ;;
+            esac
+            BACKUP_DIR="${BACKUP_DIR:-/var/lib/boya-agent/backups}"
+            if [ ! -f "$DATABASE_PATH" ]; then
+              echo "Configured database does not exist: $DATABASE_PATH"
+              exit 1
+            fi
+            mkdir -p "$BACKUP_DIR"
+            BACKUP_PATH="$BACKUP_DIR/boya_agent-$(date +%Y%m%d-%H%M%S)-pre-$DEPLOY_SHA_SHORT.db"
+            python3 - "$DATABASE_PATH" "$BACKUP_PATH" <<'PY'
+            import sqlite3
+            import sys
+
+            source_path, backup_path = sys.argv[1:]
+            source = sqlite3.connect(source_path, timeout=30)
+            target = sqlite3.connect(backup_path)
+            try:
+                source.backup(target)
+                result = target.execute("PRAGMA integrity_check").fetchone()[0]
+                if result != "ok":
+                    raise SystemExit(f"backup integrity check failed: {result}")
+            finally:
+                target.close()
+                source.close()
+            PY
+            chmod 640 "$BACKUP_PATH"
+            echo "Database backup created: $BACKUP_PATH"
+
             git fetch --prune origin
 
             if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
@@ -102,6 +138,12 @@ jobs:
 
             git merge --ff-only "origin/$DEPLOY_BRANCH"
 
+            CURRENT_SHA="$(git rev-parse HEAD)"
+            if [ "$CURRENT_SHA" != "$DEPLOY_SHA" ]; then
+              echo "Checked out commit does not match workflow commit: $CURRENT_SHA"
+              exit 1
+            fi
+
             if [ ! -d venv ]; then
               python3 -m venv venv
             fi
@@ -109,21 +151,136 @@ jobs:
             ./venv/bin/pip install -r requirements.txt
             ./venv/bin/python -m compileall -q src web tests
 
-            sudo systemctl restart "$SERVICE_NAME"
+            EMAIL_WAS_ENABLED="$(python3 - "$DATABASE_PATH" <<'PY'
+            import sqlite3
+            import sys
+
+            connection = sqlite3.connect(sys.argv[1], timeout=30)
+            try:
+                row = connection.execute(
+                    "SELECT email_enabled FROM filter_config WHERE id = 1"
+                ).fetchone()
+                print("1" if row and row[0] else "0")
+            finally:
+                connection.close()
+            PY
+            )"
+            EMAIL_GUARD_ACTIVE=0
+
+            restore_email_state() {
+              if [ "$EMAIL_GUARD_ACTIVE" != "1" ]; then
+                return 0
+              fi
+              python3 - "$DATABASE_PATH" "$EMAIL_WAS_ENABLED" <<'PY'
+            import sqlite3
+            import sys
+
+            connection = sqlite3.connect(sys.argv[1], timeout=30)
+            try:
+                connection.execute(
+                    "UPDATE filter_config SET email_enabled = ? WHERE id = 1",
+                    (bool(int(sys.argv[2])),),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            PY
+              EMAIL_GUARD_ACTIVE=0
+              echo "Restored email_enabled=$EMAIL_WAS_ENABLED"
+            }
+            trap restore_email_state EXIT
+
+            sudo systemctl stop "$SERVICE_NAME"
+            if [ "$EMAIL_WAS_ENABLED" = "1" ]; then
+              python3 - "$DATABASE_PATH" <<'PY'
+            import sqlite3
+            import sys
+
+            connection = sqlite3.connect(sys.argv[1], timeout=30)
+            try:
+                connection.execute(
+                    "UPDATE filter_config SET email_enabled = 0 WHERE id = 1"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            PY
+              EMAIL_GUARD_ACTIVE=1
+              echo "Temporarily disabled email delivery during startup scrape."
+            fi
+
+            STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
+            sudo systemctl start "$SERVICE_NAME"
             sudo systemctl is-active --quiet "$SERVICE_NAME"
 
+            HEALTHCHECK_PASSED=0
             for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
               if curl --fail --silent --show-error "$HEALTHCHECK_URL" >/tmp/boya-healthcheck.json; then
                 echo "Health check passed on attempt $attempt."
                 cat /tmp/boya-healthcheck.json
                 echo
-                echo "Deploy complete at $(date)"
-                exit 0
+                HEALTHCHECK_PASSED=1
+                break
               fi
               sleep 5
             done
 
-            echo "Health check failed after restart."
-            sudo systemctl status "$SERVICE_NAME" --no-pager || true
-            sudo journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
-            exit 1
+            if [ "$HEALTHCHECK_PASSED" != "1" ]; then
+              echo "Health check failed after restart."
+              sudo systemctl status "$SERVICE_NAME" --no-pager || true
+              sudo journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+              exit 1
+            fi
+
+            BASE_URL="${HEALTHCHECK_URL%/healthz}"
+            for path in / /subscribe /portal /api/courses /rss; do
+              if curl --fail --silent --show-error --max-time 20 "$BASE_URL$path" >/dev/null; then
+                echo "Smoke check passed: $path"
+              else
+                echo "Smoke check failed: $path"
+                sudo journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+                exit 1
+              fi
+            done
+
+            STARTUP_SCRAPE_COMPLETE=0
+            for attempt in $(seq 1 48); do
+              if sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 | grep -q "系统已就绪"; then
+                STARTUP_SCRAPE_COMPLETE=1
+                echo "Startup scrape completed on attempt $attempt."
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$STARTUP_SCRAPE_COMPLETE" != "1" ]; then
+              echo "Startup scrape did not report completion within the expected window."
+              sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 || true
+              exit 1
+            fi
+
+            python3 - "$DATABASE_PATH" <<'PY'
+            import sqlite3
+            import sys
+
+            connection = sqlite3.connect(sys.argv[1], timeout=30)
+            try:
+                integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+                if integrity != "ok":
+                    raise SystemExit(f"database integrity check failed: {integrity}")
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                if "notification_jobs" not in tables:
+                    raise SystemExit("notification_jobs table is missing after startup")
+            finally:
+                connection.close()
+            PY
+            echo "Database integrity and notification schema checks passed."
+
+            restore_email_state
+            trap - EXIT
+            echo "Deploy complete at $(date)"
