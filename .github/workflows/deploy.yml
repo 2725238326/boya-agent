@@ -56,19 +56,17 @@ jobs:
           DEPLOY_SHA: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
-          HEALTHCHECK_URL: ${{ secrets.SERVER_HEALTHCHECK_URL }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME,HEALTHCHECK_URL
+          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME
           script: |
             set -euo pipefail
 
             APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
-            HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:5000/healthz}"
             DEPLOY_SHA="${DEPLOY_SHA:?github.sha was not provided}"
             DEPLOY_SHA_SHORT="$(printf '%s' "$DEPLOY_SHA" | cut -c1-7)"
 
@@ -76,7 +74,6 @@ jobs:
             echo "Deploy commit: $DEPLOY_SHA"
             echo "App dir: $APP_DIR"
             echo "Service: $SERVICE_NAME"
-            echo "Healthcheck: $HEALTHCHECK_URL"
 
             if [ ! -d "$APP_DIR" ]; then
               echo "Configured APP_DIR does not exist: $APP_DIR"
@@ -98,6 +95,12 @@ jobs:
 
             DATABASE_PATH="$(awk -F= '$1 == "DATABASE_PATH" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
             DATABASE_PATH="${DATABASE_PATH:-/var/lib/boya-agent/data/boya_agent.db}"
+            PUBLIC_BASE_URL="$(awk -F= '$1 == "APP_PUBLIC_BASE_URL" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
+            PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://buaaboya.top}"
+            PUBLIC_BASE_URL="${PUBLIC_BASE_URL%/}"
+            LOCAL_HEALTHCHECK_URL="http://127.0.0.1:5000/healthz"
+            echo "Public base: $PUBLIC_BASE_URL"
+            echo "Local healthcheck: $LOCAL_HEALTHCHECK_URL"
             case "$DATABASE_PATH" in
               /*) ;;
               *) DATABASE_PATH="$APP_DIR/$DATABASE_PATH" ;;
@@ -215,7 +218,7 @@ jobs:
 
             HEALTHCHECK_PASSED=0
             for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              if curl --fail --silent --show-error "$HEALTHCHECK_URL" >/tmp/boya-healthcheck.json; then
+              if curl --fail --silent --show-error "$LOCAL_HEALTHCHECK_URL" >/tmp/boya-healthcheck.json; then
                 echo "Health check passed on attempt $attempt."
                 cat /tmp/boya-healthcheck.json
                 echo
@@ -232,9 +235,8 @@ jobs:
               exit 1
             fi
 
-            BASE_URL="${HEALTHCHECK_URL%/healthz}"
             for path in / /subscribe /portal /api/courses /rss; do
-              if curl --fail --silent --show-error --max-time 20 "$BASE_URL$path" >/dev/null; then
+              if curl --fail --silent --show-error --max-time 20 "$PUBLIC_BASE_URL$path" >/dev/null; then
                 echo "Smoke check passed: $path"
               else
                 echo "Smoke check failed: $path"
