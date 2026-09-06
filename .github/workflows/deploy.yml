@@ -245,7 +245,7 @@ jobs:
 
             STARTUP_SCRAPE_COMPLETE=0
             for attempt in $(seq 1 48); do
-              if sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 | grep -q "系统已就绪"; then
+              if sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 | grep -F "系统已就绪" >/dev/null; then
                 STARTUP_SCRAPE_COMPLETE=1
                 echo "Startup scrape completed on attempt $attempt."
                 break
