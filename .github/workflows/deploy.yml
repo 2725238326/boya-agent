@@ -3,6 +3,11 @@ name: Deploy to Server
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'config/**'
+      - 'requirements.txt'
   workflow_dispatch:
 
 permissions:

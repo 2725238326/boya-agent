@@ -4,7 +4,7 @@
 面向读者：项目负责人、开发者、运维人员和评审者。
 文档状态：当前状态主文档；更新时间：2026-09-07。
 
-判定范围：仓库代码、配置样例、部署样例、测试文件，2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果，以及 2026-09-07 的新版本候选改动。候选改动尚未部署。
+判定范围：仓库代码、配置样例、部署样例、测试文件，2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果，以及 2026-09-07 完成的版本发布和线上核对。当前生产版本为 `main@92e53b2`。
 重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。本轮主 SMTP 出现超时但回退/重试完成，Telegram 仍关闭，长期通知稳定性和真实收件结果仍需持续观察。
 
 ## 一句话结论
@@ -83,7 +83,7 @@
 
 ## 下一阶段
 
-下一阶段按 [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) 和 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md) 执行，先完成候选版本的自动化检查、页面检查和 Git 核对，再决定生产发布窗口。
+下一阶段按 [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) 和 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md) 执行，重点是生产观察、真实课程周期验证和通知路径的分批改进。
 
 1. 固定本地和 CI 的完整测试环境，真实记录未运行的检查。
 2. 建立模拟课程、无课、登录失效、解析失败、通知失败和重复投递样例。
@@ -92,20 +92,28 @@
 
 本阶段改进和部署汇报按照 [REPORTING_STANDARD.md](REPORTING_STANDARD.md) 执行，用户可见文字按照根目录的 [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../../PLAIN_LANGUAGE_REVIEW_PROMPT.md) 审阅。
 
-## 当前候选版本（2026-09-07）
+## 当前生产版本（2026-09-07）
 
-- 功能分支继续使用 `codex/ts7-and-hardening`；本批代码、测试、文档和 CI 改动尚未部署到生产。
+- `main` 和 `codex/ts7-and-hardening` 已同步到 `92e53b2c7645bc521dab7e2891b41e7d6cc9e86d`；服务器运行同一提交，工作树 clean。
 - 抓取器将课程行或明确空状态作为主要等待条件，减少固定时长等待；正常轮次默认不保存诊断截图，并记录最近一次抓取耗时。
 - 门户请求增加超时、取消和重复初始化合并；课程列表、刷新按钮和页签增加状态反馈、可访问性语义和窄屏样式支持。
 - 根目录旧审计快照已移入 `docs/archive/legacy/`；新增 `scripts/verify_release.py` 作为统一发布候选版本验证入口。
 - TypeScript 7 检查范围扩展到首页、二维码、持久登录和订阅桥接脚本；门户和管理台脚本暂不一次性改写。
-- 功能分支已推送到 GitHub，CI 检查通过；服务器只获取了候选远端引用，当前检出版本、工作树和运行中的服务均保持不变。
+- 生产工作流 `34050088901` 已完成；部署前生成 SQLite 备份，服务启动、首次抓取、公开页面/API、数据库完整性和权限边界均已核对。
 
-## 候选版本自动化验证（2026-09-07）
+### 2026-09-07 生产发布验收
+
+- 服务器运行 `main@92e53b2c7645bc521dab7e2891b41e7d6cc9e86d`，`boya-agent` active，工作树 clean。
+- 部署前备份为 `/var/lib/boya-agent/backups/boya_agent-20260907-015623-pre-92e53b2.db`；SQLite `integrity_check` 返回 `ok`，`notification_jobs` 表存在。
+- 本机和 `https://buaaboya.top/healthz` 返回 `200`；主页、订阅页、门户、`/api/courses`、`/rss` 返回 `200`；HTTP 正确跳转 HTTPS；未授权 `/api/status` 返回 `401`。
+- 静态资源缓存为 `public, max-age=604800, immutable`；邮件开关恢复为 `1`，Telegram 和自动选课保持 `0`。
+- 首次抓取已完成并报告当前没有可选课程；真实课程尚未开展，后续按课程周期验证实际发现、筛选和提醒效果。
+
+## 本批自动化验证（2026-09-07）
 
 - `D:\Anaconda\python.exe scripts/verify_release.py`：`66 passed, 1 skipped`；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和 `git diff --check HEAD` 均通过。
 - `D:\Anaconda\python.exe scripts/verify_release.py --require-clean`：已通过；工作树无未提交或未跟踪文件。
-- 本批改动未部署到服务器，生产服务继续运行上一轮已记录版本；邮件、Telegram 和自动选课配置未作变更。
+- 生产发布期间邮件投递暂时抑制，完成后恢复原开关；邮件、Telegram 和自动选课的业务配置未修改。
 
 ## 当前推进（2026-09-04）
 
