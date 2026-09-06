@@ -38,7 +38,7 @@ asyncio + APScheduler
 | `src/filters.py` | 全局筛选和自动选课候选 | 邮件 HTML |
 | `src/scheduler.py` | 周期任务、浏览器生命周期、缓冲区、推送触发、课程生命周期 | 页面渲染 |
 | `src/models.py` | SQLAlchemy 模型、SQLite 初始化和增量迁移 | 请求权限判断 |
-| `src/notification_jobs.py` | 持久化通知任务、幂等键、租约、退避和结果收口 | 渠道模板和课程状态判断 |
+| `src/notification_jobs.py` | 持久化通知任务、幂等键、租约、退避和结果记录 | 渠道模板和课程状态判断 |
 | `src/push/email_push.py` | SMTP、邮件模板、用户筛选、通知事件和邮件去重 | Flask 路由 |
 | `src/push/telegram_bot.py` | Telegram 通知、提醒和告警 | 用户门户会话 |
 | `src/push/rss_feed.py` | RSS/Atom XML | 数据库查询 |

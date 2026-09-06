@@ -16,7 +16,7 @@ sudo systemctl status nginx --no-pager
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## 常规更新后的最小闭环
+## 常规更新后的最低检查集
 
 每次代码更新后记录以下信息，不以“服务能启动”代替完整验收：
 
@@ -72,7 +72,7 @@ curl -su 管理员用户名:管理员密码 \
   -X POST 'https://你的域名/api/trigger?mode=quick'
 ```
 
-`mode=quick` 适合快速刷新；完整同步使用 `mode=full`。重复触发时，应用会尽量加入已有任务，而不是并行启动同一条抓取链路。检查状态中的 `last_run`、`last_success`、`last_error`、`browser_alive` 和 `last_scrape_health`。
+`mode=quick` 适合快速刷新；完整同步使用 `mode=full`。重复触发时，应用会尽量加入已有任务，而不是并行启动同一条抓取流程。检查状态中的 `last_run`、`last_success`、`last_error`、`browser_alive`、`last_scrape_health` 和 `last_scrape_duration_ms`。单次耗时只用于定位异常，长期性能应按观察窗口统计。
 
 ## 邮件与推送检查
 

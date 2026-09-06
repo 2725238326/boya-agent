@@ -86,7 +86,7 @@
 | PUT | `/api/config` | 修改筛选、自动选课、推送和抓取配置 | 管理员；写数据库/调度 | 应用层 + Nginx + 同源检查；间隔限制 `1..1440` |
 | POST | `/api/enroll/toggle` | 切换自动选课 | 管理员；写配置 | 高风险状态修改；应用层 + Nginx + 同源检查 |
 | POST | `/api/trigger` | 管理员触发 full/quick 抓取 | 管理员；排队/执行任务 | 应用层 + Nginx + 同源检查；任务锁和超时 |
-| GET | `/api/status` | 完整运行、浏览器、推送、数据库统计 | 管理员；只读 | 运行内部信息；应用层 + Nginx，不公开 |
+| GET | `/api/status` | 完整运行、浏览器、推送、数据库统计和最近一次抓取耗时 | 管理员；只读 | 运行内部信息；应用层 + Nginx，不公开；`last_scrape_duration_ms` 为最近一次抓取耗时，不能代表长期性能 |
 | GET | `/api/logs/push` | 最近推送日志 | 管理员；只读 | 运维数据；应用层 + Nginx |
 | GET | `/api/logs/enroll` | 最近选课日志 | 管理员；只读 | 可能含课程系统错误文本；应用层 + Nginx |
 | GET | `/api/subscribers` | 订阅用户、推送和活跃度聚合 | 管理员；只读 | 含完整邮箱和业务数据；应用层 + Nginx，禁止缓存/公开 |

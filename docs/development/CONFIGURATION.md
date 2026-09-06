@@ -49,6 +49,8 @@
 | `BROWSER_HARD_MAX_SCRAPE_RUNS` | 至少软阈值，默认不低于 `140` | 否 | 重启 | 浏览器硬回收阈值 |
 | `BROWSER_DEFER_RECYCLE_WHEN_HOT` | `true` | 否 | 重启 | 热点监控期间是否延后回收 |
 | `SCRAPE_TASK_TIMEOUT_SECONDS` | `900`，最少 `180` | 否 | 重启 | 单次抓取超时 |
+| `COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS` | `5000`，最少 `1000` | 否 | 重启 | 课程页面动作后的网络空闲等待上限；超时后继续按页面状态判断 |
+| `SCRAPE_CAPTURE_DIAGNOSTICS` | `false` | 否 | 重启 | 是否在正常抓取轮次保存课程页诊断截图；失败时仍按错误路径保存必要资料 |
 | `AUTO_ENROLL_FAILURE_LIMIT` | `3`，最少 `1` | 否 | 重启 | 自动选课当天累计失败达到阈值后暂停后续尝试 |
 | `NOTIFICATION_DRAIN_SECONDS` | `30`，限制为 `10..300` | 否 | 重启 | 持久化通知任务恢复/投递扫描间隔 |
 

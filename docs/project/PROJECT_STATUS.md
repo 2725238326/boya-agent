@@ -2,14 +2,14 @@
 
 文档用途：回答“当前项目是什么、哪些能力可用、哪些风险未确认”。
 面向读者：项目负责人、开发者、运维人员和评审者。
-文档状态：当前状态主文档；更新时间：2026-09-04。
+文档状态：当前状态主文档；更新时间：2026-09-07。
 
-判定范围：仓库代码、配置样例、部署样例、测试文件，以及 2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果。
+判定范围：仓库代码、配置样例、部署样例、测试文件，2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果，以及 2026-09-07 的新版本候选改动。候选改动尚未部署。
 重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。本轮主 SMTP 出现超时但回退/重试完成，Telegram 仍关闭，长期通知稳定性和真实收件结果仍需持续观察。
 
 ## 一句话结论
 
-项目是一个单进程轻量服务：抓取北航博雅课程，写入 SQLite，按统一课程状态和用户偏好推送到邮件/Telegram，并提供公开课程页、订阅页、用户门户、二维码共享页和管理员后台。认证、管理员边界、二维码隐私、时间/课程状态、运行权限、网页首屏性能、后台查询性能和“当前无课”空状态已完成一轮收口；`buaaboya.top` 的 HTTPS、健康检查、管理边界和非 root 服务已在生产主机实测通过。
+项目是一个单进程轻量服务：抓取北航博雅课程，写入 SQLite，按统一课程状态和用户偏好推送到邮件/Telegram，并提供公开课程页、订阅页、用户门户、二维码共享页和管理员后台。认证、管理员边界、二维码隐私、时间/课程状态、运行权限、网页首屏性能、后台查询性能和“当前无课”空状态已经完成一轮针对性改进；`buaaboya.top` 的 HTTPS、健康检查、管理边界和非 root 服务已在生产主机实测通过。
 
 ## 当前能力矩阵
 
@@ -24,7 +24,7 @@
 | RSS/Atom | 已实现，受 `rss_enabled` 控制 | `src/push/rss_feed.py`、`web/app.py` |
 | 二维码上传、审核、过期访问控制、贡献榜 | 基础版已实现 | `src/qrcode_service.py`、`web/qrcode_feature.py` |
 | 管理后台和管理 API | 已实现，应用层和 Nginx 双层保护 | `web/security.py`、`deploy/nginx_boya.conf` |
-| TypeScript 7 前端检查 | 已接入，渐进式检查，当前不改变运行时加载 | `package.json`、`tsconfig.json`、`scripts/check-js.mjs` |
+| TypeScript 7 前端检查 | 已接入，渐进式检查，当前不改变运行时加载；首页、二维码、持久登录和订阅桥接脚本已纳入 | `package.json`、`tsconfig.json`、`scripts/check-js.mjs` |
 | 邮件课程推送 | 已实现，默认关闭 | `FilterConfig.email_enabled` |
 | SQLite 通知投递任务 | 部分实现，课程推送已接入 | `src/models.py`、`src/notification_jobs.py` |
 | Telegram 课程/摘要/提醒/告警 | 已实现，默认关闭 | `src/push/telegram_bot.py`、`src/scheduler.py` |
@@ -43,7 +43,7 @@
 - 邮件、Telegram、每日摘要、选课提醒和自动选课结果按数据库中的通道开关执行。
 - systemd 改用专用低权限用户；Nginx 示例增加 HTTP 到 HTTPS 跳转、TLS server 和遗漏管理接口的鉴权。
 - 删除旧的无条件登录邮件实现，前端不再把登录 token 放入 `localStorage`。
-- 接入 TypeScript 7.0.2；先对桥接登录脚本启用 `checkJs`，使用 `npm run check` 统一执行 JS 语法和类型检查。
+- 接入 TypeScript 7.0.2；对首页、二维码、持久登录和订阅桥接脚本启用 `checkJs`，使用 `npm run check` 统一执行 JS 语法和类型检查。
 - 增加公开 `/healthz` 探活端点，并让 CI、部署脚本和 Nginx 使用它；详细 `/api/status` 继续保持管理员边界。
 - 自动选课增加按业务日累计失败次数的持久化熔断；`confirm_before_enroll` 仍只是提醒，不是阻断式人工审批。
 - 门户首屏移除重复课程请求，通知和完整提醒改为按页签懒加载；课程筛选加入请求取消和旧结果保护。
@@ -83,7 +83,7 @@
 
 ## 下一阶段
 
-下一阶段按 [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) 执行，先处理 P0 正确性和可控性，再推进 P1 可靠性、性能和用户体验，最后处理 P2 结构与文档整理。
+下一阶段按 [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) 和 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md) 执行，先完成候选版本的自动化检查、页面检查和 Git 核对，再决定生产发布窗口。
 
 1. 固定本地和 CI 的完整测试环境，真实记录未运行的检查。
 2. 建立模拟课程、无课、登录失效、解析失败、通知失败和重复投递样例。
@@ -92,15 +92,29 @@
 
 本阶段改进和部署汇报按照 [REPORTING_STANDARD.md](REPORTING_STANDARD.md) 执行，用户可见文字按照根目录的 [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../../PLAIN_LANGUAGE_REVIEW_PROMPT.md) 审阅。
 
+## 当前候选版本（2026-09-07）
+
+- 功能分支继续使用 `codex/ts7-and-hardening`；本批代码、测试、文档和 CI 改动尚未部署到生产。
+- 抓取器将课程行或明确空状态作为主要等待条件，减少固定时长等待；正常轮次默认不保存诊断截图，并记录最近一次抓取耗时。
+- 门户请求增加超时、取消和重复初始化合并；课程列表、刷新按钮和页签增加状态反馈、可访问性语义和窄屏样式支持。
+- 根目录旧审计快照已移入 `docs/archive/legacy/`；新增 `scripts/verify_release.py` 作为统一发布候选版本验证入口。
+- TypeScript 7 检查范围扩展到首页、二维码、持久登录和订阅桥接脚本；门户和管理台脚本暂不一次性改写。
+
+## 候选版本自动化验证（2026-09-07）
+
+- `D:\Anaconda\python.exe scripts/verify_release.py`：`66 passed, 1 skipped`；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和 `git diff --check HEAD` 均通过。
+- 本地工作树仍包含本批待提交改动，因此尚未执行 `--require-clean`；提交拆分完成后再次运行该参数。
+- 本批改动未部署到服务器，生产服务继续运行上一轮已记录版本；邮件、Telegram 和自动选课配置未作变更。
+
 ## 当前推进（2026-09-04）
 
 - 抓取器新增结构化结果契约，区分正常有课、正常无课、登录失效、上游不可用、解析失败和超时。
 - 调度器已消费结构化结果；失败结果不会进入课程落库流程，并会记录 `last_scrape_status`。
 - 保留旧的 `scrape_courses()` 列表接口，便于后续按批次迁移调用方。
 - 课程邮件和课程 Telegram 推送已接入 SQLite outbox，支持幂等创建、处理租约、指数退避和定时恢复；提醒及每日汇总路径暂未迁移。
-- 本地已完成 65 项测试、1 项跳过、Python 编译检查、前端 `npm run check` 和差异检查；本批已部署到服务器并完成线上复核。
+- 本地已完成 65 项测试、1 项跳过、Python 编译检查、前端 `npm run check` 和差异检查；上述记录对应 2026-09-04 的已部署版本，不包含 2026-09-07 候选改动。
 
-## 本轮部署观察
+## 上一轮生产部署观察
 
 - Git（本轮部署，2026-09-04）：本地、GitHub `codex/ts7-and-hardening` 和服务器当前分支已核对无差异，本地分支 ahead/behind 为 `0/0`，服务器工作树 clean；应用提交为 `2eb1e2a`，服务器 deploy key 仅保留拉取权限，生产推送使用已授权的 HTTPS Git 凭据完成，详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 - 生产主进程于 `21:32:46 CST` 重启后保持 active；本机和 `https://buaaboya.top/healthz` 返回 200；主页、订阅页、门户、课程/类别接口和 RSS 返回 200；未授权 `/api/status` 返回 401；HTTP 正确跳转 HTTPS。
