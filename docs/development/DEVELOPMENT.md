@@ -19,7 +19,7 @@ web/templates/          服务端模板
 web/static/             无构建步骤的原生 JavaScript/CSS
 config/                 配置样例和运行时目录
 deploy/                 Nginx、systemd 和部署脚本
-scripts/                前端检查和本地邮件预览工具
+scripts/                前端检查、发布验证和本地邮件预览工具
 tests/                  回归、安全、状态、RSS 和二维码测试
 docs/                   当前文档、ADR 和历史资料索引
 ```
@@ -44,7 +44,7 @@ python scripts/preview_email.py
 
 ## TypeScript 7 渐进式检查
 
-仓库通过 `package.json` 固定 TypeScript `7.0.2`，并提交 `package-lock.json`。当前不引入 Vite/Webpack，也不改变浏览器加载方式；`tsconfig.json` 使用 `noEmit`，先对 `web/static/subscribe_bridge.js` 开启 `checkJs` 作为迁移样板。后续每扩大一批检查范围，都应先修复类型问题并运行完整前端检查。
+仓库通过 `package.json` 固定 TypeScript `7.0.2`，并提交 `package-lock.json`。当前不引入 Vite/Webpack，也不改变浏览器加载方式；`tsconfig.json` 使用 `noEmit`，目前对首页、持久登录、二维码和订阅桥接脚本开启 `checkJs`。门户和管理台脚本继续分批纳入，避免一次性类型改写掩盖行为风险。后续每扩大一批检查范围，都应先修复类型问题并运行完整前端检查。
 
 ```bash
 npm ci
@@ -80,6 +80,12 @@ playwright install chromium
 ```bash
 python -m compileall -q src web tests
 python -m pytest -q
+```
+
+发布候选版本使用统一验证入口。它会依次运行 Python 编译检查、全量测试、前端检查和 Git 差异检查；`--require-clean` 会同时要求工作树没有未提交或未跟踪文件。
+
+```bash
+python scripts/verify_release.py --require-clean
 ```
 
 检查所有静态 JavaScript：
@@ -138,4 +144,4 @@ npm run check
 - 新测试覆盖权限、过期、重复使用、无数据和异常路径。
 - 文案仍面向普通用户，内部状态名只出现在工程文档或技术响应中。
 - 当前事实、配置和部署变化已更新对应权威文档；历史文档只加替代链接，不复制新的默认值。
-- 发布后补记目标主机、域名、分支、提交、迁移、服务状态、健康检查、关键 API、外部通道开关和回滚方式；健康检查通过不等于真实课程或外部通知已演练。
+- 发布后补记目标主机、域名、分支、提交、迁移、服务状态、健康检查、关键 API、外部通道开关和回退方式；健康检查通过不等于真实课程或外部通知已演练。

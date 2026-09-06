@@ -43,6 +43,7 @@ deploy/
   admin_access.md       `/admin` 接入说明
 scripts/
   check-js.mjs          前端语法检查
+  verify_release.py     发布候选版本验证入口
   preview_email.py      本地邮件样式预览工具
 docs/                   当前状态、架构、安全、配置、部署和历史资料
   archive/              已替代的历史讨论和邮件预览
@@ -89,6 +90,12 @@ python src/main.py
 ```bash
 npm ci
 npm run check
+```
+
+准备发布候选版本时运行：
+
+```bash
+python scripts/verify_release.py --require-clean
 ```
 
 本地访问：
