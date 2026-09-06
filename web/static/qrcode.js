@@ -47,7 +47,10 @@ async function qrcodeApi(url, options = {}) {
         }
         return data;
     } catch (err) {
-        return { success: false, error: err.message || "网络请求失败" };
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : "网络请求失败",
+        };
     }
 }
 
@@ -74,7 +77,7 @@ function updateContributorStats(data = {}) {
     }
 
     const emailInput = document.getElementById("qrcodeEmail");
-    if (email && emailInput && !emailInput.value) {
+    if (email && emailInput instanceof HTMLInputElement && !emailInput.value) {
         emailInput.value = email;
     }
 }
@@ -113,6 +116,7 @@ function openQrcodePreview(imageUrl, title) {
     const image = document.getElementById("qrcodePreviewImage");
     const titleEl = document.getElementById("qrcodePreviewTitle");
     if (!root || !image || !titleEl) return;
+    if (!(image instanceof HTMLImageElement) || !(titleEl instanceof HTMLElement)) return;
     image.src = imageUrl;
     titleEl.textContent = title || "二维码预览";
     root.hidden = false;
@@ -124,6 +128,7 @@ function closeQrcodePreview() {
     const image = document.getElementById("qrcodePreviewImage");
     if (!root || !image) return;
     root.hidden = true;
+    if (!(image instanceof HTMLImageElement)) return;
     image.src = "";
     document.body.classList.remove("qrcode-preview-open");
 }
@@ -166,7 +171,9 @@ function renderUploads(items) {
         `;
     }).join("");
 
-    container.querySelectorAll(".qrcode-card-image").forEach((button) => {
+    /** @type {NodeListOf<HTMLButtonElement>} */
+    const imageButtons = container.querySelectorAll(".qrcode-card-image");
+    imageButtons.forEach((button) => {
         button.addEventListener("click", () => {
             openQrcodePreview(button.dataset.imageUrl || "", button.dataset.title || "");
         });
@@ -202,7 +209,7 @@ async function submitQrcodeForm(event) {
 
     const form = event.currentTarget;
     const submitButton = document.getElementById("qrcodeSubmitButton");
-    if (submitButton) {
+    if (submitButton instanceof HTMLButtonElement) {
         submitButton.disabled = true;
         submitButton.textContent = "上传中...";
     }
@@ -234,7 +241,7 @@ async function submitQrcodeForm(event) {
         setQrcodeStatus(result.error || "上传失败，请稍后重试", "error");
     }
 
-    if (submitButton) {
+    if (submitButton instanceof HTMLButtonElement) {
         submitButton.disabled = false;
         submitButton.textContent = "上传二维码";
     }

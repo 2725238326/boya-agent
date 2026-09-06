@@ -12,6 +12,9 @@
     "noImplicitAny": false
   },
   "include": [
+    "web/static/home.js",
+    "web/static/persistent_login.js",
+    "web/static/qrcode.js",
     "web/static/subscribe_bridge.js",
     "web/static/global.d.ts"
   ]

@@ -21,6 +21,9 @@ async function loadHomeInsights() {
     const nextNameEl = document.getElementById('nextEnrollName');
     const nextHintEl = document.getElementById('nextEnrollHint');
     const generatedAtEl = document.getElementById('homeGeneratedAt');
+    if (!availableEl || !activeEl || !nextNameEl || !nextHintEl || !generatedAtEl) {
+        return;
+    }
 
     try {
         const data = await fetchJson('/api/public/insights');
@@ -46,7 +49,7 @@ async function loadHomeInsights() {
 
 async function loadHomeSession() {
     const portalBtn = document.getElementById('portalEntryBtn');
-    if (!portalBtn) return;
+    if (!(portalBtn instanceof HTMLAnchorElement)) return;
 
     try {
         const data = await fetchJson('/api/subscriber/session');
