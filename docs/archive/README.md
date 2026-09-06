@@ -12,7 +12,7 @@
 | [`legacy/now.md`](legacy/now.md) | [项目状态](../project/PROJECT_STATUS.md) |
 | [`legacy/BUSINESS_ROADMAP.md`](legacy/BUSINESS_ROADMAP.md) | [项目状态](../project/PROJECT_STATUS.md)；未来事项仍需逐项确认 |
 | [`legacy/change-3-07.md`](legacy/change-3-07.md) | [ADR](../decisions/)、[用户行为](../product/PRODUCT_BEHAVIOR.md) |
-| `PROJECT_OVERVIEW.md` | 工作区中的重构前静态审计快照；当前事实以 `docs/` 为准 |
+| [`legacy/PROJECT_OVERVIEW.md`](legacy/PROJECT_OVERVIEW.md) | 重构前静态审计快照；当前事实以 `docs/` 为准 |
 | `deploy/admin_access.md` | [生产部署](../operations/DEPLOYMENT.md)；该文件只保留接入补充说明 |
 | [`email-previews/`](email-previews/) | 邮件样式静态预览；真实邮件以 `src/push/email_push.py` 为准 |
 | [`../../scripts/preview_email.py`](../../scripts/preview_email.py) | 本地邮件预览工具；运行前先安装开发依赖 |
