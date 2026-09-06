@@ -156,10 +156,10 @@
 
 本体系参考并按本项目规模进行了裁剪：
 
-- Google SRE：从用户关心的服务指标定义 SLI/SLO，并用错误预算辅助发布决策；
-- Google Engineering Practices：保持变更自包含、可审阅、带测试，并把大型工作拆成多个独立变更；
-- AWS Well-Architected Operational Excellence：使用运行准备检查、运行手册、可观测性和小而可回退的变更；
-- GitHub Actions：用环境、分支限制和保护规则约束生产发布；
-- Playwright：优先使用稳定的用户可见定位和自动等待，诊断产物按需保存并保护敏感信息。
+- [Google SRE：Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)：从用户关心的服务指标定义 SLI/SLO，并用错误预算辅助发布决策；
+- [Google Engineering Practices：Small CLs](https://google.github.io/eng-practices/review/developer/small-cls.html)：保持变更自包含、可审阅、带测试，并把大型工作拆成多个独立变更；
+- [AWS Well-Architected：Operational Readiness](https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/operational-readiness.html)：使用运行准备检查、运行手册、可观测性和小而可回退的变更；
+- [GitHub Actions：Deployment Environments](https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments)：用环境、分支限制和保护规则约束生产发布；
+- [Playwright：Actionability](https://playwright.dev/python/docs/actionability) 与 [Locators](https://playwright.dev/python/docs/locators)：优先使用稳定的用户可见定位和自动等待，诊断产物按需保存并保护敏感信息。
 
 这些原则不构成引入 Kubernetes、Redis、消息队列或多实例部署的理由。基础设施变化必须另行证明收益、成本、迁移和回退条件。
