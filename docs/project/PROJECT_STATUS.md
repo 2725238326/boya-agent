@@ -5,7 +5,7 @@
 文档状态：当前状态主文档；更新时间：2026-09-07。
 
 判定范围：仓库代码、配置样例、部署样例、测试文件，2026-09-02 至 2026-09-04 对生产主机的部署、真实课程抓取和通知观察结果，以及 2026-09-07 完成的版本发布和线上核对。当前生产运行代码为 `main@92e53b2`；服务器仓库随后可同步文档提交，但不因此改变运行代码。
-重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。本轮主 SMTP 出现超时但回退/重试完成，Telegram 仍关闭，长期通知稳定性和真实收件结果仍需持续观察。
+重要限制：本地 `boya_agent.db` 是 0 字节空文件；生产数据库、凭据和上传文件不进入仓库。本轮主 SMTP 曾出现超时但回退/重试完成，当前生产已暂停邮件自动投递，Telegram 仍关闭，长期通知稳定性和真实收件结果仍需持续观察。登录验证、管理员测试邮件和手动推送是独立路径，测试期间不调用。
 
 ## 一句话结论
 
@@ -88,7 +88,7 @@
 1. 固定本地和 CI 的完整测试环境，真实记录未运行的检查。
 2. 建立模拟课程、无课、登录失效、解析失败、通知失败和重复投递样例。
 3. 扩展通知 outbox 到提醒、每日汇总和管理端通知，再逐步拆分 Playwright、调度器、后端路由和门户前端。
-4. 每个阶段通过测试后再部署；代码样例默认关闭邮件、Telegram 和自动选课，但当前生产 `FilterConfig` 实际为邮件和每日摘要开启、Telegram 与自动选课关闭，后续变更前必须核对现场开关。
+4. 每个阶段通过测试后再部署；代码样例默认关闭邮件、Telegram 和自动选课，当前生产 `FilterConfig` 为邮件和每日摘要关闭、Telegram 与自动选课关闭，后续变更前必须核对现场开关。
 
 本阶段改进和部署汇报按照 [REPORTING_STANDARD.md](REPORTING_STANDARD.md) 执行，用户可见文字按照根目录的 [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../../PLAIN_LANGUAGE_REVIEW_PROMPT.md) 审阅。
 
@@ -114,6 +114,13 @@
 - `D:\Anaconda\python.exe scripts/verify_release.py`：`66 passed, 1 skipped`；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和 `git diff --check HEAD` 均通过。
 - `D:\Anaconda\python.exe scripts/verify_release.py --require-clean`：已通过；工作树无未提交或未跟踪文件。
 - 生产发布期间邮件投递暂时抑制，完成后恢复原开关；邮件、Telegram 和自动选课的业务配置未修改。
+
+## 当前测试期生产配置（2026-09-08）
+
+- `email_enabled=0`、`daily_summary_enabled=0`、`telegram_enabled=0`、`auto_enroll_enabled=0`。
+- 已生成备份 `/var/lib/boya-agent/backups/boya_agent-email-paused-20260908-024504.db`，修改后 SQLite 完整性未受影响；服务未重启，`boya-agent` 仍为 active。
+- 6079 条历史邮件通知任务均为 `succeeded`，没有待处理邮件任务；未发送选课提醒数量为 0。
+- 当前开关可以阻止调度器的自动邮件路径，但不能替代底层 SMTP 总开关；邮箱验证/登录、管理员测试邮件、手动推送和站点通知在代码层仍需避免调用，最终版前要补上统一保护。
 
 ## 历史实施记录（2026-09-04）
 

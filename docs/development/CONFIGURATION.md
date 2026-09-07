@@ -5,7 +5,7 @@
 文档状态：当前配置事实；更新时间：2026-09-07。
 来源优先级：启动/运行代码和数据库模型 > `config/.env.example` > `config/default_config.json` > 历史文档。
 
-当前生产边界（不含凭据）：公网基址为 `https://buaaboya.top`，数据库为 `/var/lib/boya-agent/data/boya_agent.db`，服务名为 `boya-agent`。业务开关以生产数据库 `filter_config` 为准；最近一次核对为邮件开启、Telegram 关闭、自动选课关闭。需要改变这些开关时，先记录旧值，再按 [DEPLOYMENT.md](../operations/DEPLOYMENT.md) 和 [RUNBOOK.md](../operations/RUNBOOK.md) 验证。
+当前生产边界（不含凭据）：公网基址为 `https://buaaboya.top`，数据库为 `/var/lib/boya-agent/data/boya_agent.db`，服务名为 `boya-agent`。业务开关以生产数据库 `filter_config` 为准；2026-09-08 起邮件自动课程通知和每日摘要已关闭，Telegram 和自动选课也关闭。需要改变这些开关时，先记录旧值，再按 [DEPLOYMENT.md](../operations/DEPLOYMENT.md) 和 [RUNBOOK.md](../operations/RUNBOOK.md) 验证。
 
 ## 两类配置
 

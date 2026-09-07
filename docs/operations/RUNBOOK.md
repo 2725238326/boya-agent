@@ -16,6 +16,12 @@ sudo systemctl status nginx --no-pager
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## 当前测试期的外部通知策略
+
+2026-09-08 起，生产数据库中的 `email_enabled` 和 `daily_summary_enabled` 均为 `0`，Telegram 和自动选课也为关闭状态。自动课程通知、每日摘要、选课提醒和自动选课结果邮件不会由调度器发送。测试期间不要调用邮箱验证/登录、管理员测试邮件、手动推送或站点调整通知接口；这些路径仍是独立的 SMTP 调用路径，最终版上线前必须增加邮件总开关并逐一验证。
+
+暂停配置前已生成数据库备份：`/var/lib/boya-agent/backups/boya_agent-email-paused-20260908-024504.db`。恢复邮件前先得到明确授权，记录旧值和启用范围，再按 [FINAL_RELEASE_PLAN.md](../project/FINAL_RELEASE_PLAN.md) 做检查。
+
 ## 常规更新后的最低检查集
 
 每次代码更新后记录以下信息，不以“服务能启动”代替完整验收：

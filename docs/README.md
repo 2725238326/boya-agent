@@ -25,6 +25,7 @@
 | 项目改进工作提示词 | [PROJECT_IMPROVEMENT_PROMPT.md](development/PROJECT_IMPROVEMENT_PROMPT.md) |
 | 改进清单和验收目标 | [IMPROVEMENT_BACKLOG.md](project/IMPROVEMENT_BACKLOG.md) |
 | 工程与发布体系 | [ENGINEERING_SYSTEM.md](project/ENGINEERING_SYSTEM.md) |
+| 最终新版上线计划 | [FINAL_RELEASE_PLAN.md](project/FINAL_RELEASE_PLAN.md) |
 | 新版本候选说明 | [RELEASE_CANDIDATE.md](project/RELEASE_CANDIDATE.md) |
 | 进度、测试和部署汇报标准 | [REPORTING_STANDARD.md](project/REPORTING_STANDARD.md) |
 | 发布与部署记录 | [RELEASE_NOTES.md](project/RELEASE_NOTES.md) |
@@ -34,6 +35,7 @@
 
 - 本地安装和启动：先看 [README.md](../README.md) 与 [DEVELOPMENT.md](development/DEVELOPMENT.md)。
 - 生产上线：先看 [DEPLOYMENT.md](operations/DEPLOYMENT.md)，再按 [RUNBOOK.md](operations/RUNBOOK.md) 做上线后检查。
+- 准备最终新版：按 [FINAL_RELEASE_PLAN.md](project/FINAL_RELEASE_PLAN.md) 顺序执行，邮件恢复必须单独评审。
 - 当前生产实例：`https://buaaboya.top`；应用版本、运行事实和剩余风险见 [PROJECT_STATUS.md](project/PROJECT_STATUS.md)。
 - 常规更新：运行代码、生产依赖或配置样例变更先通过本地/CI 验收，再形成 Git 提交；`main/master` 中命中部署路径的提交会触发生产工作流。单纯文档或工作流调整不会自动重启应用，工作流调整需要显式手动运行。功能分支不进入生产。
 - 修改环境变量：只按 [CONFIGURATION.md](development/CONFIGURATION.md) 操作，不从历史文档复制默认值。
