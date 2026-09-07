@@ -2,7 +2,7 @@
 
 文档用途：说明本地开发、验证和扩展项目的最短路径。
 面向读者：贡献代码的开发者。
-文档状态：当前开发说明；更新时间：2026-09-04。
+文档状态：当前开发说明；更新时间：2026-09-07。
 相关事实：[项目状态](../project/PROJECT_STATUS.md)、[配置](CONFIGURATION.md)、[API 清单](API_INVENTORY.md)。
 
 ## 目录职责
@@ -87,6 +87,8 @@ python -m pytest -q
 ```bash
 python scripts/verify_release.py --require-clean
 ```
+
+生产发布只从 `main` 或 `master` 进行。当前工作流只对运行代码、生产依赖和配置目录中的相关变更自动启动；文档或工作流本身的修改不会重启服务。若修改工作流，先在 GitHub Actions 中手动运行对应工作流，再把结果写入发布记录。
 
 检查所有静态 JavaScript：
 

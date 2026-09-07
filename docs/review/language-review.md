@@ -1,8 +1,10 @@
 # 清晰表达审阅记录
 
+文档状态：当前语言审阅记录；更新时间：2026-09-07。
+
 ## 受众和阅读任务
 
-本次审阅覆盖 README、当前 docs、用户页面模板、前端提示和邮件正文，读者包括普通订阅用户、管理员、开发者和运维人员。普通用户需要知道如何订阅、登录、提醒和暂停；工程读者需要知道实际接口、配置、权限和未决风险。
+本次审阅覆盖 README、当前 docs、用户页面模板、前端提示和邮件正文，更新时间为 2026-09-07。读者包括普通订阅用户、管理员、开发者和运维人员。普通用户需要知道如何订阅、登录、提醒和暂停；工程读者需要知道实际接口、配置、权限和未决风险。
 
 ## 术语问题表
 
@@ -42,12 +44,12 @@
 - 未改变管理员范围：应用层认证和 Nginx 认证都保留；完整 `/api/status` 现在明确归入管理员边界。
 - 未把 RSS 开关描述成邮件推送开关；它只控制 `/rss` 和 `/atom` 的公开读取。
 - 未把二维码上传描述成自动公开；公开仍取决于审核、active 状态和课程有效期。
-- 未把跨重启 Playwright 会话描述成已实现；生产行为仍待确认。
-- 未更改未知的生产域名、证书位置、SMTP、Telegram 或 WebVPN 配置；样例值均标明需替换。
+- 未把跨重启 Playwright 会话描述成已实现；当前仍只保证进程内复用。
+- 未更改 SMTP、Telegram 或 WebVPN 配置；生产域名 `https://buaaboya.top` 已在本批核对，样例值仍标明需替换。
 
 ## 未解决问题
 
-1. 生产证书、Nginx 实际配置、SMTP/Telegram 可达性和北航登录行为需要现场验证。
+1. 生产证书、Nginx 实际配置和北航登录行为已在 2026-09-07 的线上核对中通过；SMTP/Telegram 的长期可达性和真实课程周期仍需观察，相关配置变更后要重新检查。
 2. 邮件退订、暂停和提醒仍使用长期操作 token；需要产品确认是否接受改为短期确认票据。
 3. 是否需要跨进程/多实例限流，以及是否需要跨重启保存 Playwright storage state，当前未作决定。
 4. 普通用户是否需要二维码举报入口，当前未提供。
@@ -62,7 +64,7 @@
 | Python 语法 | `python -m compileall -q src web tests` | 通过 |
 | JavaScript 语法 | 对 `web/` 下 6 个 `.js` 文件逐一执行 `node --check` | 通过 |
 | TypeScript 7 前端检查 | `npm run check` | 6 个 JavaScript 文件语法检查通过，首个 `checkJs` 样板通过 |
-| 自动化测试 | `D:\\Anaconda\\python.exe -m pytest -q tests/test_qrcode_feature.py tests/test_course_state.py tests/test_rss_feed.py tests/test_enroll_safety.py` | `12 passed, 1 skipped`；调度回归另有 `23 passed`，依赖缺失导致的 Web/完整 pytest 收集问题见项目状态 |
+| 自动化测试 | `D:\\Anaconda\\python.exe scripts/verify_release.py` | `66 passed, 1 skipped`；Python 编译、JavaScript 语法、TypeScript 7 类型和差异检查通过 |
 | 完整测试收集 | `python -m pytest -q` | 未通过收集：4 个测试模块因当前环境缺少 `sqlalchemy` 或 `playwright` 报 `ModuleNotFoundError`；没有伪造通过结果 |
 | 差异格式 | `git diff --check` | 通过；Git 仅提示工作区换行风格，不是空白错误 |
-| 真实生产流程 | 当前工作区无生产服务器和外部凭据 | 未运行，列为待确认 |
+| 真实生产流程 | 生产工作流 `34050088901`、服务器日志、公开网址和管理员边界核对 | 已运行：服务 active，公开页面/API 可用，HTTP 跳转 HTTPS，未授权 `/api/status` 返回 401；当前课程周期没有可选课程，真实课程效果仍待观察 |

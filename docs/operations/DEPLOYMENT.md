@@ -120,7 +120,7 @@ curl -i https://你的域名/api/courses
 
 应确认：HTTP 跳转到 HTTPS；`/healthz` 返回 `200` 和 `status=ok`；未认证的后台状态返回 401；认证后的后台状态返回 JSON；课程页和订阅页可访问；响应包含 `HttpOnly`/`Secure` 会话 Cookie（由 HTTPS 下的验证或登录接口产生）；Nginx 日志中没有把 `.env`、上传目录或数据库暴露为静态文件。
 
-本项目在 2026-09-02 已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。
+历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次核对见 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md)。
 
 ## 更新原则
 
@@ -138,6 +138,6 @@ curl -i https://你的域名/api/courses
 4. 部署脚本会先生成 SQLite 一致性备份，安装生产依赖并运行 Python 编译检查；重启 `boya-agent` 后检查本机 `/healthz`、`APP_PUBLIC_BASE_URL` 下的关键页面/API、首次抓取完成日志和数据库完整性。启动期间邮件投递暂时抑制，检查完成后恢复原开关。上线后仍要按 [RUNBOOK.md](RUNBOOK.md) 检查关键页面/API，并记录实际提交。
 5. 本项目的 `init_db()` 迁移是增量、幂等和保留旧字段的；本批新增 `notification_jobs` 表及索引。上线后应确认表和索引存在，但不要把“迁移成功”写成“外部邮件/Telegram 已送达”。
 
-统一的候选版本范围、用户场景、生产发布准入条件和回退依据见 [RELEASE_CANDIDATE.md](../project/RELEASE_CANDIDATE.md)。
+统一的候选版本范围、用户场景、上线前检查项和回退依据见 [RELEASE_CANDIDATE.md](../project/RELEASE_CANDIDATE.md)。
 
 回滚优先通过 Git 生成已审阅的 revert 提交，再按同一发布流程上线；紧急情况下只使用已确认的旧提交临时恢复代码，并保留数据库和 outbox 记录，恢复后补齐正式 Git 记录。每次发布都应在项目状态文档中区分“已完成、已验证、已部署、待验证”。

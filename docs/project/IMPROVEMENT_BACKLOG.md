@@ -79,4 +79,4 @@
 5. 根据运行数据决定是否扩展 TypeScript 7 检查范围、拆分模块或优化详情抓取；
 6. 邮件专项工作按既定安排另行推进，不与本批部署记录混在一起。
 
-候选版本的准入条件、用户场景和回退依据见 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md)。
+本版本的上线前检查项、用户场景和回退依据见 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md)。
