@@ -32,6 +32,8 @@
 
 ## 公开课程、订阅和认证接口
 
+`GET /api/courses` 的 `source` 和 `GET /api/public/insights` 的 `data.source` 仅包含 `last_success`（最近成功采集时间或 null）、`refreshing`、`degraded`。不返回采集异常原文、凭据或其他运行状态。日期沿用业务时区；当前生产为北京时间。时间未知时前端不得用请求时间替代。课程列表仍最多返回 200 条，首页本地筛选仅针对本次返回的数据。
+
 | 方法 | 路径 | 用途 | 访问 / 是否改状态 | 敏感性、CSRF 和限流 |
 | --- | --- | --- | --- | --- |
 | GET | `/api/courses` | 课程列表；支持类别、校区、关键词、余量、今日新课等筛选 | 公开；只读 | 课程数据公开；`include_expired` 可显式请求旧课程；无 Cookie CSRF；前端应处理失败响应 |
