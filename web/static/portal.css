@@ -2226,7 +2226,8 @@ body.portal-body {
         padding: 14px 16px;
     }
 
-    .portal-course-grid {
+    .portal-course-grid,
+    .portal-full-grid {
         grid-template-columns: 1fr;
         gap: 12px;
         margin-bottom: 24px;

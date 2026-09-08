@@ -72,7 +72,9 @@ def main():
                         page.keyboard.press("Enter")
                         expect(page.locator("#fullCoursesGrid")).to_be_visible()
                         expect(toggle).to_have_attribute("aria-expanded", "true")
-                        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "full-course overflow"
+                        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), page.evaluate(
+                            "Array.from(document.querySelectorAll('body *')).filter(el => el.getBoundingClientRect().right > innerWidth).map(el => [el.className, el.getBoundingClientRect().width])"
+                        )
                         page.keyboard.press("Space")
                         expect(page.locator("#fullCoursesGrid")).to_be_hidden()
                         failed = True
