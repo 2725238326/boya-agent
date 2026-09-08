@@ -1,6 +1,7 @@
 # Environment
 .env
 venv/
+.venv/
 node_modules/
 .tsbuildinfo
 __pycache__/

@@ -352,7 +352,8 @@ async function loadPortalDataOnce() {
             window.location.href = '/subscribe';
             return;
         }
-        showPortalToast(sessionRes.error || '加载门户数据失败', 'error');
+        switchPortalTab('courses');
+        renderCourseLoadError('登录状态暂不可用，请重新加载。');
         return;
     }
     portalState.subscriber = sessionRes.data;
@@ -430,6 +431,8 @@ function initTabs() {
 }
 
 function switchPortalTab(tabName) {
+    const validTabs = ['courses', 'notifications', 'manage'];
+    if (!validTabs.includes(tabName)) tabName = 'courses';
     document.querySelectorAll('.portal-tab').forEach(t => {
         t.classList.remove('active');
         t.setAttribute('aria-selected', 'false');
@@ -478,6 +481,7 @@ function clearPortalCourseFilters() {
 function renderCourseLoadError(message = '') {
     const grid = document.getElementById('courseGrid');
     if (!grid) return;
+    document.getElementById('fullCoursesSection')?.remove();
     setCourseGridBusy(false);
     const hint = message || '网络或服务暂时不可用，请稍后重试。';
     grid.innerHTML = `
@@ -546,7 +550,7 @@ function renderCourses(courses) {
         html += `<div class="portal-empty" style="grid-column:1/-1;">
             <div class="portal-empty-icon">\ud83c\udf89</div>
             <div class="portal-empty-text">\u6240\u6709\u8bfe\u7a0b\u90fd\u5df2\u6ee1\u5458</div>
-            <div class="portal-empty-hint">\u6709\u8e72\u9000\u540d\u989d\u65f6\uff0c\u7cfb\u7edf\u4f1a\u7b2c\u4e00\u65f6\u95f4\u901a\u77e5\u4f60</div>
+            <div class="portal-empty-hint">可展开查看课程，名额以官方选课页为准。</div>
         </div>`;
     }
 
@@ -564,12 +568,12 @@ function renderCourses(courses) {
             grid.parentNode.insertBefore(fullSection, grid.nextSibling);
         }
         fullSection.innerHTML = `
-            <div class="portal-full-toggle" onclick="toggleFullCourses()">
+            <button type="button" class="portal-full-toggle" aria-expanded="false" aria-controls="fullCoursesGrid" onclick="toggleFullCourses()">
                 <span class="portal-full-toggle-icon" id="fullToggleIcon">\u25bc</span>
                 <span>\u5df2\u6ee1\u8bfe\u7a0b</span>
                 <span class="portal-full-count">${full.length}</span>
-                <span class="portal-full-hint">\u6709\u8e72\u9000\u65f6\u7cfb\u7edf\u4f1a\u7acb\u5373\u901a\u77e5\u4f60</span>
-            </div>
+                <span class="portal-full-hint">展开查看课程详情</span>
+            </button>
             <div class="portal-full-grid" id="fullCoursesGrid" style="display:none;">
                 ${full.map(c => renderCourseCard(c, true)).join('')}
             </div>`;
@@ -584,6 +588,7 @@ function toggleFullCourses() {
     if (!grid) return;
     const isHidden = grid.style.display === 'none';
     grid.style.display = isHidden ? 'grid' : 'none';
+    document.querySelector('.portal-full-toggle')?.setAttribute('aria-expanded', String(isHidden));
     icon.textContent = isHidden ? '\u25b2' : '\u25bc';
 }
 

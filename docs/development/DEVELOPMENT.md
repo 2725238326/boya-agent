@@ -1,5 +1,11 @@
 # 开发与测试
 
+## Windows 隔离测试环境
+
+与 CI 一样使用 Python 3.12。首次执行 `py -3.12 -m venv .venv`，然后执行 `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`。日常验证使用 `.venv\Scripts\python.exe scripts/verify_release.py`，不依赖系统默认 Python 或 Anaconda；`.venv/` 不提交到 Git。
+
+浏览器检查前在该环境运行 `python -m playwright install chromium`。依赖文件目前仍使用版本下限，没有完整锁定传递依赖；隔离环境不等于依赖锁定。
+
 门户浏览器回归：先运行 `python -m playwright install chromium`，再运行 `python scripts/verify_portal_browser.py`。所有请求使用固定样例，覆盖 390px/1280px 的无课、失败恢复、筛选和基础键盘焦点。无需生产账号，不发送邮件；这不替代真实课程业务验证。
 
 文档用途：说明本地开发、验证和扩展项目的最短路径。

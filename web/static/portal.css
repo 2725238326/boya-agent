@@ -1147,6 +1147,9 @@ body.portal-body {
 
 /* ── Full Course Collapsed Section ── */
 .portal-full-toggle {
+    width: 100%;
+    font-family: inherit;
+    text-align: left;
     display: flex;
     align-items: center;
     gap: 10px;

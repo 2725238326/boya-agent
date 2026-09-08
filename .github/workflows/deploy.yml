@@ -47,6 +47,12 @@ jobs:
       - name: Verify release candidate
         run: python scripts/verify_release.py --require-clean
 
+      - name: Install browser for offline portal checks
+        run: python -m playwright install --with-deps chromium
+
+      - name: Verify portal fixtures without external services
+        run: python scripts/verify_portal_browser.py
+
   deploy:
     needs: verify
     if: github.ref_name == 'main' || github.ref_name == 'master'
