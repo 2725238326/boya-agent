@@ -10,6 +10,7 @@
 </head>
 
 <body class="portal-body">
+    {% include '_email_status.html' %}
 
     <!-- ═══ Navigation ═══ -->
     <nav class="portal-nav">
@@ -32,7 +33,7 @@
                 <div class="portal-banner-icon">👋</div>
                 <div class="portal-banner-text">
                     <strong>欢迎使用博雅课程门户</strong>
-                    <p>在这里你可以浏览所有可选课程、设置选课提醒、管理推送订阅。系统会根据你的偏好在选课开始前自动发送邮件提醒。
+                    <p>在这里你可以浏览课程、设置选课提醒、管理推送订阅。邮件服务开放且符合提醒条件时，系统才会发送邮件。
                         在课程卡片中点击「🔔 提醒我选课」即可注册提醒。</p>
                 </div>
             </div>
@@ -164,6 +165,7 @@
                     <button class="portal-btn-mini portal-filter-refresh" id="btnRefreshCourses" type="button"
                         aria-controls="courseGrid" onclick="refreshPortalCourses(this)">刷新课程</button>
                     <span class="portal-refresh-meta" id="portalRefreshMeta" role="status" aria-live="polite">等待刷新</span>
+                    <span class="portal-refresh-meta" id="portalSourceMeta">最近采集时间待确认</span>
                 </div>
                 <div class="portal-filter-extra is-collapsed" id="portalFilterExtra">
                     <label class="portal-checkbox-label">
@@ -380,7 +382,7 @@
                     <span>2</span>
                     <div>
                         <strong>遇到想抢的课就设提醒</strong>
-                        <p>课程卡片里点「提醒我选课」，系统会在开始前发邮件提醒。</p>
+                        <p>课程卡片里点「提醒我选课」保存提醒；邮件服务暂停时不会发送。</p>
                     </div>
                 </div>
                 <div class="portal-onboarding-step">

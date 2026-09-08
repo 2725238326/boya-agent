@@ -13,6 +13,7 @@ let portalState = {
     lastCourseRefreshAt: null,
     courseCatalogCount: null,
     courseLoadFailed: false,
+    courseSource: null,
     shouldShowOnboarding: false,
     remindersLoaded: false,
     notificationsLoaded: false,
@@ -49,7 +50,8 @@ function buildPortalCourseParams() {
     return params;
 }
 
-function applyPortalCourses(courses) {
+function applyPortalCourses(courses, source = null) {
+    if (source) portalState.courseSource = source;
     const list = Array.isArray(courses) ? courses : [];
     const sorted = sortPortalCourses(list);
     portalState.courseLoadFailed = false;
@@ -65,7 +67,7 @@ async function loadFilteredCourses(initialCourses = null, initialMeta = {}) {
         if (Number.isFinite(catalogCount)) {
             portalState.courseCatalogCount = catalogCount;
         }
-        applyPortalCourses(initialCourses);
+        applyPortalCourses(initialCourses, initialMeta.source);
         return { success: true, data: initialCourses };
     }
 
@@ -83,7 +85,7 @@ async function loadFilteredCourses(initialCourses = null, initialMeta = {}) {
         return { success: false, aborted: true };
     }
     if (res.success) {
-        applyPortalCourses(res.data);
+        applyPortalCourses(res.data, res.source);
     } else {
         setCourseGridBusy(false);
         showPortalToast(res.error || '课程加载失败，请稍后重试', 'error');
@@ -125,6 +127,11 @@ function sortPortalCourses(courses) {
 }
 
 function renderPortalRefreshMeta() {
+    const sourceEl = document.getElementById('portalSourceMeta');
+    const source = portalState.courseSource;
+    if (sourceEl) sourceEl.textContent = source?.last_success
+        ? `最近成功采集：${source.last_success}（北京时间）${source.degraded ? '；最近采集异常，请向官方核实名额' : '；名额以官方为准'}`
+        : '最近成功采集时间待确认，名额以官方为准';
     const el = document.getElementById('portalRefreshMeta');
     if (!el) return;
     if (!portalState.lastCourseRefreshAt) {
@@ -134,12 +141,12 @@ function renderPortalRefreshMeta() {
     const now = Date.now();
     const diffSec = Math.max(0, Math.floor((now - portalState.lastCourseRefreshAt.getTime()) / 1000));
     if (diffSec < 60) {
-        el.textContent = '刚刚更新';
+        el.textContent = '页面刚刚加载';
         return;
     }
     const hh = String(portalState.lastCourseRefreshAt.getHours()).padStart(2, '0');
     const mm = String(portalState.lastCourseRefreshAt.getMinutes()).padStart(2, '0');
-    el.textContent = `${hh}:${mm} 更新`;
+    el.textContent = `${hh}:${mm} 页面加载`;
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲 Init 鈺愨晲鈺愨晲鈺愨晲
@@ -389,7 +396,7 @@ async function loadPortalDataOnce() {
         const activeCourses = courseList.filter(c => !c.expired);
         const availableCourses = activeCourses.filter(c => c.remaining > 0);
         document.getElementById('heroCount').textContent = availableCourses.length;
-        await loadFilteredCourses(courseList);
+        await loadFilteredCourses(courseList, { source: coursesRes.source });
     } else {
         portalState.courseLoadFailed = true;
         renderCourseLoadError(coursesRes.error);

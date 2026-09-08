@@ -7,7 +7,7 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.models import Base, EmailSubscriber
+from src.models import Base, EmailSubscriber, Course
 
 os.environ.setdefault("WEB_SECRET_KEY", "test-secret-for-web-security-0123456789")
 os.environ.setdefault("ADMIN_USERNAME", "test-admin")
@@ -64,6 +64,43 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"success": True, "status": "ok"}, response.get_json())
         self.assertEqual("no-store", response.headers["Cache-Control"])
+
+    def test_public_pages_explain_mail_pause_before_submission(self):
+        with patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "false"}):
+            for path in ("/", "/subscribe"):
+                response = self.client.get(path)
+                self.assertEqual(200, response.status_code)
+                self.assertIn("邮件服务暂时关闭", response.get_data(as_text=True))
+                self.assertIn('/#courses', response.get_data(as_text=True))
+            self.assertIn('id="submitBtn" disabled', self.client.get('/subscribe').get_data(as_text=True))
+        with patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "true"}):
+            self.assertNotIn("邮件服务暂时关闭", self.client.get('/').get_data(as_text=True))
+
+    def test_public_catalog_exposes_only_safe_source_metadata(self):
+        with patch.object(web_app, "get_session", return_value=self.session), patch.object(
+            web_app, "get_run_status", return_value={
+                "last_success": "2026-09-08 10:00:00", "is_running": False,
+                "last_error": "private upstream detail", "private_key": "must-not-leak",
+            }
+        ):
+            response = self.client.get('/api/courses')
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(response.get_json()['source'], {
+            "last_success": "2026-09-08 10:00:00", "refreshing": False, "degraded": True,
+        })
+        self.assertNotIn('private', response.get_data(as_text=True))
+
+    def test_next_enrollment_includes_courses_not_yet_open(self):
+        now = web_app.business_now()
+        self.session.add(Course(id="future", name="未来课程", capacity=30, enrolled=1,
+            enroll_start=now + timedelta(hours=2), enroll_end=now + timedelta(hours=3),
+            start_time=now + timedelta(days=1), end_time=now + timedelta(days=1, hours=1), expired=False))
+        self.session.commit()
+        with patch.object(web_app, "get_session", return_value=self.session):
+            response = self.client.get('/api/public/insights')
+        data = response.get_json()['data']
+        self.assertEqual(0, data['available_count'])
+        self.assertEqual('future', data['next_enroll']['course_id'])
 
     def test_admin_ui_accepts_configured_basic_auth(self):
         response = self.client.get(

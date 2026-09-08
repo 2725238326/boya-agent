@@ -51,7 +51,9 @@ jobs:
         run: python -m playwright install --with-deps chromium
 
       - name: Verify portal fixtures without external services
-        run: python scripts/verify_portal_browser.py
+        run: |
+          python scripts/verify_portal_browser.py
+          python scripts/verify_home_browser.py
 
   deploy:
     needs: verify

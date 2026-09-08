@@ -20,26 +20,23 @@
     </header>
 
     <main class="home-main">
+        {% include '_email_status.html' %}
         <section class="home-hero">
             <div class="home-hero-copy">
                 <p class="home-eyebrow">北航博雅课程提醒</p>
-                <h1>课程一有变化，尽快收到提醒。</h1>
+                <h1>查看课程，安排选课</h1>
                 <p class="home-subtitle">
-                    输入邮箱完成验证后，即可接收博雅课程提醒。已经注册的用户可以直接进入个人门户，
-                    查看课程、管理提醒和浏览通知。
+                    无需登录即可查看课程、报名时间和剩余名额。个人提醒与偏好设置在登录后管理。
                 </p>
                 <div class="home-actions">
-                    <a class="home-btn home-btn-primary" href="/subscribe">开始订阅</a>
+                    <a class="home-btn home-btn-primary" href="#courses">浏览课程</a>
                     <a class="home-btn home-btn-secondary" id="portalEntryBtn" href="/portal">进入我的门户</a>
-                </div>
-                <div class="home-note">
-                    访问地址：<strong>buaaboya.top</strong>
                 </div>
             </div>
 
             <aside class="home-panel">
                 <div class="home-panel-header">
-                    <span>实时概览</span>
+                    <span>课程概览</span>
                     <span class="home-panel-status" id="homeGeneratedAt">加载中...</span>
                 </div>
                 <div class="home-metrics">
@@ -52,12 +49,29 @@
                         <span class="home-metric-value" id="activeCount">-</span>
                     </div>
                     <div class="home-metric home-metric-wide">
-                        <span class="home-metric-label">最近开抢</span>
+                        <span class="home-metric-label">下一场开选</span>
                         <span class="home-metric-value" id="nextEnrollName">暂无</span>
                         <span class="home-metric-hint" id="nextEnrollHint">系统正在整理最新课程信息。</span>
                     </div>
                 </div>
             </aside>
+        </section>
+
+        <section class="home-section" id="courses" aria-labelledby="catalogTitle">
+            <div class="home-section-heading">
+                <h2 id="catalogTitle">课程列表</h2>
+                <p id="courseSource" role="status">正在读取采集时间…</p>
+            </div>
+            <form id="courseFilters" class="home-filters" role="search">
+                <label>课程名称<input id="courseSearch" type="search" placeholder="搜索课程名称" maxlength="100"></label>
+                <label>校区<select id="courseCampus"><option value="">全部校区</option><option>学院路</option><option>沙河</option></select></label>
+                <label>报名状态<select id="courseState"><option value="">全部状态</option><option value="open">可报名</option><option value="upcoming">未开选</option><option value="full">已满</option></select></label>
+                <button type="reset" class="home-btn home-btn-secondary">清除筛选</button>
+                <button type="button" id="reloadCourses" class="home-btn home-btn-secondary">重新加载列表</button>
+            </form>
+            <p id="courseSummary" role="status" aria-live="polite"></p>
+            <div id="publicCourseGrid" class="home-course-grid" aria-busy="true"></div>
+            <noscript>课程列表需要启用 JavaScript。也可直接<a href="https://bykc.buaa.edu.cn/" target="_blank" rel="noopener">查看官方选课页</a>。</noscript>
         </section>
 
         <section class="home-section">
@@ -68,7 +82,7 @@
             <div class="home-grid">
                 <article class="home-card">
                     <h3>邮箱订阅</h3>
-                    <p>输入邮箱并完成验证码验证后，即可开始接收课程提醒和登录邮件。</p>
+                    <p>邮件服务开放时，可通过邮箱验证登录并使用邮件提醒。</p>
                     <a class="home-card-link" href="/subscribe">前往订阅页</a>
                 </article>
                 <article class="home-card">

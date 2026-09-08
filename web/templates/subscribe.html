@@ -771,13 +771,13 @@
 
 <body>
     <div class="container">
+        {% include '_email_status.html' %}
         <div class="page-shell">
             <section class="intro-panel">
                 <div class="intro-eyebrow">BUAA BOYA COURSE AGENT</div>
-                <h1 class="intro-title">&#23569;&#19968;&#27493;&#25240;&#33150;&#65292;&#26356;&#24555;&#25910;&#21040;&#36866;&#21512;&#20320;&#30340;&#21338;&#38597;&#35838;&#31243;&#12290;</h1>
+                <h1 class="intro-title">登录后管理个人提醒</h1>
                 <p class="intro-copy">
-                    &#36755;&#20837;&#37038;&#31665;&#21518;&#65292;&#20320;&#20250;&#33719;&#24471;&#19968;&#20010;&#36731;&#37327;&#38376;&#25143;&#65306;&#39564;&#35777;&#23436;&#25104;&#21363;&#21487;&#30452;&#25509;&#30331;&#24405;&#65292;&#24403;&#21069;&#35774;&#22791;&#20250;&#38271;&#26399;&#35760;&#20303;&#36523;&#20221;&#12290;
-                    &#26032;&#35838;&#31243;&#40664;&#35748;&#36208;&#25688;&#35201;&#25512;&#36865;&#65292;&#30495;&#27491;&#38656;&#35201;&#31435;&#21051;&#22788;&#29702;&#30340;&#24320;&#25250;&#35838;&#31243;&#21644;&#36864;&#35838;&#34917;&#24405;&#20250;&#20248;&#20808;&#36865;&#36798;&#12290;
+                    浏览课程不需要登录。邮件服务开放时，可通过邮箱验证码登录，在个人门户管理提醒和筛选偏好。邮件是否发送取决于服务状态和个人设置。
                 </p>
                 <div class="intro-grid">
                     <div class="intro-item">
@@ -833,8 +833,8 @@
                             </div>
 
                             <div class="action-stack">
-                                <button type="submit" class="btn" id="submitBtn">&#39318;&#27425;&#35746;&#38405;</button>
-                                <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()">&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
+                                <button type="submit" class="btn" id="submitBtn" {% if not email_delivery_available %}disabled{% endif %}>&#39318;&#27425;&#35746;&#38405;</button>
+                                <button type="button" class="btn btn-secondary" id="loginBtn" onclick="sendLoginLink()" {% if not email_delivery_available %}disabled{% endif %}>&#24050;&#27880;&#20876;&#29992;&#25143;&#37038;&#31665;&#30331;&#24405;</button>
                             </div>
                             <div class="message" id="msgBox"></div>
                             <div class="verify-code-panel" id="verifyCodePanel">
@@ -985,6 +985,7 @@
 
         async function handleSubscribe(e) {
             e.preventDefault();
+            {% if not email_delivery_available %}return;{% endif %}
             const btn = document.getElementById('submitBtn');
             const msg = document.getElementById('msgBox');
             const email = document.getElementById('emailInput').value.trim();
@@ -1029,6 +1030,7 @@
         }
 
         async function sendLoginLink() {
+            {% if not email_delivery_available %}return;{% endif %}
             const btn = document.getElementById('loginBtn');
             const msg = document.getElementById('msgBox');
             const email = document.getElementById('emailInput').value.trim();

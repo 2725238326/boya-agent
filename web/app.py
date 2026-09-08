@@ -89,6 +89,22 @@ def static_asset(filename: str) -> str:
     """Build a cache-busting URL for a checked-in static asset."""
     return url_for("static", filename=filename, v=_static_asset_version(filename))
 
+
+@app.context_processor
+def public_delivery_context():
+    from src.email_policy import email_delivery_enabled
+    return {"email_delivery_available": email_delivery_enabled()}
+
+
+def public_course_source():
+    """Only expose source timestamps, never scheduler errors or credentials."""
+    status = get_run_status()
+    return {
+        "last_success": status.get("last_success"),
+        "refreshing": bool(status.get("is_running")),
+        "degraded": bool(status.get("last_error")),
+    }
+
 app.wsgi_app = ProxyFix(
     app.wsgi_app,
     x_for=1,
@@ -759,6 +775,7 @@ def api_courses():
             "success": True,
             "data": [c.to_dict() for c in courses],
             "total": len(courses),
+            "source": public_course_source(),
         })
     except Exception:
         logger.exception("加载课程列表失败")
@@ -828,8 +845,8 @@ def api_public_insights():
         } for c in popular_sorted]
 
         upcoming = [
-            c for c in available
-            if c.enroll_start and c.enroll_start > now
+            c for c in active_courses
+            if c.remaining > 0 and c.enroll_start and c.enroll_start > now
         ]
         upcoming.sort(key=lambda c: c.enroll_start)
         next_course = upcoming[0] if upcoming else None
@@ -852,6 +869,7 @@ def api_public_insights():
                 "popular_courses": popular_courses,
                 "next_enroll": next_enroll,
                 "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "source": public_course_source(),
             },
         })
     finally:
