@@ -516,7 +516,7 @@ function renderCourses(courses) {
                         <a class="portal-empty-action secondary" href="https://d.buaa.edu.cn/https/77726476706e69737468656265737421f2ee4a9f69327d517f468ca88d1b203b/system/course-select"
                             target="_blank" rel="noopener">打开官方选课页</a>
                     </div>
-                    <div class="portal-empty-note">这不是系统错误：空页面不会覆盖可靠的历史课程数据。</div>
+                    <div class="portal-empty-note">可刷新课程，或前往官方选课页确认最新安排。</div>
                 </div>`;
         } else {
             grid.innerHTML = `

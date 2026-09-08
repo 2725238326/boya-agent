@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy import and_, or_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from src.email_policy import email_delivery_enabled
 from src.models import NotificationJob, get_session, commit_with_retry
 from src.time_utils import now as business_now
 
@@ -334,11 +335,17 @@ async def drain_notification_jobs(
         return result
 
     for _ in range(normalized_limit):
+        active_handlers = {
+            channel: handler for channel, handler in handlers.items()
+            if channel != "email" or email_delivery_enabled()
+        }
+        if not active_handlers:
+            break
         claim_session = get_session()
         try:
             job = claim_next_notification_job(
                 claim_session,
-                channels=handlers.keys(),
+                channels=active_handlers.keys(),
                 worker_id=worker_id,
                 lease_seconds=lease_seconds,
             )

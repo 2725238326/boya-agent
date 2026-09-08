@@ -21,6 +21,9 @@ from web.app import app  # noqa: E402
 
 class WebSecurityTests(unittest.TestCase):
     def setUp(self):
+        self.email_policy = patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "true"})
+        self.email_policy.start()
+        self.addCleanup(self.email_policy.stop)
         app.config.update(TESTING=True)
         self.client = app.test_client()
         self.engine = create_engine("sqlite:///:memory:")
@@ -41,6 +44,18 @@ class WebSecurityTests(unittest.TestCase):
         response = self.client.get("/api/status")
         self.assertEqual(401, response.status_code)
         self.assertEqual("admin_auth_required", response.get_json()["code"])
+
+    def test_mail_pause_returns_maintenance_without_database_or_smtp(self):
+        with patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "false"}), patch.object(
+            web_app, "get_session", side_effect=AssertionError("database accessed")
+        ):
+            for path in ("/api/subscribe", "/api/login/request"):
+                response = self.client.post(path, json={"email": "test@example.com"})
+                self.assertEqual(503, response.status_code)
+                self.assertEqual("email_delivery_paused", response.get_json()["code"])
+                self.assertEqual("no-store", response.headers["Cache-Control"])
+            response = self.client.post("/api/test-email", json={})
+            self.assertEqual(401, response.status_code)
 
     def test_public_healthcheck_does_not_require_admin_authentication(self):
         with patch.object(web_app, "get_session", return_value=self.session):

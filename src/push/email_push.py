@@ -20,6 +20,7 @@ from typing import List
 from urllib.parse import quote
 from loguru import logger
 
+from src.email_policy import email_delivery_enabled
 from src.course_state import get_check_in_display_label, is_course_expired, is_self_check_in
 from src.notification_jobs import (
     NotificationDeliveryResult,
@@ -193,6 +194,8 @@ def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 15):
 
 def _send_with_transport(msg, transport: dict) -> bool:
     """使用指定的 transport 发送邮件"""
+    if not email_delivery_enabled():
+        return False
     if not transport["username"] or not transport["password"]:
         logger.error(f"未配置 SMTP 账号/密码: group={transport['group']}")
         return False
@@ -264,6 +267,8 @@ def _resolve_fallback_transport(config: dict, from_kind: str, primary: dict):
 
 def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
     """底层发邮件函数，notify/reminder 失败时自动回退到 verify 通道"""
+    if not email_delivery_enabled():
+        return False
     if not isinstance(to_email, str) or any(ord(char) < 32 or ord(char) == 127 for char in to_email):
         logger.error("邮件收件人地址包含非法控制字符，已拒绝发送")
         return False
@@ -293,7 +298,8 @@ def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "no
             msg["From"] = formataddr(("\u8a00\u828a\u828a", sender))
             msg["To"] = to_email
             msg.attach(MIMEText(html, "html", "utf-8"))
-            _send_with_transport(msg, transport)
+            if not _send_with_transport(msg, transport):
+                return False
 
             if stage == "retry":
                 logger.warning(
@@ -1043,6 +1049,8 @@ async def send_email_to_subscribers(
     delivery_mode: str = "instant",
 ) -> int:
     """创建并投递课程邮件任务，返回成功投递的订阅者数量。"""
+    if not email_delivery_enabled():
+        return 0
     from src.models import EmailSubscriber, get_session
 
     base_url = (base_url or os.getenv("APP_PUBLIC_BASE_URL") or "https://buaaboya.top").rstrip("/")

@@ -140,6 +140,21 @@ def _security_boundary():
             "error": "请求来源不受信任",
         }), 403
 
+    from src.email_policy import email_delivery_enabled
+
+    if request.method == "POST" and request.path in {
+        "/api/subscribe", "/api/login/request", "/api/test-email",
+        "/api/admin/broadcast/service-update", "/api/manual-push",
+    } and not email_delivery_enabled():
+        response = jsonify({
+            "success": False,
+            "code": "email_delivery_paused",
+            "error": "邮件服务暂时关闭，验证码和邮件通知暂不可用。您仍可浏览课程。",
+        })
+        response.status_code = 503
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
 
 @app.after_request
 def _security_headers(response):

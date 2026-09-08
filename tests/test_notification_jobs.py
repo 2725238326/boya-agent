@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import timedelta
 from unittest.mock import patch
@@ -19,6 +20,9 @@ from src.time_utils import now as business_now
 
 class NotificationJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.email_policy = patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "true"})
+        self.email_policy.start()
+        self.addCleanup(self.email_policy.stop)
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -235,6 +239,7 @@ class EmailNotificationJobIntegrationTests(unittest.IsolatedAsyncioTestCase):
             session.close()
 
         with (
+            patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "true"}),
             patch("src.models.get_session", side_effect=lambda: self.Session()),
             patch("src.notification_jobs.get_session", side_effect=lambda: self.Session()),
             patch.object(email_push, "_send_raw_email", return_value=True) as send_mock,
