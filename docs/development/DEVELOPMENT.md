@@ -145,7 +145,7 @@ npm run check
 
 课程是否结束、是否可报名、自主签到和热门判断只能在 `src/course_state.py` 增加或修改。筛选、抓取、门户、邮件、Telegram、RSS 和二维码复用该模块，不在调用方重新判断。
 
-发送新通知时，把“选择收件人”“决定事件/时间窗口”“发送渠道”“记录结果”分开。课程邮件、课程 Telegram、选课提醒和 Telegram 每日汇总当前都通过 `src/notification_jobs.py` 持久化任务投递，调度器按 `job_type` 分派到对应处理器；站点调整通知和自动选课结果仍是直投路径，修改时单独核对。检查 `email_enabled`、`telegram_enabled`、`rss_enabled` 和每日摘要开关的实际语义，并为开关关闭、发送成功、发送失败、重试和重复事件分别测试。
+发送新通知时，把“选择收件人”“决定事件/时间窗口”“发送渠道”“记录结果”分开。课程邮件、课程 Telegram、选课提醒、每日汇总、自动选课结果和站点调整邮件当前都通过 `src/notification_jobs.py` 持久化任务投递，调度器按 `job_type` 分派到对应处理器。检查 `email_enabled`、`telegram_enabled`、`rss_enabled` 和每日摘要开关的实际语义，并为开关关闭、发送成功、发送失败、重试和重复事件分别测试。
 
 ## 提交前清单
 

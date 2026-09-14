@@ -216,12 +216,20 @@ async def auto_enroll_if_enabled(page: Page, filtered_courses: list):
         log_enroll_attempt(course.id, course.name, success, message)
 
         # 发送结果通知
-        if config.telegram_enabled:
-            from src.push.telegram_bot import send_enroll_result
-            await send_enroll_result(course, success, message)
-        if config.email_enabled:
-            from src.push.email_push import send_enroll_result_email
-            await send_enroll_result_email(course, success, message)
+        from src.notification_jobs import enqueue_notification_job, drain_notification_jobs
+        result_session = get_session()
+        try:
+            for channel, enabled in (("telegram", config.telegram_enabled), ("email", config.email_enabled)):
+                if enabled:
+                    enqueue_notification_job(
+                        result_session, channel=channel, course_ids=[course.id],
+                        event_type="auto_enroll", delivery_mode="instant",
+                        job_type="auto_enroll_result", payload={"success": success, "message": message},
+                        dedupe_material=f"{course.id}:{success}:{message}:{getattr(course, 'start_time', '')}",
+                    )
+            result_session.commit()
+        finally:
+            result_session.close()
 
         if not success:
             failure_count += 1

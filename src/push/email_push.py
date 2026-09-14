@@ -1260,6 +1260,34 @@ async def send_enroll_result_email(course, success: bool, message: str = "") -> 
         session.close()
 
 
+async def deliver_auto_enroll_result_email_job(job) -> NotificationDeliveryResult:
+    """投递持久化的自动选课结果，避免进程重启丢失通知。"""
+    from src.models import Course, get_session
+    session = get_session()
+    try:
+        course = session.query(Course).filter(Course.id == (job.course_ids or [None])[0]).first()
+        if not course:
+            return NotificationDeliveryResult(True, message="课程已删除，跳过投递")
+        payload = job.payload
+        ok = await send_enroll_result_email(course, bool(payload.get("success")), str(payload.get("message", "")))
+        return NotificationDeliveryResult(ok, delivered_count=1 if ok else 0, message="邮件发送失败" if not ok else "")
+    finally:
+        session.close()
+
+
+async def deliver_service_update_email_job(job) -> NotificationDeliveryResult:
+    """投递站点调整通知任务。"""
+    from src.models import EmailSubscriber, get_session
+    session = get_session()
+    try:
+        subs = session.query(EmailSubscriber).filter_by(verified=True, active=True).all()
+        payload = job.payload
+        sent = sum(1 for sub in subs if send_service_update_email(sub.email, payload.get("home_url", ""), payload.get("portal_url", ""), payload.get("subscribe_url", "")))
+        return NotificationDeliveryResult(sent == len(subs) or not subs, delivered_count=sent)
+    finally:
+        session.close()
+
+
 async def deliver_course_reminder_email_job(job) -> NotificationDeliveryResult:
     """投递一条持久化的选课邮件提醒。"""
     from src.models import Course, CourseReminder, EmailSubscriber, NotificationEvent, get_session

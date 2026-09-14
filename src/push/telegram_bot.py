@@ -329,6 +329,20 @@ async def send_enroll_result(course, success: bool, message: str = "") -> bool:
     if not HAS_TELEGRAM:
         return False
 
+
+async def deliver_auto_enroll_result_telegram_job(job) -> NotificationDeliveryResult:
+    from src.models import Course, get_session
+    session = get_session()
+    try:
+        course = session.query(Course).filter(Course.id == (job.course_ids or [None])[0]).first()
+        if not course:
+            return NotificationDeliveryResult(True, message="课程已删除，跳过投递")
+        payload = job.payload
+        ok = await send_enroll_result(course, bool(payload.get("success")), str(payload.get("message", "")))
+        return NotificationDeliveryResult(ok, delivered_count=1 if ok else 0, message="Telegram 发送失败" if not ok else "")
+    finally:
+        session.close()
+
     try:
         bot = get_bot()
         chat_id = get_chat_id()

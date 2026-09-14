@@ -40,11 +40,14 @@ from src.filters import filter_courses, load_filter_config
 from src.notification_jobs import drain_notification_jobs, enqueue_notification_job
 from src.push.email_push import (
     deliver_course_reminder_email_job,
+    deliver_auto_enroll_result_email_job,
+    deliver_service_update_email_job,
     deliver_email_notification_job,
     send_email_notification,
 )
 from src.enroll import auto_enroll_if_enabled
 from src.push.telegram_bot import (
+    deliver_auto_enroll_result_telegram_job,
     deliver_course_reminder_telegram_job,
     deliver_daily_summary_telegram_job,
     deliver_telegram_notification_job,
@@ -825,6 +828,13 @@ async def _deliver_scheduled_notification_job(job):
             return await deliver_course_reminder_telegram_job(job)
     if job.job_type == "daily_summary" and job.channel == "telegram":
         return await deliver_daily_summary_telegram_job(job)
+    if job.job_type == "auto_enroll_result":
+        if job.channel == "email":
+            return await deliver_auto_enroll_result_email_job(job)
+        if job.channel == "telegram":
+            return await deliver_auto_enroll_result_telegram_job(job)
+    if job.job_type == "service_update" and job.channel == "email":
+        return await deliver_service_update_email_job(job)
     if job.channel == "email":
         return await deliver_email_notification_job(job)
     if job.channel == "telegram":
