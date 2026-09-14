@@ -16,6 +16,10 @@ def _npm_command() -> str:
     return "npm.cmd" if os.name == "nt" else "npm"
 
 
+def _uv_command() -> str:
+    return "uv.exe" if os.name == "nt" else "uv"
+
+
 def _run(label: str, command: list[str]) -> None:
     print(f"\n== {label} ==")
     print("$ " + " ".join(command))
@@ -56,7 +60,10 @@ def main() -> None:
 
     if not (PROJECT_ROOT / "constraints.txt").is_file():
         parser.error("constraints.txt is missing; generate it in the project's tested virtual environment")
-    _run("Python dependency consistency", [sys.executable, "-m", "pip", "check"])
+    _run(
+        "Python dependency consistency",
+        [_uv_command(), "pip", "check", "--python", sys.executable],
+    )
     _run(
         "Python compile check",
         [sys.executable, "-m", "compileall", "-q", "src", "web", "tests", "scripts"],
