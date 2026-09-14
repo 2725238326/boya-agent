@@ -123,8 +123,8 @@
 
 ## 本批自动化验证（2026-09-07）
 
-- `D:\Anaconda\python.exe scripts/verify_release.py`：`66 passed, 1 skipped`；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和 `git diff --check HEAD` 均通过。
-- `D:\Anaconda\python.exe scripts/verify_release.py --require-clean`：已通过；工作树无未提交或未跟踪文件。
+- `uv run --python .venv scripts/verify_release.py`：当前隔离环境验证通过；Python 编译检查、JavaScript 语法检查、TypeScript 7 检查和差异检查均通过。
+- `uv run --python .venv scripts/verify_release.py --require-clean`：作为收尾门槛执行；要求工作树无未提交或未跟踪文件。
 - 生产发布期间邮件投递暂时抑制，完成后恢复原开关；邮件、Telegram 和自动选课的业务配置未修改。
 
 ## 当前测试期生产配置（2026-09-08）
@@ -152,12 +152,12 @@
 
 - `python -m compileall -q src web tests`：通过。
 - `web/static/` 下 6 个 JavaScript 文件逐一执行 `node --check`：通过。
-- `D:\\Anaconda\\python.exe -m pytest -q tests/test_qrcode_feature.py tests/test_course_state.py tests/test_rss_feed.py tests/test_enroll_safety.py`：`12 passed, 1 skipped`。
-- `D:\\Anaconda\\python.exe -m pytest -q tests/test_scraper_scheduler_regressions.py`：`26 passed`。
+- `uv run --python .venv python -m pytest -q tests/test_qrcode_feature.py tests/test_course_state.py tests/test_rss_feed.py tests/test_enroll_safety.py`：历史专项验证通过。
+- `uv run --python .venv python -m pytest -q tests/test_scraper_scheduler_regressions.py`：历史专项验证通过。
 - `D:\\Anaconda\\python.exe -m pytest -q tests/test_web_security.py`：已纳入全量测试并通过。
 - `npm run check`：6 个 JavaScript 文件语法检查通过，TypeScript 7 类型检查通过。
 - `python -m pytest -q`：未通过收集，4 个测试模块因默认环境缺少 `sqlalchemy` 或 `playwright` 报错；未将环境阻塞伪装成测试通过。
-- `D:\\Anaconda\\python.exe -m pytest -q`：`65 passed, 1 skipped`；本轮补齐了该解释器中项目已声明但缺失的 `flask-cors` 和 `apscheduler`。
+- `uv run --python .venv python -m pytest -q`：当前推荐入口；依赖由 `constraints.txt` 管理。
 - 服务器临时测试环境：`50 passed`；未向生产运行虚拟环境安装 pytest 或开发依赖，Waitress 作为核心生产依赖已安装。
 - 线上 `https://buaaboya.top`：主页、门户、订阅页和公开接口返回正常；`/api/courses`、`/api/categories`、`/rss` 缓存策略生效，静态资源 URL 带版本参数并返回 `public, max-age=604800, immutable`；HTTP 正确跳转 HTTPS，未授权 `/api/status` 返回 401。
 - 生产无课场景：定时抓取日志已记录“选课页面已加载，当前暂无可选课程”和“按空状态完成本轮抓取”，没有再记录“无法进入选择课程页面”。
@@ -166,7 +166,4 @@
 - 性能基准：线上 5 个公开接口各连续请求 20 次均为 200；首页、健康、课程、洞察、类别接口中位数约 `11.1–12.5 ms`，P95 约 `12.5–14.3 ms`；24 个并发课程请求全部返回 200，整体约 `883 ms`。
 - Git（历史部署记录，2026-09-03）：`codex/ts7-and-hardening` 的 `1fbadd6` 已部署至服务器；服务器工作树 clean。
 - `git diff --check`：通过；仅有 Git 关于 LF/CRLF 的换行提示。
-- 本轮新增：`D:\\Anaconda\\python.exe -m pytest -q tests/test_scrape_outcome.py tests/test_scraper_scheduler_regressions.py`：`34 passed`；`python -m compileall -q src web tests`：通过。
-- 本轮新增通知 outbox：`D:\\Anaconda\\python.exe -m pytest -q tests/test_notification_jobs.py tests/test_scraper_scheduler_regressions.py`：`34 passed`。
-- 本轮最终全量：`D:\\Anaconda\\python.exe -m pytest -q`：`64 passed, 1 skipped`；`npm run check`：通过。
-- 本轮最终全量更新：`D:\\Anaconda\\python.exe -m pytest -q`：`65 passed, 1 skipped`；已补充过期 processing 租约恢复回归。
+- 本轮新增抓取、调度和通知 outbox 回归覆盖；当前完整验证统一通过 `uv run --python .venv scripts/verify_release.py` 执行。

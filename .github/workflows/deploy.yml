@@ -165,11 +165,15 @@ jobs:
               exit 1
             fi
 
-            if [ ! -d venv ]; then
-              python3 -m venv venv
+            if ! command -v uv >/dev/null 2>&1; then
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              export PATH="$HOME/.local/bin:$PATH"
+            fi
+            if [ ! -x venv/bin/python ]; then
+              uv venv --python 3.12 venv
             fi
 
-            ./venv/bin/pip install -r requirements.txt -c constraints.txt
+            uv pip install --python ./venv/bin/python -r requirements.txt -c constraints.txt
             ./venv/bin/python -m compileall -q src web tests
 
             EMAIL_WAS_ENABLED="$(python3 - "$DATABASE_PATH" <<'PY'

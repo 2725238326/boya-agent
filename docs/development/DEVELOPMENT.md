@@ -6,9 +6,9 @@
 
 与 CI 一样使用 Python 3.12 和 uv。首次执行 `uv venv --python 3.12 .venv`，然后执行 `uv pip install --python .venv\Scripts\python.exe -r requirements-dev.txt -c constraints.txt`。日常验证使用 `uv run --python .venv scripts/verify_release.py`；`.venv/` 不提交到 Git。
 
-浏览器检查前在该环境运行 `python -m playwright install chromium`。`requirements*.txt` 仍只声明版本下限，实际安装版本由仓库中的 `constraints.txt` 锁定；本地、CI 和生产部署都用 `-c constraints.txt` 安装。升级依赖后运行 `python scripts/freeze_constraints.py` 重新生成该文件，`--check` 可校验当前环境是否与文件一致。约束文件通过 `-c` 生效，只约束真正会安装的包，因此其中的平台专用包不会在 Linux 上被强制安装。
+浏览器检查前在该环境运行 `uv run --python .venv python -m playwright install chromium`。`requirements*.txt` 仍只声明版本下限，实际安装版本由仓库中的 `constraints.txt` 锁定；本地、CI 和生产部署都用 `uv` 与 `-c constraints.txt` 安装。升级依赖后运行 `uv run --python .venv scripts/freeze_constraints.py` 重新生成该文件，`--check` 可校验当前环境是否与文件一致。约束文件通过 `-c` 生效，只约束真正会安装的包，因此其中的平台专用包不会在 Linux 上被强制安装。
 
-门户浏览器回归：先运行 `python -m playwright install chromium`，再运行 `python scripts/verify_portal_browser.py`。所有请求使用固定样例，覆盖 390px/1280px 的无课、失败恢复、筛选和基础键盘焦点。无需生产账号，不发送邮件；这不替代真实课程业务验证。
+门户浏览器回归：先运行 `uv run --python .venv python -m playwright install chromium`，再运行 `uv run --python .venv scripts/verify_portal_browser.py`。所有请求使用固定样例，覆盖 390px/1280px 的无课、失败恢复、筛选和基础键盘焦点。无需生产账号，不发送邮件；这不替代真实课程业务验证。
 
 文档用途：说明本地开发、验证和扩展项目的最短路径。
 面向读者：贡献代码的开发者。
@@ -76,7 +76,7 @@ Windows PowerShell 可使用：
 ```powershell
 py -m venv venv
 .\venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt -c constraints.txt
+uv pip install --python .venv/bin/python -r requirements-dev.txt -c constraints.txt
 playwright install chromium
 ```
 

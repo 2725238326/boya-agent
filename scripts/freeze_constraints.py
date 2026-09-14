@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONSTRAINTS_PATH = PROJECT_ROOT / "constraints.txt"
 HEADER = (
     "# 由 scripts/freeze_constraints.py 生成，锁定隔离环境中的传递依赖版本。\n"
-    "# 安装：pip install -r requirements-dev.txt -c constraints.txt\n"
+    "# 安装：uv pip install -r requirements-dev.txt -c constraints.txt\n"
     "# 更新依赖后重新运行该脚本，并把结果与代码一起提交。\n"
 )
 
