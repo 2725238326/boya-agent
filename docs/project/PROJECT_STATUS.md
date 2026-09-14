@@ -76,7 +76,7 @@
 
 ## 已知问题和待确认项
 
-1. 默认 Python 3.13 环境仍缺少 SQLAlchemy 和 Playwright 等项目依赖；`python -m pytest -q` 在本地收集阶段报告模块缺依赖。项目已提供 `constraints.txt` 和 Python 3.12 隔离环境入口；当前 Anaconda 环境全量测试通过，但 `pip check` 仍报告其自身的 opencv/numpy/streamlit 外部包冲突，不能作为项目依赖环境的最终证据，后续以隔离环境和 CI 为准。
+1. 系统 Python 环境可能缺少 SQLAlchemy 和 Playwright 等项目依赖；项目已统一使用 `uv` 创建 Python 3.12 隔离环境，依赖由 `constraints.txt` 锁定。后续验证以 `.venv` 和 CI 为准，不再使用 Anaconda 全局环境。
 2. 生产 HTTPS、Nginx 实际加载结果、systemd 用户权限、公开/管理接口边界和缓存策略已实测。2026-09-04 重启后的真实首轮成功抓取 3 门课程，其中 2 门通过筛选；外部 SSO 登录和邮件 outbox 已实际运行，22 个邮件任务在观察窗口内全部成功，但主 SMTP 多次超时后才由重试/回退完成，不能据此承诺长期稳定。
 3. 订阅邮箱和通知事件仍属于业务数据，生产数据库、日志、环境文件和上传目录必须按 [SECURITY.md](../security/SECURITY.md) 保护。
 4. 邮件中的退订、暂停和选课提醒仍使用独立的长期操作 token；它们不再是门户登录凭据，但泄露后仍可能触发对应操作，后续可替换为独立的短期操作票据。

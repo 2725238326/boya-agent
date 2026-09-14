@@ -1,10 +1,10 @@
 # 开发与测试
 
-公开首页回归：运行 `.venv\Scripts\python.exe scripts/verify_home_browser.py`，可加 `--screenshots` 把固定样例截图输出到忽略版本控制的 `logs/`。检查无登录浏览、报名状态筛选、输入转义、键盘详情展开、失败恢复及邮件暂停。CI 和部署前验证均执行该脚本。
+公开首页回归：运行 `uv run --python .venv scripts/verify_home_browser.py`，可加 `--screenshots` 把固定样例截图输出到忽略版本控制的 `logs/`。检查无登录浏览、报名状态筛选、输入转义、键盘详情展开、失败恢复及邮件暂停。CI 和部署前验证均执行该脚本。
 
 ## Windows 隔离测试环境
 
-与 CI 一样使用 Python 3.12。首次执行 `py -3.12 -m venv .venv`，然后执行 `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c constraints.txt`。日常验证使用 `.venv\Scripts\python.exe scripts/verify_release.py`，不依赖系统默认 Python 或 Anaconda；`.venv/` 不提交到 Git。
+与 CI 一样使用 Python 3.12 和 uv。首次执行 `uv venv --python 3.12 .venv`，然后执行 `uv pip install --python .venv\Scripts\python.exe -r requirements-dev.txt -c constraints.txt`。日常验证使用 `uv run --python .venv scripts/verify_release.py`；`.venv/` 不提交到 Git。
 
 浏览器检查前在该环境运行 `python -m playwright install chromium`。`requirements*.txt` 仍只声明版本下限，实际安装版本由仓库中的 `constraints.txt` 锁定；本地、CI 和生产部署都用 `-c constraints.txt` 安装。升级依赖后运行 `python scripts/freeze_constraints.py` 重新生成该文件，`--check` 可校验当前环境是否与文件一致。约束文件通过 `-c` 生效，只约束真正会安装的包，因此其中的平台专用包不会在 Linux 上被强制安装。
 
@@ -66,10 +66,9 @@ npm run check
 ## 创建开发环境
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-python -m pip install -r requirements-dev.txt -c constraints.txt
-playwright install chromium
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements-dev.txt -c constraints.txt
+uv run --python .venv python -m playwright install chromium
 ```
 
 Windows PowerShell 可使用：

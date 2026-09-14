@@ -15,7 +15,9 @@ echo "================================================"
 # 1. 系统依赖
 echo "[1/6] 安装系统依赖..."
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-pip python3-venv
+sudo apt-get install -y -qq python3 curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 
 # 应用不以 root 运行。项目代码保持只读，运行时数据放入专用目录。
 if ! id -u boya-agent >/dev/null 2>&1; then
@@ -30,10 +32,8 @@ cd "$APP_DIR"
 
 # 3. Python 虚拟环境
 echo "[3/6] 创建虚拟环境并安装依赖..."
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip -q
-pip install -r requirements.txt -c constraints.txt -q
+uv venv --python 3.12 venv
+uv pip install --python venv/bin/python -r requirements.txt -c constraints.txt -q
 
 # 4. 安装 Playwright 浏览器
 echo "[4/6] 安装 Playwright Chromium..."

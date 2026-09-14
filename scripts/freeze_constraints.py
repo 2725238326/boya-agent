@@ -1,10 +1,10 @@
 """生成 Python 依赖约束文件，锁定当前隔离环境解析出的传递依赖版本。
 
 用法：
-    .venv\\Scripts\\python.exe scripts/freeze_constraints.py            # 重新生成 constraints.txt
-    .venv\\Scripts\\python.exe scripts/freeze_constraints.py --check    # 校验文件与当前环境一致
+    uv run --python .venv scripts/freeze_constraints.py            # 重新生成 constraints.txt
+    uv run --python .venv scripts/freeze_constraints.py --check    # 校验文件与当前环境一致
 
-约束文件通过 `pip install -r requirements-dev.txt -c constraints.txt` 生效：
+约束文件通过 `uv pip install -r requirements-dev.txt -c constraints.txt` 生效：
 pip 只对真正需要安装的包应用其中的版本，因此文件中出现的平台专用包
 （例如仅 Windows 需要的包）不会在 Linux CI 上被强制安装。
 """

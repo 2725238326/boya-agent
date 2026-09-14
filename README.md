@@ -53,13 +53,12 @@ docs/                   当前状态、架构、安全、配置、部署和历�
 
 ## 本地启动
 
-1. 创建虚拟环境并安装依赖
+1. 使用 uv 创建虚拟环境并安装依赖
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements-dev.txt -c constraints.txt
-playwright install chromium
+uv venv --python 3.12 .venv
+uv pip install --python .venv/Scripts/python.exe -r requirements-dev.txt -c constraints.txt
+.venv/Scripts/python.exe -m playwright install chromium
 ```
 
 生产部署只安装 `requirements.txt`；`requirements-dev.txt` 在此基础上增加测试工具。
@@ -82,7 +81,7 @@ APP_PUBLIC_BASE_URL=https://buaaboya.top
 3. 启动服务
 
 ```bash
-python src/main.py
+.venv/Scripts/python.exe src/main.py
 ```
 
 前端目前继续使用原生 JavaScript 直接加载；TypeScript 7 已作为渐进式、无输出类型检查工具接入。修改前端后可运行：
