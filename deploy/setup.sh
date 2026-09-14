@@ -33,7 +33,7 @@ echo "[3/6] 创建虚拟环境并安装依赖..."
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip -q
-pip install -r requirements.txt -q
+pip install -r requirements.txt -c constraints.txt -q
 
 # 4. 安装 Playwright 浏览器
 echo "[4/6] 安装 Playwright Chromium..."

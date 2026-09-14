@@ -86,7 +86,8 @@
                     </div>
                 </a>
             </div>
-            <button class="portal-mobile-help" type="button" id="portalHelpButton" onclick="toggleWelcomeBanner()">
+            <button class="portal-mobile-help" type="button" id="portalHelpButton"
+                aria-expanded="false" aria-controls="welcomeBanner" onclick="toggleWelcomeBanner()">
                 查看使用说明
             </button>
         </section>
@@ -113,7 +114,7 @@
         <!-- 近期开抢课程列表（仅当有数据时显示） -->
         <div id="upcomingCoursesSection" class="portal-upcoming-section" style="display:none;">
             <button class="portal-upcoming-summary" id="upcomingCoursesSummary" type="button"
-                onclick="toggleUpcomingCourses()">
+                aria-expanded="false" aria-controls="upcomingCoursesList" onclick="toggleUpcomingCourses()">
                 <div class="portal-upcoming-summary-main">
                     <div class="portal-upcoming-heading">近期开抢课程</div>
                     <div class="portal-upcoming-summary-text" id="upcomingCoursesSummaryText">正在整理近期课程...</div>
@@ -211,6 +212,7 @@
                             <option value="">全部类型</option>
                             <option value="new">仅新发</option>
                             <option value="snipe">仅退课补录</option>
+                            <option value="enroll_reminder">仅选课提醒</option>
                         </select>
                         <select class="portal-select" id="notifyStatusFilter" aria-label="通知状态" onchange="applyNotificationFilters()">
                             <option value="">全部状态</option>
@@ -222,7 +224,8 @@
                         <button class="portal-btn-mini" type="button" onclick="exportNotificationsCsv()">导出 CSV</button>
                     </div>
                 </div>
-                <div class="portal-section-body" id="notificationTimeline" aria-live="polite">
+                <div class="portal-section-body" id="notificationTimeline" role="region"
+                    aria-label="通知时间线" aria-live="polite">
                     <div class="portal-empty">
                         <div class="portal-empty-icon">📬</div>
                         <div class="portal-empty-text">正在加载通知记录…</div>
@@ -257,7 +260,7 @@
                         </div>
 
                         <div class="portal-form-group">
-                            <label class="portal-form-label">校区偏好</label>
+                            <label class="portal-form-label" for="settingsCampus">校区偏好</label>
                             <select class="portal-select" id="settingsCampus" style="width:100%;">
                                 <option value="">全部校区</option>
                                 <option value="沙河">沙河校区</option>
@@ -278,11 +281,11 @@
                         <div class="portal-form-group">
                             <div class="portal-switch-row">
                                 <div>
-                                    <div class="portal-switch-text">仅自主签到</div>
-                                    <div class="portal-switch-hint">过滤掉常规签到课程</div>
+                                    <div class="portal-switch-text" id="settingsSelfSignLabel">仅自主签到</div>
+                                    <div class="portal-switch-hint" id="settingsSelfSignHint">过滤掉常规签到课程</div>
                                 </div>
                                 <label class="portal-switch">
-                                    <input type="checkbox" id="settingsSelfSign" checked>
+                                    <input type="checkbox" id="settingsSelfSign" aria-labelledby="settingsSelfSignLabel settingsSelfSignHint" checked>
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -291,11 +294,11 @@
                         <div class="portal-form-group">
                             <div class="portal-switch-row">
                                 <div>
-                                    <div class="portal-switch-text">接收推送</div>
-                                    <div class="portal-switch-hint">关闭后暂停所有邮件通知</div>
+                                    <div class="portal-switch-text" id="settingsActiveLabel">接收推送</div>
+                                    <div class="portal-switch-hint" id="settingsActiveHint">关闭后暂停所有邮件通知</div>
                                 </div>
                                 <label class="portal-switch">
-                                    <input type="checkbox" id="settingsActive" checked>
+                                    <input type="checkbox" id="settingsActive" aria-labelledby="settingsActiveLabel settingsActiveHint" checked>
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -341,11 +344,13 @@
     </main>
 
     <div class="portal-feedback-float" id="portalFeedbackFloat">
-        <button class="portal-feedback-tab" type="button" onclick="toggleFeedbackFloat()">
+        <button class="portal-feedback-tab" id="portalFeedbackToggle" type="button"
+            aria-expanded="false" aria-controls="portalFeedbackPanel" onclick="toggleFeedbackFloat()">
             问题反馈
         </button>
-        <div class="portal-feedback-panel">
-            <div class="portal-feedback-float-title">问题反馈</div>
+        <div class="portal-feedback-panel" id="portalFeedbackPanel" role="region"
+            aria-labelledby="portalFeedbackTitle" aria-hidden="true">
+            <div class="portal-feedback-float-title" id="portalFeedbackTitle">问题反馈</div>
             <div class="portal-feedback-float-text">抓取异常、课程错位、提醒未送达</div>
             <div class="portal-feedback-float-links">
                 <a href="mailto:buaabw2725@gmail.com">邮箱联系</a>
@@ -421,17 +426,6 @@
                 if (banner) banner.style.display = 'none';
             }
         })();
-
-        function dismissBanner() {
-            const banner = document.getElementById('welcomeBanner');
-            if (banner) {
-                banner.style.animation = 'bannerSlideOut 0.4s ease forwards';
-                setTimeout(() => {
-                    banner.style.display = 'none';
-                }, 400);
-            }
-            localStorage.setItem('portal_banner_dismissed', '1');
-        }
     </script>
 </body>
 

@@ -58,7 +58,7 @@ docs/                   当前状态、架构、安全、配置、部署和历�
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt -c constraints.txt
 playwright install chromium
 ```
 

@@ -39,15 +39,15 @@ from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
 from src.notification_jobs import drain_notification_jobs, enqueue_notification_job
 from src.push.email_push import (
+    deliver_course_reminder_email_job,
     deliver_email_notification_job,
     send_email_notification,
-    send_enroll_reminder_email,
 )
 from src.enroll import auto_enroll_if_enabled
 from src.push.telegram_bot import (
+    deliver_course_reminder_telegram_job,
+    deliver_daily_summary_telegram_job,
     deliver_telegram_notification_job,
-    send_daily_summary_notification,
-    send_reminder_telegram,
     send_status_message,
 )
 from src.time_utils import now as business_now
@@ -805,6 +805,7 @@ async def _do_push(courses, config, session, event_type: str = "new", delivery_m
         delivery = await drain_notification_jobs(
             {"telegram": deliver_telegram_notification_job},
             limit=len(telegram_jobs),
+            job_types=["course_push"],
         )
         telegram_count = int(delivery["delivered_count"])
         if telegram_count > 0:
@@ -815,15 +816,31 @@ async def _do_push(courses, config, session, event_type: str = "new", delivery_m
     return pushed_count
 
 
+async def _deliver_scheduled_notification_job(job):
+    """按任务类型选择课程推送、选课提醒或每日汇总处理器。"""
+    if job.job_type == "course_reminder":
+        if job.channel == "email":
+            return await deliver_course_reminder_email_job(job)
+        if job.channel == "telegram":
+            return await deliver_course_reminder_telegram_job(job)
+    if job.job_type == "daily_summary" and job.channel == "telegram":
+        return await deliver_daily_summary_telegram_job(job)
+    if job.channel == "email":
+        return await deliver_email_notification_job(job)
+    if job.channel == "telegram":
+        return await deliver_telegram_notification_job(job)
+    return False
+
+
 async def drain_pending_notification_jobs():
     """定时恢复服务重启或外部通道故障后留下的通知任务。"""
     config = load_filter_config()
 
     handlers = {}
     if config.email_enabled:
-        handlers["email"] = deliver_email_notification_job
+        handlers["email"] = _deliver_scheduled_notification_job
     if config.telegram_enabled:
-        handlers["telegram"] = deliver_telegram_notification_job
+        handlers["telegram"] = _deliver_scheduled_notification_job
     if not handlers:
         return
 
@@ -1011,11 +1028,31 @@ async def run_daily_summary_task():
                 _log_push(passed_courses, "daily_email", len(passed_courses))
 
         if config.telegram_enabled:
-            telegram_ok = await send_daily_summary_notification(passed_courses)
-            if telegram_ok:
-                pushed_count += len(passed_courses)
-                run_status["total_push_telegram"] += len(passed_courses)
-                _log_push(passed_courses, "daily_telegram", len(passed_courses))
+            summary_day = business_now().strftime("%Y-%m-%d")
+            # 每日汇总按“日期 + 课程集合”幂等：同一天重复触发不会重复发送，
+            # 课程集合变化时才会生成新的任务。
+            enqueue_notification_job(
+                session,
+                channel="telegram",
+                course_ids=[course.id for course in passed_courses],
+                job_type="daily_summary",
+                event_type="new",
+                delivery_mode="digest_daily",
+                priority=10,
+                payload={"summary_date": summary_day},
+                dedupe_material=f"summary_date:{summary_day}",
+            )
+            session.commit()
+            delivery = await drain_notification_jobs(
+                {"telegram": _deliver_scheduled_notification_job},
+                limit=1,
+                worker_id="daily-summary",
+                job_types=["daily_summary"],
+            )
+            telegram_count = int(delivery["delivered_count"])
+            if telegram_count > 0:
+                pushed_count += telegram_count
+                run_status["total_push_telegram"] += telegram_count
 
         if pushed_count > 0:
             session.commit()
@@ -1055,8 +1092,9 @@ def _log_push(courses, push_type, count):
 
 
 async def check_course_reminders():
-    """检查并发送临近的选课提醒（每分钟执行）"""
+    """检查临近提醒并创建可恢复的投递任务（每分钟执行）。"""
     session = get_session()
+    reminder_jobs = []
     try:
         now = business_now()
         config = load_filter_config()
@@ -1081,59 +1119,79 @@ async def check_course_reminders():
 
         for reminder, course, sub in pending_reminders:
             if not course or not sub or is_course_expired(course, now):
-                reminder.sent = True  # 无效数据，标记为已发送
+                reminder.sent = True
                 continue
-
             if not course.enroll_start:
                 continue
 
-            # 计算现在到选课开始还有多少分钟
-            time_diff = course.enroll_start - now
-            minutes_left = time_diff.total_seconds() / 60
-
-            # 如果剩余时间 <= 设定的提醒时间（加上 1 分钟宽限，防止刚好跳过），且尚未过期
-            if 0 < minutes_left <= (reminder.remind_before_minutes + 1):
-                try:
-                    email_sent = (
-                        send_enroll_reminder_email(sub.email, course)
-                        if config.email_enabled
-                        else False
-                    )
-                    telegram_sent = (
-                        await send_reminder_telegram(course)
-                        if config.telegram_enabled
-                        else False
-                    )
-
-                    if email_sent or (config.telegram_enabled and telegram_sent):
-                        reminder.sent = True
-                        logger.info(
-                            f"已发送选课提醒: {_mask_email_for_log(sub.email)} -> {course.name} "
-                            f"(email={email_sent}, telegram={telegram_sent})"
-                        )
-                    elif config.email_enabled or config.telegram_enabled:
-                        logger.warning(
-                            f"选课提醒邮件发送失败，将保留待重试: {_mask_email_for_log(sub.email)} -> {course.name}"
-                        )
-                    else:
-                        logger.info("选课提醒未发送：邮件和 Telegram 通道均已关闭")
-
-                    if not telegram_sent:
-                        logger.debug(f"Telegram 选课提醒未发送: {course.name}")
-                except Exception as e:
-                    logger.error(f"发送选课提醒失败 {_mask_email_for_log(sub.email)} -> {course.name}: {e}")
-            elif minutes_left <= 0:
-                # 已经过了选课时间，标记为已发送
+            minutes_left = (course.enroll_start - now).total_seconds() / 60
+            if minutes_left <= 0:
                 logger.warning(
-                    f"选课提醒已过期未送达，标记为结束: {_mask_email_for_log(sub.email)} -> {course.name}"
+                    "选课提醒已过期未送达，标记为结束: {} -> {}",
+                    _mask_email_for_log(sub.email),
+                    course.name,
                 )
                 reminder.sent = True
+                continue
+            if minutes_left > reminder.remind_before_minutes + 1:
+                continue
+
+            payload = {
+                "reminder_id": reminder.id,
+                "expires_at": course.enroll_start.isoformat(),
+            }
+            for channel, enabled in (
+                ("email", config.email_enabled),
+                ("telegram", config.telegram_enabled),
+            ):
+                if not enabled:
+                    continue
+                reminder_jobs.append(
+                    enqueue_notification_job(
+                        session,
+                        channel=channel,
+                        subscriber_id=sub.id,
+                        subscriber_email=sub.email,
+                        course_ids=[course.id],
+                        job_type="course_reminder",
+                        event_type="enroll_reminder",
+                        delivery_mode="reminder",
+                        payload=payload,
+                        dedupe_material=f"reminder_id:{reminder.id}",
+                        max_attempts=3,
+                        reset_terminal_failure=False,
+                    )
+                )
 
         session.commit()
-    except Exception as e:
-        logger.error(f"检查选课提醒出错: {e}")
+    except Exception as error:
+        session.rollback()
+        logger.error("检查选课提醒出错: {}", error)
+        return
     finally:
         session.close()
+
+    if not reminder_jobs:
+        return
+
+    handlers = {}
+    if config.email_enabled:
+        handlers["email"] = _deliver_scheduled_notification_job
+    if config.telegram_enabled:
+        handlers["telegram"] = _deliver_scheduled_notification_job
+    delivery = await drain_notification_jobs(
+        handlers,
+        limit=len(reminder_jobs),
+        worker_id="course-reminders",
+        job_types=["course_reminder"],
+    )
+    logger.info(
+        "选课提醒任务处理完成: queued={} claimed={} succeeded={} failed={}",
+        len(reminder_jobs),
+        delivery["claimed"],
+        delivery["succeeded"],
+        delivery["failed"],
+    )
 
 
 # ═══════════════════════════════════════════════════════

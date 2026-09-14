@@ -11,7 +11,7 @@ import socket
 import smtplib
 import time
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
@@ -1103,6 +1103,7 @@ async def send_email_to_subscribers(
         delivery = await drain_notification_jobs(
             {"email": deliver_email_notification_job},
             limit=len(queued_jobs),
+            job_types=["course_push"],
         )
         return int(delivery["delivered_count"])
     except Exception:
@@ -1255,6 +1256,73 @@ async def send_enroll_result_email(course, success: bool, message: str = "") -> 
             if _send_raw_email(sub.email, _email_subject_text(f"选课{status_label}: {getattr(course, 'name', '')}"), html, from_kind="notify"):
                 sent += 1
         return sent > 0
+    finally:
+        session.close()
+
+
+async def deliver_course_reminder_email_job(job) -> NotificationDeliveryResult:
+    """投递一条持久化的选课邮件提醒。"""
+    from src.models import Course, CourseReminder, EmailSubscriber, NotificationEvent, get_session
+
+    session = get_session()
+    try:
+        reminder_id = job.payload.get("reminder_id")
+        reminder = session.query(CourseReminder).filter(CourseReminder.id == reminder_id).first()
+        if not reminder:
+            return NotificationDeliveryResult(True, message="提醒记录已删除，跳过投递")
+
+        course = session.query(Course).filter(Course.id == reminder.course_id).first()
+        subscriber = session.query(EmailSubscriber).filter(
+            EmailSubscriber.id == reminder.subscriber_id
+        ).first()
+        now = business_now()
+        expires_at_text = job.payload.get("expires_at")
+        try:
+            expires_at = datetime.fromisoformat(expires_at_text) if expires_at_text else None
+        except (TypeError, ValueError):
+            expires_at = None
+
+        if (
+            not course
+            or not subscriber
+            or not subscriber.verified
+            or not subscriber.active
+            or (subscriber.push_paused_until and now < subscriber.push_paused_until)
+            or not course.enroll_start
+            or is_course_expired(course, now)
+            or (expires_at and now >= expires_at)
+            or now >= course.enroll_start
+        ):
+            reminder.sent = True
+            session.commit()
+            return NotificationDeliveryResult(True, message="提醒已失效或被跳过")
+
+        ok = send_enroll_reminder_email(subscriber.email, course)
+        session.add(
+            NotificationEvent(
+                subscriber_id=subscriber.id,
+                subscriber_email=subscriber.email,
+                course_id=course.id,
+                course_name=course.name,
+                course_category=getattr(course, "category", "") or "",
+                event_type="enroll_reminder",
+                delivery_mode="reminder",
+                channel="email",
+                success=ok,
+                message=f"attempt={job.attempts};reminder_id={reminder.id}",
+            )
+        )
+        if not ok:
+            session.commit()
+            return NotificationDeliveryResult(False, message="选课提醒邮件发送失败")
+
+        reminder.sent = True
+        session.commit()
+        logger.info("选课提醒邮件发送成功: {} -> {}", _mask_email(subscriber.email), course.name)
+        return NotificationDeliveryResult(True, delivered_count=1, message="选课提醒邮件已发送")
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 

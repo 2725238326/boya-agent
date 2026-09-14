@@ -54,9 +54,12 @@ def main() -> None:
     if args.require_clean:
         _ensure_clean_worktree()
 
+    if not (PROJECT_ROOT / "constraints.txt").is_file():
+        parser.error("constraints.txt is missing; generate it in the project's tested virtual environment")
+    _run("Python dependency consistency", [sys.executable, "-m", "pip", "check"])
     _run(
         "Python compile check",
-        [sys.executable, "-m", "compileall", "-q", "src", "web", "tests"],
+        [sys.executable, "-m", "compileall", "-q", "src", "web", "tests", "scripts"],
     )
     _run("Python tests", [sys.executable, "-m", "pytest", "-q"])
     _run("Frontend syntax and TypeScript check", [_npm_command(), "run", "check"])

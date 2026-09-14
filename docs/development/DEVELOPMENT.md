@@ -4,9 +4,9 @@
 
 ## Windows 隔离测试环境
 
-与 CI 一样使用 Python 3.12。首次执行 `py -3.12 -m venv .venv`，然后执行 `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`。日常验证使用 `.venv\Scripts\python.exe scripts/verify_release.py`，不依赖系统默认 Python 或 Anaconda；`.venv/` 不提交到 Git。
+与 CI 一样使用 Python 3.12。首次执行 `py -3.12 -m venv .venv`，然后执行 `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c constraints.txt`。日常验证使用 `.venv\Scripts\python.exe scripts/verify_release.py`，不依赖系统默认 Python 或 Anaconda；`.venv/` 不提交到 Git。
 
-浏览器检查前在该环境运行 `python -m playwright install chromium`。依赖文件目前仍使用版本下限，没有完整锁定传递依赖；隔离环境不等于依赖锁定。
+浏览器检查前在该环境运行 `python -m playwright install chromium`。`requirements*.txt` 仍只声明版本下限，实际安装版本由仓库中的 `constraints.txt` 锁定；本地、CI 和生产部署都用 `-c constraints.txt` 安装。升级依赖后运行 `python scripts/freeze_constraints.py` 重新生成该文件，`--check` 可校验当前环境是否与文件一致。约束文件通过 `-c` 生效，只约束真正会安装的包，因此其中的平台专用包不会在 Linux 上被强制安装。
 
 门户浏览器回归：先运行 `python -m playwright install chromium`，再运行 `python scripts/verify_portal_browser.py`。所有请求使用固定样例，覆盖 390px/1280px 的无课、失败恢复、筛选和基础键盘焦点。无需生产账号，不发送邮件；这不替代真实课程业务验证。
 
@@ -68,7 +68,7 @@ npm run check
 ```bash
 python -m venv venv
 source venv/bin/activate
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt -c constraints.txt
 playwright install chromium
 ```
 
@@ -77,11 +77,11 @@ Windows PowerShell 可使用：
 ```powershell
 py -m venv venv
 .\venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt -c constraints.txt
 playwright install chromium
 ```
 
-生产服务只需要 `requirements.txt`；`requirements-dev.txt` 在其基础上增加 pytest，用于本地和 CI 测试。
+生产服务只需要 `requirements.txt`；`requirements-dev.txt` 在其基础上增加 pytest，用于本地和 CI 测试。两者都配合 `constraints.txt` 安装，保证各环境解析出相同的传递依赖版本。
 
 复制 `config/.env.example` 为 `.env`，至少设置随机 `WEB_SECRET_KEY` 和管理员认证；直接导入 `web.app` 也会检查密钥长度。真实北航、SMTP 和 Telegram 凭据只放在本地或服务器，不放入测试文件。
 
@@ -146,7 +146,7 @@ npm run check
 
 课程是否结束、是否可报名、自主签到和热门判断只能在 `src/course_state.py` 增加或修改。筛选、抓取、门户、邮件、Telegram、RSS 和二维码复用该模块，不在调用方重新判断。
 
-发送新通知时，把“选择收件人”“决定事件/时间窗口”“发送渠道”“记录结果”分开。课程邮件和课程 Telegram 推送当前通过 `src/notification_jobs.py` 持久化任务投递；提醒、每日摘要和站点调整通知仍需单独核对旧路径。检查 `email_enabled`、`telegram_enabled`、`rss_enabled` 和每日摘要开关的实际语义，并为开关关闭、发送成功、发送失败、重试和重复事件分别测试。
+发送新通知时，把“选择收件人”“决定事件/时间窗口”“发送渠道”“记录结果”分开。课程邮件、课程 Telegram、选课提醒和 Telegram 每日汇总当前都通过 `src/notification_jobs.py` 持久化任务投递，调度器按 `job_type` 分派到对应处理器；站点调整通知和自动选课结果仍是直投路径，修改时单独核对。检查 `email_enabled`、`telegram_enabled`、`rss_enabled` 和每日摘要开关的实际语义，并为开关关闭、发送成功、发送失败、重试和重复事件分别测试。
 
 ## 提交前清单
 

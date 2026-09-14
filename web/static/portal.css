@@ -524,6 +524,11 @@ body.portal-body {
     color: var(--portal-danger);
 }
 
+.portal-notify-type.enroll_reminder {
+    background: rgba(52, 199, 89, 0.12);
+    color: #1f7a3a;
+}
+
 /* delivery_mode 推送模式标签 */
 .portal-notify-mode {
     padding: 4px 10px;
@@ -1798,6 +1803,10 @@ body.portal-body {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.18s ease;
+}
+
+.portal-onboarding-overlay[hidden] {
+    display: none;
 }
 
 .portal-onboarding-overlay.open {

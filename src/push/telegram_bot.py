@@ -6,6 +6,7 @@ Telegram Bot 推送模块
 import os
 import asyncio
 from typing import List
+from datetime import datetime
 from loguru import logger
 
 from src.course_state import get_check_in_display_label, is_course_expired, is_self_check_in
@@ -179,6 +180,47 @@ async def deliver_telegram_notification_job(job) -> NotificationDeliveryResult:
     )
 
 
+async def deliver_daily_summary_telegram_job(job) -> NotificationDeliveryResult:
+    """投递一条持久化的 Telegram 每日汇总任务；课程在发送前重新校验。"""
+    from src.models import Course, PushLog, get_session
+
+    course_ids = job.course_ids
+    if not course_ids:
+        return NotificationDeliveryResult(True, message="任务没有课程")
+
+    session = get_session()
+    try:
+        course_map = {
+            course.id: course
+            for course in session.query(Course).filter(Course.id.in_(course_ids)).all()
+        }
+        courses = [course_map[course_id] for course_id in course_ids if course_id in course_map]
+        courses = [course for course in courses if not is_course_expired(course)]
+        if not courses:
+            return NotificationDeliveryResult(True, message="课程已不可用，跳过每日汇总")
+
+        ok = await send_daily_summary_notification(courses)
+        if not ok:
+            return NotificationDeliveryResult(False, message="Telegram 每日汇总发送失败")
+
+        now = business_now()
+        session.add_all(
+            PushLog(course_id=course.id, push_type="daily_telegram", pushed_at=now, success=True)
+            for course in courses
+        )
+        session.commit()
+        return NotificationDeliveryResult(
+            True,
+            delivered_count=len(courses),
+            message=f"Telegram 每日汇总已发送: {len(courses)} 门课程",
+        )
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 async def send_daily_summary_notification(courses: list) -> bool:
     """
     发送每日汇总通知（单条或分段）
@@ -325,6 +367,72 @@ async def send_status_message(text: str) -> bool:
     except Exception as e:
         logger.error(f"Telegram 消息发送失败: {e}")
         return False
+
+
+async def deliver_course_reminder_telegram_job(job) -> NotificationDeliveryResult:
+    """投递一条持久化的选课 Telegram 提醒。"""
+    from src.models import Course, CourseReminder, EmailSubscriber, NotificationEvent, get_session
+
+    session = get_session()
+    try:
+        reminder_id = job.payload.get("reminder_id")
+        reminder = session.query(CourseReminder).filter(CourseReminder.id == reminder_id).first()
+        if not reminder:
+            return NotificationDeliveryResult(True, message="提醒记录已删除，跳过投递")
+
+        course = session.query(Course).filter(Course.id == reminder.course_id).first()
+        subscriber = session.query(EmailSubscriber).filter(
+            EmailSubscriber.id == reminder.subscriber_id
+        ).first()
+        now = business_now()
+        expires_at_text = job.payload.get("expires_at")
+        try:
+            expires_at = datetime.fromisoformat(expires_at_text) if expires_at_text else None
+        except (TypeError, ValueError):
+            expires_at = None
+
+        if (
+            not course
+            or not subscriber
+            or not subscriber.verified
+            or not subscriber.active
+            or not course.enroll_start
+            or is_course_expired(course, now)
+            or (expires_at and now >= expires_at)
+            or now >= course.enroll_start
+        ):
+            reminder.sent = True
+            session.commit()
+            return NotificationDeliveryResult(True, message="提醒已失效或被跳过")
+
+        ok = await send_reminder_telegram(course)
+        session.add(
+            NotificationEvent(
+                subscriber_id=subscriber.id,
+                subscriber_email=subscriber.email,
+                course_id=course.id,
+                course_name=course.name,
+                course_category=getattr(course, "category", "") or "",
+                event_type="enroll_reminder",
+                delivery_mode="reminder",
+                channel="telegram",
+                success=ok,
+                message=f"attempt={job.attempts};reminder_id={reminder.id}",
+            )
+        )
+        if not ok:
+            session.commit()
+            return NotificationDeliveryResult(False, message="选课 Telegram 提醒发送失败")
+
+        reminder.sent = True
+        session.commit()
+        logger.info("选课 Telegram 提醒发送成功: {}", course.name)
+        return NotificationDeliveryResult(True, delivered_count=1, message="选课 Telegram 提醒已发送")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 async def send_reminder_telegram(course) -> bool:

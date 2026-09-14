@@ -8,6 +8,7 @@ on:
       - 'web/**'
       - 'config/**'
       - 'requirements.txt'
+      - 'constraints.txt'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+          cache-dependency-path: |
+            requirements*.txt
+            constraints.txt
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -39,7 +43,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt -c constraints.txt
 
       - name: Install frontend tooling
         run: npm ci
@@ -164,7 +168,7 @@ jobs:
               python3 -m venv venv
             fi
 
-            ./venv/bin/pip install -r requirements.txt
+            ./venv/bin/pip install -r requirements.txt -c constraints.txt
             ./venv/bin/python -m compileall -q src web tests
 
             EMAIL_WAS_ENABLED="$(python3 - "$DATABASE_PATH" <<'PY'

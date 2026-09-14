@@ -16,6 +16,21 @@ async function fetchJson(url) {
     return data;
 }
 
+/** 首页概览的本地倒计时状态：只在加载时请求一次，之后在浏览器内每分钟重算。 */
+/** @type {number | null} */
+let homeNextEnrollDeadline = null;
+/** @type {number | null} */
+let homeInsightsTimer = null;
+
+function renderHomeCountdown() {
+    const nextHintEl = document.getElementById('nextEnrollHint');
+    if (!nextHintEl || homeNextEnrollDeadline === null) return;
+    const secondsLeft = Math.round((homeNextEnrollDeadline - Date.now()) / 1000);
+    nextHintEl.textContent = secondsLeft <= 0
+        ? '已到开抢时间，请到官方选课页确认。'
+        : formatCountdown(secondsLeft);
+}
+
 async function loadHomeInsights() {
     const availableEl = document.getElementById('availableCount');
     const activeEl = document.getElementById('activeCount');
@@ -36,12 +51,18 @@ async function loadHomeInsights() {
 
         if (payload.next_enroll) {
             nextNameEl.textContent = payload.next_enroll.course_name || '即将开抢';
-            nextHintEl.textContent = formatCountdown(payload.next_enroll.seconds_left || 0);
+            homeNextEnrollDeadline = Date.now() + Math.max(0, Number(payload.next_enroll.seconds_left || 0)) * 1000;
+            renderHomeCountdown();
+            if (homeInsightsTimer === null) {
+                homeInsightsTimer = window.setInterval(renderHomeCountdown, 60000);
+            }
         } else {
+            homeNextEnrollDeadline = null;
             nextNameEl.textContent = '暂无即将开抢课程';
-            nextHintEl.textContent = '有新课程进入开抢窗口后，这里会自动更新。';
+            nextHintEl.textContent = '重新加载课程列表后，这里会显示最近的开抢时间。';
         }
     } catch (err) {
+        homeNextEnrollDeadline = null;
         generatedAtEl.textContent = '暂不可用';
         nextNameEl.textContent = '数据加载失败';
         nextHintEl.textContent = '请稍后刷新首页重试。';
@@ -85,7 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('courseFilters')?.addEventListener('submit', event => event.preventDefault());
     document.getElementById('courseFilters')?.addEventListener('input', renderPublicCourses);
     document.getElementById('courseFilters')?.addEventListener('reset', () => setTimeout(renderPublicCourses, 0));
-    document.getElementById('reloadCourses')?.addEventListener('click', loadPublicCourses);
+    document.getElementById('reloadCourses')?.addEventListener('click', () => {
+        loadPublicCourses();
+        loadHomeInsights();
+    });
 });
 
 /** @type {Array<Record<string, any>>} */

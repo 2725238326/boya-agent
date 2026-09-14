@@ -25,6 +25,7 @@ let courseRequestController = null;
 let courseRequestSerial = 0;
 let portalRemindersRequest = null;
 let portalNotificationsRequest = null;
+let notificationRequestSerial = 0;
 let portalDataRequest = null;
 
 function setCourseGridBusy(isBusy) {
@@ -160,27 +161,52 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(renderPortalRefreshMeta, 30000);
 });
 
+let portalBannerDismissTimer = null;
+
 function toggleFeedbackFloat() {
     const box = document.getElementById('portalFeedbackFloat');
-    if (!box) return;
-    box.classList.toggle('expanded');
+    const toggle = document.getElementById('portalFeedbackToggle');
+    const panel = document.getElementById('portalFeedbackPanel');
+    if (!box || !toggle || !panel) return;
+    const expanded = !box.classList.contains('expanded');
+    box.classList.toggle('expanded', expanded);
+    toggle.setAttribute('aria-expanded', String(expanded));
+    panel.setAttribute('aria-hidden', String(!expanded));
 }
 
 function toggleWelcomeBanner() {
     const banner = document.getElementById('welcomeBanner');
     const btn = document.getElementById('portalHelpButton');
     if (!banner) return;
+    if (portalBannerDismissTimer) {
+        window.clearTimeout(portalBannerDismissTimer);
+        portalBannerDismissTimer = null;
+    }
     const shouldOpen = !banner.classList.contains('mobile-open');
+    if (shouldOpen) {
+        banner.style.display = '';
+        banner.style.animation = '';
+    }
     banner.classList.toggle('mobile-open', shouldOpen);
     btn?.classList.toggle('active', shouldOpen);
+    btn?.setAttribute('aria-expanded', String(shouldOpen));
 }
 
 function dismissBanner() {
     const banner = document.getElementById('welcomeBanner');
     const btn = document.getElementById('portalHelpButton');
     if (!banner) return;
+    if (portalBannerDismissTimer) window.clearTimeout(portalBannerDismissTimer);
     banner.classList.remove('mobile-open');
     btn?.classList.remove('active');
+    btn?.setAttribute('aria-expanded', 'false');
+    banner.style.animation = 'bannerSlideOut 0.4s ease forwards';
+    portalBannerDismissTimer = window.setTimeout(() => {
+        banner.style.display = 'none';
+        banner.style.animation = '';
+        portalBannerDismissTimer = null;
+    }, 400);
+    localStorage.setItem('portal_banner_dismissed', '1');
 }
 
 function toggleFirstRunSettingsHint(visible) {
@@ -189,20 +215,67 @@ function toggleFirstRunSettingsHint(visible) {
     tip.hidden = !visible;
 }
 
+let portalOnboardingReturnFocus = null;
+
+function _portalOnboardingFocusables() {
+    const dialog = document.querySelector('#portalOnboardingOverlay .portal-onboarding-dialog');
+    if (!dialog) return [];
+    return Array.from(dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+function _handlePortalOnboardingKeydown(event) {
+    const overlay = document.getElementById('portalOnboardingOverlay');
+    if (!overlay || overlay.hidden) return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        void finishPortalOnboarding('browse');
+        return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusables = _portalOnboardingFocusables();
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
 function openPortalOnboarding() {
     const overlay = document.getElementById('portalOnboardingOverlay');
     if (!overlay) return;
+    portalOnboardingReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     overlay.hidden = false;
-    requestAnimationFrame(() => overlay.classList.add('open'));
+    // 先让浏览器完成一次布局，再加 open，否则淡入过渡不会播放。
+    void overlay.offsetHeight;
+    document.addEventListener('keydown', _handlePortalOnboardingKeydown);
+    requestAnimationFrame(() => {
+        overlay.classList.add('open');
+        // 默认聚焦第一个操作（先看课程），与引导文案推荐的路径一致。
+        _portalOnboardingFocusables()[0]?.focus();
+    });
 }
 
 function closePortalOnboarding() {
     const overlay = document.getElementById('portalOnboardingOverlay');
     if (!overlay) return;
+    document.removeEventListener('keydown', _handlePortalOnboardingKeydown);
     overlay.classList.remove('open');
     setTimeout(() => {
         overlay.hidden = true;
     }, 180);
+    const target = portalOnboardingReturnFocus;
+    portalOnboardingReturnFocus = null;
+    if (target && document.contains(target) && target !== document.body) {
+        target.focus();
+    } else {
+        document.getElementById('tab-courses')?.focus();
+    }
 }
 
 async function markPortalOnboardingSeen() {
@@ -927,10 +1000,17 @@ function renderSettings(sub, categories) {
     if (chipRow && categories.length) {
         const selectedCats = sub.categories || [];
         chipRow.innerHTML = categories.map(cat => {
-            const isActive = selectedCats.includes(cat) ? 'active' : '';
-            return `<span class="portal-chip ${isActive}" onclick="this.classList.toggle('active')">${escapeHtml(cat)}</span>`;
+            const isActive = selectedCats.includes(cat);
+            return `<button type="button" class="portal-chip ${isActive ? 'active' : ''}"
+                aria-pressed="${isActive}" onclick="togglePortalCategory(this)">${escapeHtml(cat)}</button>`;
         }).join('');
     }
+}
+
+function togglePortalCategory(button) {
+    if (!button) return;
+    const active = button.classList.toggle('active');
+    button.setAttribute('aria-pressed', String(active));
 }
 
 async function saveSettings() {
@@ -1048,22 +1128,30 @@ function renderNotifications(notifications) {
         'digest_daily': '\u6bcf\u65e5\u6c47\u603b',
     };
 
+    const eventTypeLabel = {
+        'new': '\u65b0\u53d1\u73b0',
+        'snipe': '\u9000\u8bfe\u8865\u4f4d',
+        'enroll_reminder': '\u9009\u8bfe\u63d0\u9192',
+    };
+    const channelLabel = { email: '\u90ae\u4ef6', telegram: 'Telegram' };
+
     container.innerHTML = notifications.map(item => {
-        const typeClass = item.event_type === 'snipe' ? 'snipe' : 'new';
-        const typeText = item.event_type === 'snipe' ? '\u9000\u8bfe\u8865\u4f4d' : '\u65b0\u53d1\u73b0';
+        const typeClass = eventTypeLabel[item.event_type] ? item.event_type : 'new';
+        const typeText = eventTypeLabel[item.event_type] || eventTypeLabel.new;
         const statusText = item.success ? '\u5df2\u9001\u8fbe' : '\u53d1\u9001\u5931\u8d25';
         const statusClass = item.success ? 'success' : 'failed';
         const dm = item.delivery_mode || '';
-        const modeLabel = item.event_type === 'snipe' ? '' : (deliveryModeLabel[dm] || '');
+        const modeLabel = item.event_type === 'new' ? (deliveryModeLabel[dm] || '') : '';
         const modeBadge = modeLabel
             ? `<span class="portal-notify-mode ${escapeHtml(dm)}">${modeLabel}</span>`
             : '';
+        const channelText = channelLabel[item.channel] || '';
         return `
         <div class="portal-notify-item">
             <div class="portal-notify-main">
                 <div class="portal-notify-title">${escapeHtml(item.course_name || '\u672a\u77e5\u8bfe\u7a0b')}</div>
                 <div class="portal-notify-meta">
-                    ${escapeHtml(item.course_category || '\u672a\u5206\u7c7b')} \u00b7 ${escapeHtml(item.sent_at || '')}
+                    ${escapeHtml(item.course_category || '\u672a\u5206\u7c7b')} \u00b7 ${escapeHtml(item.sent_at || '')}${channelText ? ` \u00b7 ${channelText}` : ''}
                 </div>
             </div>
             <div class="portal-notify-badges">
@@ -1103,10 +1191,16 @@ async function reloadNotifications(force = true) {
     const hours = Number(document.getElementById('notifyRangeFilter')?.value || portalState.notificationsHours || 24);
     portalState.notificationsHours = Math.max(1, Math.min(168, hours));
     if (portalNotificationsRequest && !force) return portalNotificationsRequest;
+    // 快速切换时间范围会并发发出多个请求；只接受最后一次请求的结果，
+    // 避免较慢的旧响应覆盖用户当前选择。
+    const serial = ++notificationRequestSerial;
     portalNotificationsRequest = portalApi(`/api/subscriber/session/notifications?hours=${portalState.notificationsHours}&limit=300`, {
         suppressErrorToast: true,
     });
     const res = await portalNotificationsRequest;
+    if (serial !== notificationRequestSerial) {
+        return { success: false, aborted: true, stale: true };
+    }
     if (res.success) {
         portalState.notifications = res.data || [];
         portalState.notificationsLoaded = true;
@@ -1208,6 +1302,7 @@ function _renderUpcomingSummary() {
     countEl.textContent = String(count);
     toggleEl.textContent = _upcomingExpanded ? '\u6536\u8d77' : '\u5c55\u5f00';
     summaryEl.classList.toggle('expanded', _upcomingExpanded);
+    summaryEl.setAttribute('aria-expanded', String(_upcomingExpanded));
 
     if (!count) {
         summaryTextEl.textContent = '24 \u5c0f\u65f6\u5185\u6682\u65f6\u65e0\u5f00\u62a2\u8bfe\u7a0b';

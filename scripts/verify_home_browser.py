@@ -51,13 +51,18 @@ def main():
                         return route.fulfill(json={'success': True, 'data': courses, 'source': {
                             'last_success': '2026-09-08 10:00:00', 'degraded': True}})
                     if path == '/api/public/insights':
-                        return route.fulfill(json={'success': True, 'data': {'available_count': 2, 'active_count': 4}})
+                        return route.fulfill(json={'success': True, 'data': {'available_count': 2, 'active_count': 4,
+                            'next_enroll': {'course_name': '倒计时样例', 'seconds_left': 30}}})
                     return route.fulfill(status=401, json={'success': False})
 
                 page.route('**/*', respond)
                 page.goto('http://fixture.test/')
                 grid = page.locator('#publicCourseGrid')
                 expect(grid.locator('article')).to_have_count(4)
+                expect(page.locator('#nextEnrollName')).to_have_text('倒计时样例')
+                expect(page.locator('#nextEnrollHint')).to_have_text('1 分钟内开抢')
+                page.evaluate('homeNextEnrollDeadline = Date.now() - 1000; renderHomeCountdown()')
+                expect(page.locator('#nextEnrollHint')).to_contain_text('已到开抢时间')
                 expect(grid.locator('img')).to_have_count(0)
                 expect(page.locator('#courseSource')).to_contain_text('最近采集异常')
                 page.locator('#courseState').select_option('upcoming')

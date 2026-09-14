@@ -81,6 +81,7 @@ def enqueue_notification_job(
     idempotency_key: Optional[str] = None,
     max_attempts: int = 3,
     available_at=None,
+    reset_terminal_failure: bool = True,
 ) -> NotificationJob:
     """幂等创建通知任务；重复请求只返回已有任务。"""
 
@@ -108,7 +109,8 @@ def enqueue_notification_job(
         # 同一业务信号在达到重试上限后再次出现时，允许新一轮有限重试；
         # 成功任务始终不会被重置，避免重复成功投递。
         if (
-            existing.status == NotificationJobStatus.FAILED
+            reset_terminal_failure
+            and existing.status == NotificationJobStatus.FAILED
             and int(existing.attempts or 0) >= int(existing.max_attempts or 1)
         ):
             existing.status = NotificationJobStatus.PENDING
@@ -156,10 +158,15 @@ def claim_next_notification_job(
     session,
     *,
     channels: Optional[Iterable[str]] = None,
+    job_types: Optional[Iterable[str]] = None,
     worker_id: str = "",
     lease_seconds: int = 180,
 ) -> Optional[NotificationJob]:
-    """原子地领取一条到期任务，并把它标记为处理中。"""
+    """原子地领取一条到期任务，并把它标记为处理中。
+
+    ``job_types`` 让即时投递只领取自己创建的任务类型；同一渠道上还有提醒、
+    每日汇总等其他类型时，不会被不匹配的处理器误领。
+    """
 
     now = business_now()
     stale_before = now - timedelta(seconds=max(30, int(lease_seconds)))
@@ -184,6 +191,9 @@ def claim_next_notification_job(
     normalized_channels = [str(channel) for channel in (channels or []) if channel]
     if normalized_channels:
         query = query.filter(NotificationJob.channel.in_(normalized_channels))
+    normalized_job_types = [str(job_type) for job_type in (job_types or []) if job_type]
+    if normalized_job_types:
+        query = query.filter(NotificationJob.job_type.in_(normalized_job_types))
     while True:
         candidate = (
             query.order_by(
@@ -263,13 +273,25 @@ def claim_next_notification_job(
     return candidate
 
 
-def mark_notification_job_success(session, job_id: int, message: str = "") -> bool:
-    """把任务标记为成功，清理租约。"""
+def _owned_notification_job_query(session, claimed_job: NotificationJob):
+    """只允许领取时的执行者更新任务，阻止过期执行结果覆盖新租约。"""
+
+    if claimed_job.locked_at is None or not claimed_job.attempts:
+        raise ValueError("notification completion requires a claimed lease")
+    return session.query(NotificationJob).filter(
+        NotificationJob.id == claimed_job.id,
+        NotificationJob.status == NotificationJobStatus.PROCESSING,
+        NotificationJob.locked_at == claimed_job.locked_at,
+        NotificationJob.attempts == claimed_job.attempts,
+    )
+
+
+def mark_notification_job_success(session, claimed_job: NotificationJob, message: str = "") -> bool:
+    """把仍持有当前租约的任务标记为成功，清理租约。"""
 
     now = business_now()
     updated = (
-        session.query(NotificationJob)
-        .filter(NotificationJob.id == job_id)
+        _owned_notification_job_query(session, claimed_job)
         .update(
             {
                 NotificationJob.status: NotificationJobStatus.SUCCEEDED,
@@ -279,7 +301,7 @@ def mark_notification_job_success(session, job_id: int, message: str = "") -> bo
                 NotificationJob.last_error: message or "",
                 NotificationJob.updated_at: now,
             },
-            synchronize_session=False,
+            synchronize_session="fetch",
         )
     )
     commit_with_retry(session)
@@ -288,30 +310,31 @@ def mark_notification_job_success(session, job_id: int, message: str = "") -> bo
 
 def mark_notification_job_failure(
     session,
-    job_id: int,
+    claimed_job: NotificationJob,
     error: str,
     *,
     retry_base_seconds: int = 30,
 ) -> bool:
-    """记录失败并安排指数退避；超过上限后保留为终态失败。"""
-
-    job = session.query(NotificationJob).filter(NotificationJob.id == job_id).first()
-    if not job:
-        return False
+    """按领取时的租约原子记录失败和退避；过期执行者不能重置任务。"""
 
     now = business_now()
-    attempts = int(job.attempts or 0)
-    retryable = attempts < int(job.max_attempts or 1)
+    attempts = int(claimed_job.attempts or 0)
+    retryable = attempts < int(claimed_job.max_attempts or 1)
     delay = max(0, int(retry_base_seconds)) * (2 ** max(0, attempts - 1))
     safe_error = str(error or "notification delivery failed").strip()[:1000]
-    job.status = NotificationJobStatus.FAILED
-    job.locked_at = None
-    job.completed_at = None
-    job.available_at = now + timedelta(seconds=delay) if retryable else None
-    job.last_error = safe_error
-    job.updated_at = now
+    updated = _owned_notification_job_query(session, claimed_job).update(
+        {
+            NotificationJob.status: NotificationJobStatus.FAILED,
+            NotificationJob.locked_at: None,
+            NotificationJob.completed_at: None,
+            NotificationJob.available_at: now + timedelta(seconds=delay) if retryable else None,
+            NotificationJob.last_error: safe_error,
+            NotificationJob.updated_at: now,
+        },
+        synchronize_session="fetch",
+    )
     commit_with_retry(session)
-    return True
+    return updated == 1
 
 
 async def drain_notification_jobs(
@@ -320,11 +343,13 @@ async def drain_notification_jobs(
     limit: int = 20,
     worker_id: str = "",
     lease_seconds: int = 180,
+    job_types: Optional[Iterable[str]] = None,
 ) -> dict:
     """领取并执行有限数量的任务，供即时推送和定时恢复共同使用。"""
 
     normalized_limit = max(1, min(100, int(limit)))
     worker_id = worker_id or f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    job_type_filter = [str(job_type) for job_type in (job_types or []) if job_type]
     result = {
         "claimed": 0,
         "succeeded": 0,
@@ -346,6 +371,7 @@ async def drain_notification_jobs(
             job = claim_next_notification_job(
                 claim_session,
                 channels=active_handlers.keys(),
+                job_types=job_type_filter,
                 worker_id=worker_id,
                 lease_seconds=lease_seconds,
             )
@@ -380,12 +406,17 @@ async def drain_notification_jobs(
         finish_session = get_session()
         try:
             if delivery.success:
-                mark_notification_job_success(finish_session, job.id, delivery.message)
-                result["succeeded"] += 1
-                result["delivered_count"] += max(0, int(delivery.delivered_count or 0))
+                updated = mark_notification_job_success(finish_session, job, delivery.message)
+                if updated:
+                    result["succeeded"] += 1
+                    result["delivered_count"] += max(0, int(delivery.delivered_count or 0))
             else:
-                mark_notification_job_failure(finish_session, job.id, delivery.message or "notification delivery failed")
-                result["failed"] += 1
+                updated = mark_notification_job_failure(finish_session, job, delivery.message or "notification delivery failed")
+                if updated:
+                    result["failed"] += 1
+            if not updated:
+                logger.warning("notification job result ignored after lease changed: id={} attempt={}",
+                               job.id, job.attempts)
         except Exception:
             finish_session.rollback()
             logger.exception("notification job state update failed: id={}", job.id)

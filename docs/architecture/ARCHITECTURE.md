@@ -98,8 +98,9 @@ asyncio + APScheduler
 - 每日摘要：由 `daily_summary_enabled` 控制，且每个通道仍受对应开关控制。
 - RSS/Atom：由 `rss_enabled` 控制公开源，不依赖邮件或 Telegram 开关。
 - 所有用户通知时间和去重记录写入 `notification_events`；传统课程推送记录写入 `push_logs`。
-- 课程邮件和课程 Telegram 推送按订阅者/课程生成幂等任务。任务经过 `pending → processing → succeeded/failed` 状态流转，处理中的任务带租约，临时失败按指数退避，服务重启后由 `NOTIFICATION_DRAIN_SECONDS` 定时任务继续处理。
-- 当前 outbox 只覆盖课程推送；选课提醒、每日汇总和站点调整通知仍保留旧的直投路径，不能在汇报中写成“所有通知已统一”。
+- 课程邮件、课程 Telegram、选课提醒和 Telegram 每日汇总都生成幂等任务：课程推送按订阅者/课程，提醒按提醒记录/渠道，每日汇总按日期/课程集合。任务经过 `pending → processing → succeeded/failed` 状态流转，处理中的任务带租约，临时失败按指数退避，服务重启后由 `NOTIFICATION_DRAIN_SECONDS` 定时任务继续处理；调度器按 `job_type` 把任务分派到对应处理器。
+- 选课提醒的每次投递尝试也写入 `notification_events`（事件类型 `enroll_reminder`），门户通知中心据此展示提醒的渠道和结果；`course_reminders.sent` 只是任一渠道成功或提醒失效后的兼容聚合标记。
+- 站点调整通知和自动选课结果仍保留旧的直投路径，不能在汇报中写成“所有通知已统一”。
 
 ## 二维码流
 

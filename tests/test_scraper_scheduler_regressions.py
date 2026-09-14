@@ -563,6 +563,66 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
 
         self.assertEqual([row.id for row in rows], ["active-open"])
 
+    def test_check_course_reminders_enqueues_one_job_per_enabled_channel(self):
+        now = business_now()
+        session = self.Session()
+        try:
+            course = Course(
+                id="outbox-reminder-course",
+                name="Outbox提醒课程",
+                enroll_start=now + timedelta(minutes=3),
+                enroll_end=now + timedelta(hours=2),
+                end_time=now + timedelta(days=1),
+                capacity=30,
+                enrolled=10,
+                expired=False,
+            )
+            subscriber = EmailSubscriber(
+                email="outbox-reminder@example.com",
+                verified=True,
+                active=True,
+            )
+            session.add_all([course, subscriber])
+            session.flush()
+            reminder = CourseReminder(
+                subscriber_id=subscriber.id,
+                course_id=course.id,
+                remind_before_minutes=5,
+                sent=False,
+            )
+            session.add(reminder)
+            session.commit()
+            reminder_id = reminder.id
+        finally:
+            session.close()
+
+        config = FilterConfig(id=1, email_enabled=True, telegram_enabled=True)
+        drain_result = {"claimed": 0, "succeeded": 0, "failed": 0, "delivered_count": 0}
+        with (
+            patch("src.scheduler.get_session", side_effect=lambda: self.Session()),
+            patch("src.scheduler.load_filter_config", return_value=config),
+            patch("src.scheduler.drain_notification_jobs", new=AsyncMock(return_value=drain_result)) as drain_mock,
+        ):
+            asyncio.run(scheduler.check_course_reminders())
+            asyncio.run(scheduler.check_course_reminders())
+
+        verify = self.Session()
+        try:
+            jobs = verify.query(NotificationJob).order_by(NotificationJob.channel).all()
+            self.assertEqual([job.channel for job in jobs], ["email", "telegram"])
+            self.assertTrue(all(job.job_type == "course_reminder" for job in jobs))
+            self.assertTrue(all(job.event_type == "enroll_reminder" for job in jobs))
+            self.assertTrue(all(job.delivery_mode == "reminder" for job in jobs))
+            self.assertTrue(all(job.payload["reminder_id"] == reminder_id for job in jobs))
+            self.assertTrue(all("outbox-reminder@example.com" not in job.idempotency_key for job in jobs))
+            self.assertFalse(verify.get(CourseReminder, reminder_id).sent)
+        finally:
+            verify.close()
+
+        self.assertEqual(drain_mock.await_count, 2)
+        self.assertEqual(drain_mock.await_args_list[0].kwargs["limit"], 2)
+        self.assertEqual(drain_mock.await_args_list[1].kwargs["limit"], 2)
+
     def test_check_course_reminders_uses_one_join_query(self):
         now = business_now()
         session = self.Session()
@@ -617,8 +677,105 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
                 asyncio.run(scheduler.check_course_reminders())
         finally:
             event.remove(self.engine, "before_cursor_execute", count_statements)
+            session.close()
 
         self.assertEqual(1, statement_count)
+
+    def test_scheduled_drain_dispatches_reminder_jobs_to_reminder_handler(self):
+        reminder_job = types.SimpleNamespace(job_type="course_reminder", channel="email")
+        config = FilterConfig(id=1, email_enabled=True, telegram_enabled=False)
+        with (
+            patch("src.scheduler.load_filter_config", return_value=config),
+            patch("src.scheduler.drain_notification_jobs", new=AsyncMock(return_value={
+                "claimed": 1,
+                "succeeded": 1,
+                "failed": 0,
+                "delivered_count": 1,
+            })) as drain_mock,
+            patch("src.scheduler.deliver_course_reminder_email_job", new=AsyncMock(
+                return_value=True
+            )) as reminder_handler,
+        ):
+            asyncio.run(scheduler.drain_pending_notification_jobs())
+            handler = drain_mock.await_args.args[0]["email"]
+            asyncio.run(handler(reminder_job))
+
+        reminder_handler.assert_awaited_once_with(reminder_job)
+
+    def test_scheduled_drain_dispatches_daily_summary_jobs_to_summary_handler(self):
+        summary_job = types.SimpleNamespace(job_type="daily_summary", channel="telegram")
+        course_job = types.SimpleNamespace(job_type="course_push", channel="telegram")
+        with (
+            patch("src.scheduler.deliver_daily_summary_telegram_job", new=AsyncMock(return_value=True)) as summary_handler,
+            patch("src.scheduler.deliver_telegram_notification_job", new=AsyncMock(return_value=True)) as course_handler,
+        ):
+            asyncio.run(scheduler._deliver_scheduled_notification_job(summary_job))
+            asyncio.run(scheduler._deliver_scheduled_notification_job(course_job))
+
+        summary_handler.assert_awaited_once_with(summary_job)
+        course_handler.assert_awaited_once_with(course_job)
+
+    def test_daily_summary_persists_one_telegram_job_per_day(self):
+        now = business_now()
+        session = self.Session()
+        try:
+            for index in range(2):
+                session.add(
+                    Course(
+                        id=f"daily-{index}",
+                        name=f"每日汇总课程{index}",
+                        category="文化",
+                        campus="全部校区",
+                        check_in_method="自主签到",
+                        enroll_start=now + timedelta(days=2),
+                        enroll_end=now + timedelta(days=3),
+                        end_time=now + timedelta(days=4),
+                        capacity=50,
+                        enrolled=5,
+                        expired=False,
+                        first_seen=now,
+                    )
+                )
+            session.commit()
+        finally:
+            session.close()
+
+        # 直接构造的配置不会应用数据库默认值，过滤器读取的 JSON 字段必须显式给出。
+        config = FilterConfig(
+            id=1,
+            email_enabled=False,
+            telegram_enabled=True,
+            self_sign_only=False,
+            strict_boya_only=False,
+            min_remaining=1,
+            campus_filter="",
+            categories_json="[]",
+            keyword_whitelist_json="[]",
+            keyword_blacklist_json="[]",
+            priority_keywords_json="[]",
+        )
+        drain_result = {"claimed": 1, "succeeded": 1, "failed": 0, "delivered_count": 2}
+        with (
+            patch("src.scheduler.get_session", side_effect=lambda: self.Session()),
+            patch("src.scheduler.load_filter_config", return_value=config),
+            patch("src.scheduler.drain_notification_jobs", new=AsyncMock(return_value=drain_result)) as drain_mock,
+        ):
+            asyncio.run(scheduler.run_daily_summary_task())
+            asyncio.run(scheduler.run_daily_summary_task())
+
+        verify = self.Session()
+        try:
+            jobs = verify.query(NotificationJob).all()
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(jobs[0].job_type, "daily_summary")
+            self.assertEqual(jobs[0].channel, "telegram")
+            self.assertEqual(jobs[0].delivery_mode, "digest_daily")
+            self.assertEqual(sorted(jobs[0].course_ids), ["daily-0", "daily-1"])
+            self.assertEqual(jobs[0].payload["summary_date"], now.strftime("%Y-%m-%d"))
+        finally:
+            verify.close()
+        self.assertEqual(drain_mock.await_count, 2)
+        self.assertIs(drain_mock.await_args.args[0]["telegram"], scheduler._deliver_scheduled_notification_job)
 
     def test_load_hot_watch_targets_detects_nearly_full_course(self):
         now = business_now()
