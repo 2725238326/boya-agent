@@ -1,0 +1,34 @@
+name: Server Network Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: production
+    steps:
+      - name: Probe production endpoints
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          PUBLIC_URL: https://buaaboya.top/healthz
+        run: |
+          set -u
+          echo "== DNS =="
+          getent ahostsv4 "$SERVER_HOST" || true
+          echo "== TCP =="
+          for port in 22 80 443; do
+            if timeout 8 bash -c "</dev/tcp/$SERVER_HOST/$port" 2>/dev/null; then
+              echo "tcp/$port: open"
+            else
+              echo "tcp/$port: unavailable"
+            fi
+          done
+          echo "== HTTP =="
+          curl --noproxy '*' --connect-timeout 8 --max-time 15 -skS -D - -o /tmp/healthz "$PUBLIC_URL" || true
+          echo "healthz body:"
+          head -c 500 /tmp/healthz 2>/dev/null || true
