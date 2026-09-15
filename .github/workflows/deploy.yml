@@ -64,7 +64,8 @@ jobs:
     needs: verify
     if: github.ref_name == 'main' || github.ref_name == 'master'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 远程 uv/Playwright 安装受生产机带宽影响，必须高于 SSH command_timeout。
+    timeout-minutes: 45
     environment: production
     steps:
       - name: Deploy via SSH
