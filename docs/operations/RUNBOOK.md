@@ -56,6 +56,12 @@ sudo tail -n 200 /home/boya-agent/logs/boya_agent_$(date +%F).log
 
 ## 抓取与后台检查
 
+### SSH 不响应时的主机诊断
+
+如果 22 端口能建立 TCP 连接但 SSH banner、HTTPS 或本机健康检查均无响应，先在腾讯云 VNC/串口终端执行仓库中的 `deploy/host_health.sh`。脚本只读输出主机内存、Swap、负载、占用最高的进程、监听端口、服务状态、OOM 记录和近期抓取日志；不要在 SSH 未恢复时反复触发部署。
+
+判断内存问题时以 `free -h`、`swapon --show` 和内核 OOM 记录为准。Playwright Chromium 与应用同机运行，生产实例建议至少 2 GiB 内存并配置 1–2 GiB Swap；若实例低于此规格或出现 `oom-killer`/`Killed process`，先扩容或补 Swap，再重启 `sshd`、`nginx` 和 `boya-agent`，最后重新执行部署和抓取核验。
+
 先做不带管理员凭据的服务探活：
 
 ```bash
