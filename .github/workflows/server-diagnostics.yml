@@ -48,6 +48,16 @@ jobs:
             printf 'enabled: '; sudo systemctl is-enabled "$SERVICE_NAME"
             sudo systemctl show "$SERVICE_NAME" -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp --no-pager
 
+            echo "== memory and load =="
+            free -h
+            swapon --show --bytes || true
+            uptime
+            sudo systemctl show "$SERVICE_NAME" -p MemoryCurrent -p MemoryPeak -p MemoryMax --no-pager || true
+            echo "kernel memory events (last 24h):"
+            sudo journalctl -k --since '24 hours ago' --no-pager \
+              | grep -Ei 'out of memory|oom-killer|killed process|memory cgroup' \
+              | tail -n 40 || true
+
             echo "== process and scraping logs (last 24h) =="
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
