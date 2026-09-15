@@ -79,6 +79,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
+          # 生产机首次用 uv 安装 Playwright 可能受上游带宽影响，
+          # 给依赖安装和浏览器/服务核对留出足够时间；SSH 仍由 job timeout 限制。
+          command_timeout: 30m
           envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME
           script: |
             set -euo pipefail
@@ -304,6 +307,18 @@ jobs:
                 connection.close()
             PY
             echo "Database integrity and notification schema checks passed."
+
+            echo "Server runtime summary:"
+            printf '  commit: '; git rev-parse --short=12 HEAD
+            printf '  worktree: '; if [ -z "$(git status --porcelain)" ]; then echo clean; else echo dirty; git status --short; exit 1; fi
+            printf '  service: '; sudo systemctl is-active "$SERVICE_NAME"
+            printf '  enabled: '; sudo systemctl is-enabled "$SERVICE_NAME"
+            printf '  database: '; stat -c '%U:%G %a %s bytes' "$DATABASE_PATH"
+            printf '  backups: '; find "$BACKUP_DIR" -maxdepth 1 -type f -name 'boya_agent-*.db' | wc -l
+            echo "Recent scrape lifecycle messages:"
+            sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 120 \
+              | grep -E '抓取|scrape|系统已就绪|调度已启动' \
+              | tail -n 20 || true
 
             restore_email_state
             trap - EXIT
