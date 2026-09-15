@@ -1,0 +1,79 @@
+name: Server Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Inspect production runtime
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          command_timeout: 8m
+          envs: APP_DIR,SERVICE_NAME
+          script: |
+            set -euo pipefail
+            APP_DIR="${APP_DIR:-/home/boya-agent}"
+            SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
+            cd "$APP_DIR"
+
+            echo "== repository =="
+            printf 'commit: '; git rev-parse --short=12 HEAD
+            if [ -z "$(git status --porcelain)" ]; then echo 'worktree: clean'; else git status --short; fi
+
+            echo "== service =="
+            printf 'active: '; sudo systemctl is-active "$SERVICE_NAME"
+            printf 'enabled: '; sudo systemctl is-enabled "$SERVICE_NAME"
+            sudo systemctl show "$SERVICE_NAME" -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp --no-pager
+
+            echo "== process and scraping logs (last 24h) =="
+            MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
+            if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
+            sudo journalctl -u "$SERVICE_NAME" --since '24 hours ago' --no-pager -n 240 \
+              | grep -E '抓取|scrape|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程' \
+              | tail -n 80 || true
+
+            echo "== database and notification state =="
+            DATABASE_PATH="$(awk -F= '$1 == "DATABASE_PATH" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
+            DATABASE_PATH="${DATABASE_PATH:-/var/lib/boya-agent/data/boya_agent.db}"
+            case "$DATABASE_PATH" in /*) ;; *) DATABASE_PATH="$APP_DIR/$DATABASE_PATH" ;; esac
+            python3 - "$DATABASE_PATH" <<'PY'
+            import sqlite3
+            import sys
+
+            db = sqlite3.connect(sys.argv[1], timeout=30)
+            try:
+                config = db.execute(
+                    "SELECT interval_minutes, email_enabled, telegram_enabled, "
+                    "daily_summary_enabled, auto_enroll_enabled, rss_enabled "
+                    "FROM filter_config WHERE id = 1"
+                ).fetchone()
+                print("filter_config:", config)
+                print("notification_jobs:", db.execute(
+                    "SELECT status, channel, COUNT(*) FROM notification_jobs "
+                    "GROUP BY status, channel ORDER BY status, channel"
+                ).fetchall())
+                print("latest_courses:", db.execute(
+                    "SELECT COUNT(*), MAX(last_seen) FROM courses"
+                ).fetchone())
+                print("integrity:", db.execute("PRAGMA integrity_check").fetchone()[0])
+            finally:
+                db.close()
+            PY
+
+            echo "== storage =="
+            df -h "$APP_DIR" "$DATABASE_PATH" | tail -n +2
+            du -sh "$APP_DIR" "$APP_DIR/logs" "/var/lib/boya-agent" 2>/dev/null || true
