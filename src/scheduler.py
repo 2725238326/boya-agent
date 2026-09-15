@@ -88,10 +88,13 @@ _browser_state = {
 _runtime_loop = None
 _active_scrape_task = None
 _active_scrape_task_lock = None
-BROWSER_MAX_SCRAPE_RUNS = max(20, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "80")))
+# Recycle Chromium regularly: a long-lived Playwright process can retain renderer
+# resources even when each scrape closes its transient pages. The hard limit
+# still bounds hot-course polling when recycling is deferred.
+BROWSER_MAX_SCRAPE_RUNS = max(12, int(os.getenv("BROWSER_MAX_SCRAPE_RUNS", "24")))
 BROWSER_HARD_MAX_SCRAPE_RUNS = max(
     BROWSER_MAX_SCRAPE_RUNS,
-    int(os.getenv("BROWSER_HARD_MAX_SCRAPE_RUNS", str(max(140, BROWSER_MAX_SCRAPE_RUNS * 2)))),
+    int(os.getenv("BROWSER_HARD_MAX_SCRAPE_RUNS", str(max(48, BROWSER_MAX_SCRAPE_RUNS * 2)))),
 )
 BROWSER_DEFER_RECYCLE_WHEN_HOT = (os.getenv("BROWSER_DEFER_RECYCLE_WHEN_HOT", "true").strip().lower() not in {"0", "false", "no"})
 SCRAPE_TASK_TIMEOUT_SECONDS = max(180, int(os.getenv("SCRAPE_TASK_TIMEOUT_SECONDS", "900")))

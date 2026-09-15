@@ -53,8 +53,8 @@
 | `ACTIVE_ENROLL_SCRAPE_SECONDS` | `30` | 否 | 重启 | 开选窗口巡检间隔 |
 | `HOT_COURSE_WATCH_SECONDS` | `15` | 否 | 重启 | 热门课程巡检间隔 |
 | `HOT_COURSE_STALE_SECONDS` | `25` | 否 | 重启 | 热点监控数据陈旧阈值 |
-| `BROWSER_MAX_SCRAPE_RUNS` | `80` | 否 | 重启 | 浏览器软回收阈值 |
-| `BROWSER_HARD_MAX_SCRAPE_RUNS` | 至少软阈值，默认不低于 `140` | 否 | 重启 | 浏览器硬回收阈值 |
+| `BROWSER_MAX_SCRAPE_RUNS` | `24` | 否 | 重启 | 浏览器软回收阈值；长期运行时主动回收 Chromium 资源 |
+| `BROWSER_HARD_MAX_SCRAPE_RUNS` | 至少软阈值，默认不低于 `48` | 否 | 重启 | 热点监控期间仍允许延后回收的硬上限 |
 | `BROWSER_DEFER_RECYCLE_WHEN_HOT` | `true` | 否 | 重启 | 热点监控期间是否延后回收 |
 | `SCRAPE_TASK_TIMEOUT_SECONDS` | `900`，最少 `180` | 否 | 重启 | 单次抓取超时 |
 | `COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS` | `5000`，最少 `1000` | 否 | 重启 | 课程页面动作后的网络空闲等待上限；超时后继续按页面状态判断 |
