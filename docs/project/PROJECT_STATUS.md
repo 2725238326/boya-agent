@@ -6,6 +6,8 @@
 
 [网络探测 35010850953](https://github.com/2725238326/boya-agent/actions/runs/35010850953) 从 GitHub 云端确认 22、80、443 端口均可建立 TCP 连接，但 HTTPS TLS 握手同样超时。现有证据支持“主机或用户态服务无响应”，尚不能证明内存不足；需在控制台查看 `free -h`、Swap、`dmesg`/`journalctl -k` 中的 OOM 记录，以及 sshd 状态。
 
+复测 [35012167974](https://github.com/2725238326/boya-agent/actions/runs/35012167974) 结果相同；本机复测亦为 TCP 22/80/443 可达、SSH banner 和 HTTPS 超时。服务器尚未恢复到可部署状态。
+
 仓库已完成 uv 迁移及自动选课结果 outbox 接入；`c280d9c` 的云端发布验证通过，Linux CPython 3.10 离线依赖包构建成功。部署改为先打包、SCP 上传、服务器通过 uv 离线安装。运行 [35006272639](https://github.com/2725238326/boya-agent/actions/runs/35006272639) 长时间停留在上传阶段，尚无成功部署证据。
 
 本机直连生产服务器的 SSH 在 banner exchange 阶段超时；只读诊断运行 [35007525726](https://github.com/2725238326/boya-agent/actions/runs/35007525726) 也未返回运行状态。当前课程抓取状态**未确认**，不能从部署失败推断抓取已停止，也不能把历史生产验证视为当前健康证明。连接恢复后先检查 systemd 服务、近期抓取日志及数据库完整性，再继续离线部署。下文发布记录均为历史证据。
