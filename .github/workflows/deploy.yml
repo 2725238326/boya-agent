@@ -68,6 +68,46 @@ jobs:
     timeout-minutes: 45
     environment: production
     steps:
+      - name: Checkout code for production dependency bundle
+        uses: actions/checkout@v7
+
+      - name: Setup uv for production dependency bundle
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            requirements.txt
+            constraints.txt
+
+      - name: Build offline Linux wheelhouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf deploy-wheelhouse .wheel-env-3.10 .wheel-env-3.12 production-wheelhouse.tgz
+          mkdir -p deploy-wheelhouse
+          for py in 3.10 3.12; do
+            env_dir=".wheel-env-${py}"
+            uv venv --python "$py" "$env_dir"
+            uv pip install --python "$env_dir/bin/python" pip
+            "$env_dir/bin/python" -m pip download \
+              --disable-pip-version-check \
+              --only-binary=:all: \
+              --dest deploy-wheelhouse \
+              -r requirements.txt -c constraints.txt
+          done
+          tar -czf production-wheelhouse.tgz -C deploy-wheelhouse .
+          du -h production-wheelhouse.tgz
+
+      - name: Upload offline dependency bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          source: production-wheelhouse.tgz
+          target: /tmp/boya-agent-deploy-${{ github.run_id }}
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -75,6 +115,7 @@ jobs:
           DEPLOY_SHA: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+          WHEELHOUSE_PATH: /tmp/boya-agent-deploy-${{ github.run_id }}/production-wheelhouse.tgz
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -83,13 +124,14 @@ jobs:
           # 生产机首次用 uv 安装 Playwright 可能受上游带宽影响，
           # 给依赖安装和浏览器/服务核对留出足够时间；SSH 仍由 job timeout 限制。
           command_timeout: 30m
-          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME
+          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME,WHEELHOUSE_PATH
           script: |
             set -euo pipefail
 
             APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
             DEPLOY_SHA="${DEPLOY_SHA:?github.sha was not provided}"
+            WHEELHOUSE_PATH="${WHEELHOUSE_PATH:?offline wheelhouse path was not provided}"
             DEPLOY_SHA_SHORT="$(printf '%s' "$DEPLOY_SHA" | cut -c1-7)"
 
             echo "Deploy branch: $DEPLOY_BRANCH"
@@ -169,6 +211,21 @@ jobs:
               exit 1
             fi
 
+            if [ ! -f "$WHEELHOUSE_PATH" ]; then
+              echo "Offline dependency bundle is missing: $WHEELHOUSE_PATH"
+              exit 1
+            fi
+            WHEELHOUSE_DIR="$(mktemp -d /tmp/boya-agent-wheelhouse.XXXXXX)"
+            cleanup_wheelhouse() {
+              rm -rf "$WHEELHOUSE_DIR"
+              rm -f "$WHEELHOUSE_PATH"
+              rmdir "$(dirname "$WHEELHOUSE_PATH")" 2>/dev/null || true
+            }
+            tar -xzf "$WHEELHOUSE_PATH" -C "$WHEELHOUSE_DIR"
+
+            # setup-uv installs into ~/.local/bin; include it before falling back
+            # to the one-time network bootstrap for an older server.
+            export PATH="$HOME/.local/bin:$PATH"
             if ! command -v uv >/dev/null 2>&1; then
               curl -LsSf https://astral.sh/uv/install.sh | sh
               export PATH="$HOME/.local/bin:$PATH"
@@ -177,7 +234,9 @@ jobs:
               uv venv --python 3.12 venv
             fi
 
-            uv pip install --python ./venv/bin/python -r requirements.txt -c constraints.txt
+            uv pip install --offline --no-index \
+              --find-links "$WHEELHOUSE_DIR" \
+              --python ./venv/bin/python -r requirements.txt -c constraints.txt
             ./venv/bin/python -m compileall -q src web tests
 
             EMAIL_WAS_ENABLED="$(python3 - "$DATABASE_PATH" <<'PY'
@@ -217,7 +276,7 @@ jobs:
               EMAIL_GUARD_ACTIVE=0
               echo "Restored email_enabled=$EMAIL_WAS_ENABLED"
             }
-            trap restore_email_state EXIT
+            trap 'cleanup_wheelhouse; restore_email_state' EXIT
 
             sudo systemctl stop "$SERVICE_NAME"
             if [ "$EMAIL_WAS_ENABLED" = "1" ]; then
@@ -322,5 +381,6 @@ jobs:
               | tail -n 20 || true
 
             restore_email_state
+            cleanup_wheelhouse
             trap - EXIT
             echo "Deploy complete at $(date)"
