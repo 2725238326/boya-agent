@@ -85,7 +85,9 @@ jobs:
           set -euo pipefail
           rm -rf deploy-wheelhouse .wheel-env-3.10 .wheel-env-3.12 production-wheelhouse.tgz
           mkdir -p deploy-wheelhouse
-          for py in 3.10 3.12; do
+          # 当前生产服务的 venv 已核对为 CPython 3.10；只传这一套，
+          # 避免把同一批大型二进制包重复上传。
+          for py in 3.10; do
             env_dir=".wheel-env-${py}"
             uv venv --python "$py" "$env_dir"
             uv pip install --python "$env_dir/bin/python" pip
@@ -110,6 +112,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
+          command_timeout: 30m
           source: production-wheelhouse.tgz
           target: /tmp/boya-agent-deploy-${{ github.run_id }}
 
@@ -236,7 +239,7 @@ jobs:
               export PATH="$HOME/.local/bin:$PATH"
             fi
             if [ ! -x venv/bin/python ]; then
-              uv venv --python 3.12 venv
+              uv venv --python 3.10 venv
             fi
 
             uv pip install --offline --no-index \
