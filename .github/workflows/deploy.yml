@@ -71,6 +71,12 @@ jobs:
       - name: Checkout code for production dependency bundle
         uses: actions/checkout@v7
 
+      - name: Check server SSH before building or uploading dependencies
+        timeout-minutes: 1
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        run: python3 scripts/check_ssh_connectivity.py
+
       - name: Setup uv for production dependency bundle
         uses: astral-sh/setup-uv@v6
         with:

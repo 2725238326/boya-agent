@@ -12,6 +12,15 @@ jobs:
     timeout-minutes: 10
     environment: production
     steps:
+      - name: Checkout diagnostics
+        uses: actions/checkout@v7
+
+      - name: Check server SSH
+        timeout-minutes: 1
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        run: python3 scripts/check_ssh_connectivity.py
+
       - name: Inspect production runtime
         uses: appleboy/ssh-action@v1.0.3
         env:
