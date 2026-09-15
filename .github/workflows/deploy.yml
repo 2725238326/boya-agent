@@ -91,9 +91,14 @@ jobs:
             uv pip install --python "$env_dir/bin/python" pip
             "$env_dir/bin/python" -m pip download \
               --disable-pip-version-check \
-              --only-binary=:all: \
+              --prefer-binary \
               --dest deploy-wheelhouse \
               -r requirements.txt -c constraints.txt
+            "$env_dir/bin/python" -m pip download \
+              --disable-pip-version-check \
+              --prefer-binary \
+              --dest deploy-wheelhouse \
+              setuptools wheel
           done
           tar -czf production-wheelhouse.tgz -C deploy-wheelhouse .
           du -h production-wheelhouse.tgz
@@ -235,6 +240,11 @@ jobs:
             fi
 
             uv pip install --offline --no-index \
+              --no-build-isolation \
+              --find-links "$WHEELHOUSE_DIR" \
+              --python ./venv/bin/python setuptools wheel
+            uv pip install --offline --no-index \
+              --no-build-isolation \
               --find-links "$WHEELHOUSE_DIR" \
               --python ./venv/bin/python -r requirements.txt -c constraints.txt
             ./venv/bin/python -m compileall -q src web tests
