@@ -1,6 +1,22 @@
 # BOYA Agent 当前项目状态
 
-## 2026-09-16 部署状态：等待服务器连接恢复
+## 2026-09-16 事故复盘与恢复部署：主机假死根因已定位并修复
+
+**故障现象**：`buaaboya.top` 全端口表现为 TCP 握手成功但应用零响应（SSH 无 banner、HTTPS 无 ServerHello、HTTP 零字节），内核存活而用户态全部饿死；每次强制重启后 6-10 分钟内复发。
+
+**根因**：Playwright 包已升级到 1.62.0（`constraints.txt` 锁定，需要 `chromium_headless_shell-1234`），但生产机浏览器停留在 1208。`create_browser_context` 中 `pw.start()` 成功拉起 node driver（每个 ~120MB）后 `chromium.launch` 抛异常，driver 进程泄漏；热点巡检每 15 秒一轮、每轮泄漏 2 个 driver，约 240MB/分钟耗尽 1.9GB 内存。内核日志无 OOM 记录，属于内存耗尽导致的系统级假死而非 OOM kill。
+
+**处置与加固（已完成，生产实测）**：
+- 经 npmmirror 镜像（`PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright`）安装 `chromium-1234`/`chromium_headless_shell-1234`；官方 CDN 实测仅 ~56KB/s 不可用。
+- `boya-agent.service` 增加 `MemoryMax=1300M`、`TasksMax=250`（drop-in override），cgroup 级 OOM 只影响本服务；`Restart=always` 保证自愈。
+- SSH 加固：`PasswordAuthentication no`、`PermitRootLogin prohibit-password`，密钥登录不受影响（当时正被 Azure IP 爆破密码）。
+- journald 加 `SystemMaxUse=500M`，日志目录由 3.9G 收敛至 393M；清理 `/root/.cache/ms-playwright` 622M 陈旧浏览器。
+- 代码修复 `9fe0287`：`create_browser_context` 失败路径补 `pw.stop()` 杀干净 driver；`_ensure_browser` 增加 30s→600s 指数退避，持久故障下不再每 15 秒拉起新 driver。
+- 部署流程修复：`deploy.yml` 在停服务后新增 `playwright install chromium` 同步步骤（同样走镜像源），包版本与浏览器二进制不再错配。
+
+**本次部署方式说明**：CI verify 已通过；deploy 作业在 wheelhouse SCP 上传阶段再次实测为不可用的极低带宽（GitHub 云端 → 腾讯云入境 ~29KB/s），已取消该 run。因本次变更不含依赖变动（requirements/constraints 未改），改由 SSH 手动执行同一套流程：工作树 clean 检查 → `git merge --ff-only origin/main` 到 `9fe0287` → `compileall` → SQLite 一致性备份（integrity ok）→ 停服 → `playwright install` 幂等核对 → 起服 → 本机与公网 healthz/smoke 全通 → 首次抓取完成（登录成功、空课正常路径、浏览器回收阈值 24/48 生效）。wheelhouse 跨国上传瓶颈仍为已知阻塞项，建议后续在依赖未变化时跳过上传。
+
+## 2026-09-16 部署状态：等待服务器连接恢复（历史记录）
 
 补充实测：提交 `10a14c1` 增加上传前 15 秒 SSH 握手检查。[云端诊断 35008911678](https://github.com/2725238326/boya-agent/actions/runs/35008911678) 于北京时间 2026-09-16 02:40 显示 TCP 已连接，但等待 SSH banner 超时；本机探测结果相同。不能再将上传停留直接归因于带宽慢。需通过腾讯云控制台检查主机资源和 sshd，恢复连接后再部署。检查脚本已验证正常 banner、连接关闭和超时三条路径。
 
