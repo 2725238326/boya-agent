@@ -1413,6 +1413,115 @@ class EnrichDetailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(page.clicks), 4)
         self.assertTrue(all(row["check_in_method"] == "自主签到" for row in result))
 
+    async def test_full_mode_targets_only_courses_missing_details(self):
+        page = types.SimpleNamespace()
+        rows = [{"id": "a"}, {"id": "b"}]
+        with (
+            patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
+            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[rows])),
+            patch(
+                "src.scraper._enrich_with_details",
+                new=AsyncMock(side_effect=lambda _p, c, **_kw: c),
+            ) as enrich_mock,
+            patch("src.scraper._go_to_next_page", new=AsyncMock(return_value=False)),
+        ):
+            await _collect_current_view_courses(
+                page,
+                include_details=True,
+                view_name="default",
+                detail_ids={"b"},
+                known_ids={"a", "b"},
+                detail_limit=0,
+            )
+
+        enrich_mock.assert_awaited_once()
+        kwargs = enrich_mock.await_args.kwargs
+        self.assertEqual(kwargs["target_ids"], {"b"})
+        self.assertIsNone(kwargs["attempted_ids"])
+        self.assertEqual(kwargs["limit"], 0)
+
+    async def test_full_mode_without_context_falls_back_to_enriching_all(self):
+        page = types.SimpleNamespace()
+        rows = [{"id": "a"}, {"id": "b"}]
+        with (
+            patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
+            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[rows])),
+            patch(
+                "src.scraper._enrich_with_details",
+                new=AsyncMock(side_effect=lambda _p, c, **_kw: c),
+            ) as enrich_mock,
+            patch("src.scraper._go_to_next_page", new=AsyncMock(return_value=False)),
+        ):
+            await _collect_current_view_courses(
+                page,
+                include_details=True,
+                view_name="default",
+            )
+
+        enrich_mock.assert_awaited_once()
+        self.assertEqual(enrich_mock.await_args.args[1], rows)
+
+
+class FailureAlertTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        scheduler._consecutive_failures = 0
+        scheduler._alert_sent = False
+        scheduler._last_alert_at = None
+        scheduler.run_status["last_error"] = "boom"
+        scheduler.run_status["last_success"] = None
+
+    def _telegram_on(self):
+        return types.SimpleNamespace(telegram_enabled=True)
+
+    async def test_alert_fires_once_within_cooldown_and_keeps_count(self):
+        scheduler._consecutive_failures = scheduler._MAX_FAILURES_BEFORE_ALERT
+        with (
+            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
+            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+        ):
+            await scheduler._check_and_alert_failures()
+            await scheduler._check_and_alert_failures()
+            scheduler._consecutive_failures += 2
+            await scheduler._check_and_alert_failures()
+
+        send_mock.assert_awaited_once()
+        self.assertTrue(scheduler._alert_sent)
+        self.assertEqual(
+            scheduler._consecutive_failures,
+            scheduler._MAX_FAILURES_BEFORE_ALERT + 2,
+        )
+
+    async def test_alert_fires_again_after_cooldown_with_cumulative_count(self):
+        scheduler._consecutive_failures = 7
+        scheduler._last_alert_at = business_now() - timedelta(
+            minutes=scheduler.ALERT_COOLDOWN_MINUTES + 1
+        )
+        with (
+            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
+            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+        ):
+            await scheduler._check_and_alert_failures()
+
+        send_mock.assert_awaited_once()
+        self.assertIn("7", send_mock.await_args.args[0])
+        self.assertEqual(scheduler._consecutive_failures, 7)
+
+    async def test_success_sends_recovery_once_after_alert(self):
+        scheduler._alert_sent = True
+        scheduler._last_alert_at = business_now()
+        scheduler._consecutive_failures = 9
+        with (
+            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
+            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+        ):
+            await scheduler._note_scrape_success()
+            await scheduler._note_scrape_success()
+
+        send_mock.assert_awaited_once()
+        self.assertIn("恢复", send_mock.await_args.args[0])
+        self.assertEqual(scheduler._consecutive_failures, 0)
+        self.assertFalse(scheduler._alert_sent)
+
 
 if __name__ == "__main__":
     unittest.main()

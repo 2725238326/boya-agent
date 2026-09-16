@@ -35,7 +35,7 @@ from src.course_state import (
     is_course_expired,
     is_hot_course,
 )
-from src.scraper import assess_scrape_health, create_browser_context, scrape_courses_result, save_courses_to_db
+from src.scraper import QUICK_DETAIL_ENRICH_LIMIT, assess_scrape_health, create_browser_context, scrape_courses_result, save_courses_to_db
 from src.auth import ensure_logged_in
 from src.filters import filter_courses, load_filter_config
 from src.notification_jobs import drain_notification_jobs, enqueue_notification_job
@@ -132,6 +132,11 @@ _consecutive_failures = 0
 # 字段的课程会保持空值，若没有这层去重，quick 巡检会每轮重复点开。
 _detail_attempted_ids = set()
 _MAX_FAILURES_BEFORE_ALERT = 3
+# 告警冷却与恢复：持续故障期间最多每隔 ALERT_COOLDOWN_MINUTES 发一条
+# Telegram 告警，避免 quick 轮高频失败时刷屏；恢复后补发一条恢复通知。
+_alert_sent = False
+_last_alert_at = None
+ALERT_COOLDOWN_MINUTES = max(5, int(os.getenv("SCRAPE_ALERT_COOLDOWN_MINUTES", "60")))
 URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
 SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
@@ -487,19 +492,21 @@ async def _run_scrape_task_impl(mode: str = "full"):
         scrape_status = None
         detail_ids = None
         known_ids = None
-        if mode == "quick":
-            # 定点补抓是增强而非必需路径：查询失败时按普通 quick 轮处理。
+        # 详情补抓上下文：quick 轮定点补缺口，full 轮只点缺详情字段和
+        # 新发现的课程而不是全量点击。装载失败时按原行为处理：quick
+        # 退化为普通列表轮，full 退化为全量详情抓取。
+        try:
+            session = get_session()
             try:
-                session = get_session()
-                try:
-                    detail_ids, known_ids = _load_detail_enrich_context(session)
-                finally:
-                    session.close()
+                detail_ids, known_ids = _load_detail_enrich_context(session)
+            finally:
+                session.close()
+            if mode == "quick":
                 detail_ids -= _detail_attempted_ids
-            except Exception as e:
-                logger.warning(f"加载待补详情课程列表失败，本轮按普通 quick 抓取处理: {e}")
-                detail_ids = None
-                known_ids = None
+        except Exception as e:
+            logger.warning(f"加载待补详情课程列表失败，本轮按普通 {mode} 抓取处理: {e}")
+            detail_ids = None
+            known_ids = None
         for attempt in range(2):
             if attempt > 0:
                 logger.warning("scrape failed, recreate browser and retry once")
@@ -516,7 +523,8 @@ async def _run_scrape_task_impl(mode: str = "full"):
                     include_details=(mode != "quick"),
                     detail_ids=detail_ids,
                     known_ids=known_ids,
-                    attempted_ids=_detail_attempted_ids,
+                    attempted_ids=_detail_attempted_ids if mode == "quick" else None,
+                    detail_limit=QUICK_DETAIL_ENRICH_LIMIT if mode == "quick" else 0,
                 )
                 _mark_browser_used()
                 scrape_status = outcome.status.value
@@ -577,9 +585,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 )
 
             logger.info("no courses scraped")
-            run_status["last_success"] = business_now()
-            run_status["last_error"] = None
-            _consecutive_failures = 0
+            await _note_scrape_success()
             return _scrape_result(
                 True,
                 "scrape succeeded but returned no courses",
@@ -653,9 +659,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
             else:
                 msg = "no new courses, nothing to push"
                 logger.info(msg)
-            run_status["last_success"] = business_now()
-            run_status["last_error"] = None
-            _consecutive_failures = 0
+            await _note_scrape_success()
             return _scrape_result(
                 True,
                 msg,
@@ -677,9 +681,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
 
             if not passed_courses:
                 logger.info("new courses found but all were filtered out")
-                run_status["last_success"] = business_now()
-                run_status["last_error"] = None
-                _consecutive_failures = 0
+                await _note_scrape_success()
                 return _scrape_result(
                     True,
                     "scrape succeeded, new courses found, but all were filtered out",
@@ -717,9 +719,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
         finally:
             session.close()
 
-        run_status["last_success"] = business_now()
-        run_status["last_error"] = None
-        _consecutive_failures = 0
+        await _note_scrape_success()
         logger.info(
             f"本轮抓取完成: 立即推送 {pushed_count} 门, 退课捡漏 {reopened_pushed} 门, "
             f"开选巡检 {active_pushed} 门, 缓冲区 urgent={len(_push_buffer['urgent'])}, soon={len(_push_buffer['soon'])}"
@@ -951,24 +951,50 @@ async def drain_pending_notification_jobs():
 
 
 async def _check_and_alert_failures():
-    """连续失败超过阈值时，通过 Telegram 告警管理员"""
-    global _consecutive_failures
-    if _consecutive_failures >= _MAX_FAILURES_BEFORE_ALERT:
-        msg = (
-            f"⚠️ 博雅报警：已连续失败 {_consecutive_failures} 次\n"
-            f"最后错误: {run_status.get('last_error', '未知')}\n"
-            f"上次成功: {run_status.get('last_success', '无')}\n"
-            f"请检查服务器状态"
-        )
-        logger.warning(msg)
-        try:
-            config = load_filter_config()
-            if config.telegram_enabled:
-                await send_status_message(msg)
-        except Exception as e:
-            logger.error(f"Telegram 告警发送失败: {e}")
-        # 重置计数器，避免反复告警
-        _consecutive_failures = 0
+    """连续失败超过阈值时，通过 Telegram 告警管理员。
+
+    告警带冷却期：持续故障期间最多每 ALERT_COOLDOWN_MINUTES 分钟发一条，
+    失败计数继续累积，下一条告警会展示真实的连续失败次数。
+    """
+    global _alert_sent, _last_alert_at
+    if _consecutive_failures < _MAX_FAILURES_BEFORE_ALERT:
+        return
+    now = business_now()
+    if _last_alert_at and now - _last_alert_at < timedelta(minutes=ALERT_COOLDOWN_MINUTES):
+        return
+    msg = (
+        f"⚠️ 博雅报警：已连续失败 {_consecutive_failures} 次\n"
+        f"最后错误: {run_status.get('last_error', '未知')}\n"
+        f"上次成功: {run_status.get('last_success', '无')}\n"
+        f"请检查服务器状态"
+    )
+    logger.warning(msg)
+    try:
+        config = load_filter_config()
+        if config.telegram_enabled:
+            await send_status_message(msg)
+    except Exception as e:
+        logger.error(f"Telegram 告警发送失败: {e}")
+    _alert_sent = True
+    _last_alert_at = now
+
+
+async def _note_scrape_success():
+    """记录一轮抓取成功；若之前发过故障告警则补发一条恢复通知。"""
+    global _consecutive_failures, _alert_sent, _last_alert_at
+    run_status["last_success"] = business_now()
+    run_status["last_error"] = None
+    _consecutive_failures = 0
+    if not _alert_sent:
+        return
+    _alert_sent = False
+    _last_alert_at = None
+    try:
+        config = load_filter_config()
+        if config.telegram_enabled:
+            await send_status_message("✅ 博雅监控已恢复正常，课程抓取成功")
+    except Exception as e:
+        logger.error(f"Telegram 恢复通知发送失败: {e}")
 
 
 async def flush_push_buffer(buffer_key: str):

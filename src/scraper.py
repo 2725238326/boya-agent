@@ -1514,6 +1514,7 @@ async def _collect_current_view_courses(
     detail_ids: Optional[set] = None,
     known_ids: Optional[set] = None,
     attempted_ids: Optional[set] = None,
+    detail_limit: Optional[int] = None,
 ) -> List[dict]:
     """Scrape every page in the currently active course view."""
     courses: List[dict] = []
@@ -1533,10 +1534,7 @@ async def _collect_current_view_courses(
 
         if page_courses:
             enriched = False
-            if include_details:
-                page_courses = await _enrich_with_details(page, page_courses)
-                enriched = True
-            elif detail_ids is not None or known_ids is not None:
+            if detail_ids is not None or known_ids is not None:
                 target_ids = _select_detail_enrich_targets(page_courses, detail_ids, known_ids)
                 if target_ids:
                     page_courses = await _enrich_with_details(
@@ -1544,9 +1542,12 @@ async def _collect_current_view_courses(
                         page_courses,
                         target_ids=target_ids,
                         attempted_ids=attempted_ids,
-                        limit=QUICK_DETAIL_ENRICH_LIMIT,
+                        limit=QUICK_DETAIL_ENRICH_LIMIT if detail_limit is None else detail_limit,
                     )
                     enriched = True
+            elif include_details:
+                page_courses = await _enrich_with_details(page, page_courses)
+                enriched = True
             if not enriched:
                 for course in page_courses:
                     course.pop("__row_index", None)
@@ -1698,6 +1699,7 @@ async def _scrape_courses_impl(
     detail_ids: Optional[set] = None,
     known_ids: Optional[set] = None,
     attempted_ids: Optional[set] = None,
+    detail_limit: Optional[int] = None,
 ) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
@@ -1753,6 +1755,7 @@ async def _scrape_courses_impl(
                 detail_ids=detail_ids,
                 known_ids=known_ids,
                 attempted_ids=attempted_ids,
+                detail_limit=detail_limit,
             )
             if view_courses:
                 scraped_any_view = True
@@ -1769,6 +1772,7 @@ async def _scrape_courses_impl(
                 detail_ids=detail_ids,
                 known_ids=known_ids,
                 attempted_ids=attempted_ids,
+                detail_limit=detail_limit,
             )
             courses.extend(current_view_courses)
 
@@ -1823,16 +1827,18 @@ async def scrape_courses_result(
     detail_ids: Optional[set] = None,
     known_ids: Optional[set] = None,
     attempted_ids: Optional[set] = None,
+    detail_limit: Optional[int] = None,
 ) -> ScrapeOutcome:
     """执行一次抓取并返回结构化结果。
 
     这里不把失败降级为空列表；只有页面明确呈现空状态时才返回
     ``SUCCESS_EMPTY``，从而阻止错误快照覆盖数据库或触发误通知。
 
-    quick 轮（``include_details=False``）可通过 ``detail_ids`` /
-    ``known_ids`` 定点补抓少数课程的详情页，避免新发现课程的签到
-    方式长期停留在「待确认」；``attempted_ids`` 记录进程内已尝试
-    的课程，防止详情页本身没有签到字段的行被反复点开。
+    传入 ``detail_ids`` / ``known_ids`` 后两种模式都走定点补抓：只点开
+    缺详情字段和新发现课程的详情页。quick 轮（``include_details=False``）
+    靠 ``attempted_ids`` 防止详情页本身没有签到字段的行被反复点开；
+    full 轮由调度器传 ``detail_limit=0`` 且不传 ``attempted_ids``，
+    保持对所有缺口课程的重试能力。
     """
 
     started_at = asyncio.get_running_loop().time()
@@ -1853,6 +1859,7 @@ async def scrape_courses_result(
             detail_ids=detail_ids,
             known_ids=known_ids,
             attempted_ids=attempted_ids,
+            detail_limit=detail_limit,
         )
     except asyncio.CancelledError:
         raise
