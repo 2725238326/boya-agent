@@ -298,6 +298,17 @@ jobs:
             trap 'cleanup_wheelhouse; restore_email_state' EXIT
 
             sudo systemctl stop "$SERVICE_NAME"
+
+            # Playwright 包升级后必须同步浏览器二进制；2026-09-16 的事故即因
+            # 包已升到 1.62.0（需 chromium_headless_shell-1234）而浏览器停在 1208，
+            # 每次抓取启动失败并泄漏 driver 进程导致整机卡死。
+            # 已安装时 playwright install 会快速跳过；走 npmmirror 镜像避免官方 CDN 过慢。
+            sudo -u boya-agent env \
+              HOME=/var/lib/boya-agent \
+              PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright \
+              PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright \
+              ./venv/bin/playwright install chromium
+
             if [ "$EMAIL_WAS_ENABLED" = "1" ]; then
               python3 - "$DATABASE_PATH" <<'PY'
             import sqlite3
