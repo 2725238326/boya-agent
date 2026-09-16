@@ -61,7 +61,7 @@ asyncio + APScheduler
 
 `src/course_state.py` 提供以下公共语义：
 
-- `get_check_in_display_label`：文本含“自主”或“自选”时显示“自主签到”，否则显示“常规签到”。
+- `get_check_in_display_label`：文本含“自主”或“自选”时显示“自主签到”；详情明确为常规模式时显示“常规签到”；详情字段为空（尚未抓取详情页）时显示“待确认”。
 - `is_enrollment_open`：报名尚未开始、已截止、课程结束或数据库标记过期时均为 false。
 - `is_course_expired`：数据库 `expired`、课程结束时间、报名截止时间任一满足即视为不再可报名/公开展示。
 - `is_hot_course`：先要求报名窗口有效，再按剩余名额阈值或填充率判断。

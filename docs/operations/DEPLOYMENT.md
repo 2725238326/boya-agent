@@ -126,6 +126,8 @@ curl -i https://你的域名/api/courses
 
 更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。当前生产数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段、二维码哈希字段、查询索引和 `notification_jobs` 表，不会删除旧字段。
 
+自动化部署（`.github/workflows/deploy.yml`）在每次发布时执行同样的检查顺序：备份数据库并只保留最近 30 份、更新代码、离线安装依赖、停服后运行 `playwright install chromium`（经 npmmirror 镜像）同步浏览器二进制、重启服务、健康检查和冒烟检查。Playwright 包升级后必须同步浏览器，否则每次抓取都会启动失败；手动更新服务器时也应执行同一条命令。
+
 更新后按 [RUNBOOK.md](RUNBOOK.md) 做健康检查。不要在没有备份和现场确认的情况下删除数据库、上传文件或旧日志。
 
 ## 常规发布节奏

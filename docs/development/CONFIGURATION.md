@@ -56,6 +56,8 @@
 | `BROWSER_MAX_SCRAPE_RUNS` | `24` | 否 | 重启 | 浏览器软回收阈值；长期运行时主动回收 Chromium 资源 |
 | `BROWSER_HARD_MAX_SCRAPE_RUNS` | 至少软阈值，默认不低于 `48` | 否 | 重启 | 热点监控期间仍允许延后回收的硬上限 |
 | `BROWSER_DEFER_RECYCLE_WHEN_HOT` | `true` | 否 | 重启 | 热点监控期间是否延后回收 |
+| `BROWSER_RETRY_BACKOFF_BASE_SECONDS` / `BROWSER_RETRY_BACKOFF_MAX_SECONDS` | `30`（最少 `5`）/ `600` | 否 | 重启 | 浏览器创建或登录连续失败时的指数退避窗口，防止启动失败被高频重试放大 |
+| `QUICK_DETAIL_ENRICH_LIMIT` | `8`，最少 `1` | 否 | 重启 | quick 巡检单轮最多补抓详情页的课程数；用于给新发现或缺少签到方式的课程补数据，超过上限的留到后续轮次 |
 | `SCRAPE_TASK_TIMEOUT_SECONDS` | `900`，最少 `180` | 否 | 重启 | 单次抓取超时 |
 | `COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS` | `5000`，最少 `1000` | 否 | 重启 | 课程页面动作后的网络空闲等待上限；超时后继续按页面状态判断 |
 | `SCRAPE_CAPTURE_DIAGNOSTICS` | `false` | 否 | 重启 | 是否在正常抓取轮次保存课程页诊断截图；失败时仍按错误路径保存必要资料 |
