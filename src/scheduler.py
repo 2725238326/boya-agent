@@ -11,6 +11,7 @@
 
 import asyncio
 import os
+import time
 from typing import Any, Dict
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta
@@ -85,6 +86,11 @@ _browser_state = {
     "scrape_runs": 0,
 }
 
+# 浏览器创建/登录连续失败计数与冷却截止时间（time.monotonic 时钟），
+# 防止驱动缺失等持久故障下高频重试反复拉起 driver 进程。
+_browser_create_failures = 0
+_browser_retry_after = 0.0
+
 _runtime_loop = None
 _active_scrape_task = None
 _active_scrape_task_lock = None
@@ -97,6 +103,11 @@ BROWSER_HARD_MAX_SCRAPE_RUNS = max(
     int(os.getenv("BROWSER_HARD_MAX_SCRAPE_RUNS", str(max(48, BROWSER_MAX_SCRAPE_RUNS * 2)))),
 )
 BROWSER_DEFER_RECYCLE_WHEN_HOT = (os.getenv("BROWSER_DEFER_RECYCLE_WHEN_HOT", "true").strip().lower() not in {"0", "false", "no"})
+BROWSER_RETRY_BACKOFF_BASE_SECONDS = max(5, int(os.getenv("BROWSER_RETRY_BACKOFF_BASE_SECONDS", "30")))
+BROWSER_RETRY_BACKOFF_MAX_SECONDS = max(
+    BROWSER_RETRY_BACKOFF_BASE_SECONDS,
+    int(os.getenv("BROWSER_RETRY_BACKOFF_MAX_SECONDS", "600")),
+)
 SCRAPE_TASK_TIMEOUT_SECONDS = max(180, int(os.getenv("SCRAPE_TASK_TIMEOUT_SECONDS", "900")))
 DEFAULT_SCRAPE_INTERVAL_MINUTES = max(1, int(os.getenv("SCRAPE_INTERVAL_MINUTES", "10")))
 
@@ -201,9 +212,24 @@ def _should_defer_browser_recycle(scrape_runs: int) -> bool:
         session.close()
 
 
+def _note_browser_unavailable() -> None:
+    """Record a browser create/login failure and back off exponentially."""
+    global _browser_create_failures, _browser_retry_after
+    _browser_create_failures += 1
+    backoff = min(
+        BROWSER_RETRY_BACKOFF_MAX_SECONDS,
+        BROWSER_RETRY_BACKOFF_BASE_SECONDS * (2 ** (_browser_create_failures - 1)),
+    )
+    _browser_retry_after = time.monotonic() + backoff
+    logger.warning(
+        f"browser unavailable (consecutive={_browser_create_failures}), "
+        f"next attempt in {backoff}s"
+    )
+
+
 async def _ensure_browser(force_recreate: bool = False):
     """Ensure a healthy Playwright page bound to the main runtime loop."""
-    global _browser_state
+    global _browser_state, _browser_create_failures, _browser_retry_after
 
     page = _browser_state.get("page")
     page_invalid = False
@@ -227,6 +253,14 @@ async def _ensure_browser(force_recreate: bool = False):
     if force_recreate or page_invalid or page:
         await close_browser()
 
+    cooldown_left = _browser_retry_after - time.monotonic()
+    if cooldown_left > 0:
+        logger.warning(
+            f"browser creation in cooldown ({int(cooldown_left)}s left, "
+            f"consecutive failures={_browser_create_failures})"
+        )
+        return None
+
     logger.info("creating browser instance...")
     try:
         pw, browser, context, page = await create_browser_context()
@@ -235,17 +269,21 @@ async def _ensure_browser(force_recreate: bool = False):
         _browser_state["context"] = context
         _browser_state["page"] = page
         _browser_state["scrape_runs"] = 0
+        _browser_create_failures = 0
+        _browser_retry_after = 0.0
 
         logged_in = await ensure_logged_in(page)
         if not logged_in:
             logger.error("login failed")
             await close_browser()
+            _note_browser_unavailable()
             return None
 
         return page
     except Exception as e:
         logger.error(f"create browser failed: {e}")
         await close_browser()
+        _note_browser_unavailable()
         return None
 
 

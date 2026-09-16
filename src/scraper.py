@@ -133,20 +133,26 @@ async def create_browser_context() -> tuple:
         (playwright, browser, context, page) 元组
     """
     pw = await async_playwright().start()
-    browser = await pw.chromium.launch(
-        headless=True,
-        args=["--no-sandbox", "--disable-dev-shm-usage"]
-    )
-    context = await browser.new_context(
-        storage_state=None,
-        viewport={"width": 1920, "height": 1080},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    )
-    page = await context.new_page()
+    try:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = await browser.new_context(
+            storage_state=None,
+            viewport={"width": 1920, "height": 1080},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await context.new_page()
+    except Exception:
+        # launch/new_context/new_page 任一失败都会跳过 return，
+        # 若不显式 stop，driver 子进程会泄漏并常驻内存
+        await pw.stop()
+        raise
     return pw, browser, context, page
 
 
