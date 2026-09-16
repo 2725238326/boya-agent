@@ -94,7 +94,7 @@ asyncio + APScheduler
 ## 推送流
 
 - 邮件：`email_enabled` 为 true 时，按订阅者校区、类别、自主签到、暂停状态和去重事件发送。
-- Telegram：`telegram_enabled` 为 true 时，发送全局课程通知、每日摘要、临近选课提醒和连续失败告警。
+- Telegram：`telegram_enabled` 为 true 时，发送全局课程通知、每日摘要、临近选课提醒和连续失败告警；故障告警按 `SCRAPE_ALERT_COOLDOWN_MINUTES` 冷却并在恢复时补发恢复通知。
 - 每日摘要：由 `daily_summary_enabled` 控制，且每个通道仍受对应开关控制。
 - RSS/Atom：由 `rss_enabled` 控制公开源，不依赖邮件或 Telegram 开关。
 - 所有用户通知时间和去重记录写入 `notification_events`；传统课程推送记录写入 `push_logs`。

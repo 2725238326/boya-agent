@@ -130,6 +130,8 @@ curl -i https://你的域名/api/courses
 
 依赖包上传优化：部署前先计算 `requirements.txt` 与 `constraints.txt` 的内容哈希，并与服务器 `/var/lib/boya-agent/.deps-sha256` 中的上一次成功部署标记比对。依赖未变化时跳过 wheelhouse 构建、SCP 上传和离线安装（GitHub 云端到生产机实测带宽约 29KB/s，200MB+ 依赖包上传曾是流水线主要耗时）。标记只在部署验收全部通过后写入，且存放在运行时目录而非仓库内（避免 git 工作树脏检查中止部署）；服务器虚拟环境缺失或损坏时仍走完整安装流程。
 
+除部署时备份外，生产机 crontab 每周日凌晨 4 点做一次 SQLite 在线快照（`.backup`，无需停服），写入 `/var/lib/boya-agent/backups/boya_agent-weekly-*.db` 并只保留最近 4 份。
+
 更新后按 [RUNBOOK.md](RUNBOOK.md) 做健康检查。不要在没有备份和现场确认的情况下删除数据库、上传文件或旧日志。
 
 ## 常规发布节奏

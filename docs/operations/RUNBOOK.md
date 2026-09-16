@@ -86,7 +86,7 @@ curl -su 管理员用户名:管理员密码 \
 
 `mode=quick` 适合快速刷新；完整同步使用 `mode=full`。重复触发时，应用会尽量加入已有任务，而不是并行启动同一条抓取流程。检查状态中的 `last_run`、`last_success`、`last_error`、`browser_alive`、`last_scrape_health` 和 `last_scrape_duration_ms`。单次耗时只用于定位异常，长期性能应按观察窗口统计。
 
-quick 轮会顺手为两类课程补抓详情页：库里缺少签到方式等详情字段的课程，以及当轮新发现的课程；单轮上限由 `QUICK_DETAIL_ENRICH_LIMIT`（默认 8）控制，超出的留到后续轮次。课程签到标签显示"待确认"表示详情页尚未读取，不是识别错误；若某门课长期停留在该状态，先确认详情页本身是否提供签到方式字段。
+quick 轮会顺手为两类课程补抓详情页：库里缺少签到方式等详情字段的课程，以及当轮新发现的课程；单轮上限由 `QUICK_DETAIL_ENRICH_LIMIT`（默认 8）控制，超出的留到后续轮次。full 轮同样只点开这两类课程而不是逐课程点击；补抓上下文装载失败时 full 轮退化为全量详情抓取，功能不受影响。课程签到标签显示"待确认"表示详情页尚未读取，不是识别错误；若某门课长期停留在该状态，先确认详情页本身是否提供签到方式字段，以及该课程是否仍在当前被抓取的视图中。
 
 ## 邮件与推送检查
 
@@ -131,6 +131,8 @@ sudo systemctl start boya-agent
 
 恢复前停止服务，把已验证的备份复制回实际 `DATABASE_PATH`，再启动并查看日志。不要把示例路径 `/safe/backup/path` 原样执行，也不要对工作区根目录使用递归删除或覆盖命令。
 
+除部署时备份外，生产机还有每周日凌晨 4 点的 cron 快照：`sqlite3 .backup` 写入 `/var/lib/boya-agent/backups/boya_agent-weekly-YYYYMMDD.db`，只保留最近 4 份。该快照在服务运行中用 SQLite 在线备份完成，不需要停服。
+
 二维码文件也要单独备份：
 
 ```bash
@@ -170,7 +172,7 @@ curl -su 管理员用户名:管理员密码 \
 
 ### 抓取失败
 
-确认北航账号仍可用、主机可访问 WebVPN/课程系统、Chromium 可启动；检查 `last_scrape_health`、截图和日志。连续失败达到阈值时，Telegram 告警还必须满足 Telegram 通道已开启并配置凭据。自动选课当天失败达到 `AUTO_ENROLL_FAILURE_LIMIT` 后会熔断本轮后续尝试；恢复前先确认账号、选课页面和错误原因。
+确认北航账号仍可用、主机可访问 WebVPN/课程系统、Chromium 可启动；检查 `last_scrape_health`、截图和日志。连续失败达到阈值时向管理员发 Telegram 告警；告警带冷却期（`SCRAPE_ALERT_COOLDOWN_MINUTES`，默认 60 分钟），持续故障期间不会每几轮重复推送，抓取恢复成功后会补发一条恢复通知。Telegram 告警还必须满足 Telegram 通道已开启并配置凭据。自动选课当天失败达到 `AUTO_ENROLL_FAILURE_LIMIT` 后会熔断本轮后续尝试；恢复前先确认账号、选课页面和错误原因。
 
 ### SQLite 锁竞争
 
