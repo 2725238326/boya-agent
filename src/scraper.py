@@ -66,6 +66,12 @@ COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS = max(
     int(os.getenv("COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS", "5000")),
 )
 SCRAPE_CAPTURE_DIAGNOSTICS = _env_flag("SCRAPE_CAPTURE_DIAGNOSTICS", False)
+# quick 巡检每轮最多补抓的详情页数量；详情逐一点击成本高，超过上限的
+# 课程留到后续轮次继续补齐。
+QUICK_DETAIL_ENRICH_LIMIT = max(
+    1,
+    int(os.getenv("QUICK_DETAIL_ENRICH_LIMIT", "8")),
+)
 # The upstream course system renders a real page even when the current
 # selection window contains no courses. Treat these explicit empty states as
 # a successful scrape so the scheduler does not report a false navigation
@@ -1481,10 +1487,33 @@ async def _load_current_view_page_courses(page: Page) -> List[dict]:
     return await _parse_visible_course_tables(page)
 
 
+def _select_detail_enrich_targets(
+    courses: List[dict],
+    detail_ids: Optional[set],
+    known_ids: Optional[set],
+) -> set:
+    """从当前页课程里挑出需要补抓详情页的 id。
+
+    - ``detail_ids``：库中已有记录但缺少详情字段（如签到方式）的课程
+    - ``known_ids``：库中全部课程 id；不在其中的行视为新发现课程，
+      顺手补抓详情，避免新课程长时间停留在「待确认」状态
+    """
+    targets = set(detail_ids or ())
+    if known_ids is not None:
+        for course in courses:
+            cid = course.get("id")
+            if cid and cid not in known_ids:
+                targets.add(cid)
+    return targets
+
+
 async def _collect_current_view_courses(
     page: Page,
     include_details: bool,
     view_name: str,
+    detail_ids: Optional[set] = None,
+    known_ids: Optional[set] = None,
+    attempted_ids: Optional[set] = None,
 ) -> List[dict]:
     """Scrape every page in the currently active course view."""
     courses: List[dict] = []
@@ -1503,9 +1532,22 @@ async def _collect_current_view_courses(
         logger.info(f"视图[{view_name}] 第 {page_no} 页解析到 {len(page_courses)} 门课程")
 
         if page_courses:
+            enriched = False
             if include_details:
                 page_courses = await _enrich_with_details(page, page_courses)
-            else:
+                enriched = True
+            elif detail_ids is not None or known_ids is not None:
+                target_ids = _select_detail_enrich_targets(page_courses, detail_ids, known_ids)
+                if target_ids:
+                    page_courses = await _enrich_with_details(
+                        page,
+                        page_courses,
+                        target_ids=target_ids,
+                        attempted_ids=attempted_ids,
+                        limit=QUICK_DETAIL_ENRICH_LIMIT,
+                    )
+                    enriched = True
+            if not enriched:
                 for course in page_courses:
                     course.pop("__row_index", None)
                     course.pop("__table_index", None)
@@ -1650,7 +1692,13 @@ async def _open_course_select_page(page: Page) -> bool:
     return await _wait_course_tables_ready(page)
 
 
-async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List[dict]:
+async def _scrape_courses_impl(
+    page: Page,
+    include_details: bool = True,
+    detail_ids: Optional[set] = None,
+    known_ids: Optional[set] = None,
+    attempted_ids: Optional[set] = None,
+) -> List[dict]:
     """
     从博雅选课页面抓取课程信息
     """
@@ -1698,7 +1746,14 @@ async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List
 
             await _reset_course_filters(page)
             await _go_to_first_page(page)
-            view_courses = await _collect_current_view_courses(page, include_details, view_key if activated else "default")
+            view_courses = await _collect_current_view_courses(
+                page,
+                include_details,
+                view_key if activated else "default",
+                detail_ids=detail_ids,
+                known_ids=known_ids,
+                attempted_ids=attempted_ids,
+            )
             if view_courses:
                 scraped_any_view = True
             courses.extend(view_courses)
@@ -1707,7 +1762,14 @@ async def _scrape_courses_impl(page: Page, include_details: bool = True) -> List
             logger.warning("未成功切换到任何显式课程视图，尝试抓取当前页面默认视图")
             await _reset_course_filters(page)
             await _go_to_first_page(page)
-            current_view_courses = await _collect_current_view_courses(page, include_details, "default-fallback")
+            current_view_courses = await _collect_current_view_courses(
+                page,
+                include_details,
+                "default-fallback",
+                detail_ids=detail_ids,
+                known_ids=known_ids,
+                attempted_ids=attempted_ids,
+            )
             courses.extend(current_view_courses)
 
     except Exception as e:
@@ -1755,11 +1817,22 @@ def _classify_scrape_exception(page: Page, error: Exception) -> tuple[ScrapeStat
     return ScrapeStatus.PARSE_FAILED, "课程页面解析失败"
 
 
-async def scrape_courses_result(page: Page, include_details: bool = True) -> ScrapeOutcome:
+async def scrape_courses_result(
+    page: Page,
+    include_details: bool = True,
+    detail_ids: Optional[set] = None,
+    known_ids: Optional[set] = None,
+    attempted_ids: Optional[set] = None,
+) -> ScrapeOutcome:
     """执行一次抓取并返回结构化结果。
 
     这里不把失败降级为空列表；只有页面明确呈现空状态时才返回
     ``SUCCESS_EMPTY``，从而阻止错误快照覆盖数据库或触发误通知。
+
+    quick 轮（``include_details=False``）可通过 ``detail_ids`` /
+    ``known_ids`` 定点补抓少数课程的详情页，避免新发现课程的签到
+    方式长期停留在「待确认」；``attempted_ids`` 记录进程内已尝试
+    的课程，防止详情页本身没有签到字段的行被反复点开。
     """
 
     started_at = asyncio.get_running_loop().time()
@@ -1774,7 +1847,13 @@ async def scrape_courses_result(page: Page, include_details: bool = True) -> Scr
         }
 
     try:
-        courses = await _scrape_courses_impl(page, include_details=include_details)
+        courses = await _scrape_courses_impl(
+            page,
+            include_details=include_details,
+            detail_ids=detail_ids,
+            known_ids=known_ids,
+            attempted_ids=attempted_ids,
+        )
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -1814,19 +1893,47 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
     return outcome.courses
 
 
-async def _enrich_with_details(page: Page, courses: List[dict]) -> List[dict]:
+async def _enrich_with_details(
+    page: Page,
+    courses: List[dict],
+    target_ids: Optional[set] = None,
+    attempted_ids: Optional[set] = None,
+    limit: int = 0,
+) -> List[dict]:
     """
-    点击每门课的「详细介绍」获取详情页信息（签到方式、课程介绍等）
-    """
-    logger.info(f"开始抓取 {len(courses)} 门课程的详情...")
+    点击「详细介绍」获取详情页信息（签到方式、课程介绍等）。
 
-    for i, course in enumerate(courses):
+    ``target_ids`` 为 None 时处理全部课程；否则只处理命中的行。
+    ``limit`` > 0 时限制本轮处理的课程数，防止 quick 巡检耗时失控。
+    ``attempted_ids`` 记录进程内已点开过详情页的课程 id；详情页本身
+    没有「签到方式」字段的课程不会在同一个进程生命周期内被反复点击。
+    """
+    if target_ids is None:
+        targets = list(courses)
+    else:
+        targets = [c for c in courses if c.get("id") in target_ids]
+        if attempted_ids is not None:
+            targets = [c for c in targets if c.get("id") not in attempted_ids]
+    if limit > 0:
+        targets = targets[:limit]
+
+    if not targets:
+        for course in courses:
+            course.pop("__row_index", None)
+            course.pop("__table_index", None)
+        return courses
+
+    logger.info(f"开始抓取 {len(targets)} 门课程的详情...")
+
+    for i, course in enumerate(targets):
         try:
             row_index = course.get("__row_index")
             table_index = course.get("__table_index", 0)
             if row_index is None:
                 logger.warning(f"课程[{i}] 缺少行索引，跳过详情抓取")
                 continue
+            if attempted_ids is not None and course.get("id"):
+                attempted_ids.add(course["id"])
 
             visible_tables = page.locator("table:visible")
             row = visible_tables.nth(table_index).locator("tbody tr").nth(row_index)
@@ -2268,28 +2375,30 @@ def save_courses_to_db(courses_data: List[dict]) -> List[str]:
                     _reopened_course_ids.append(existing.id)
                     logger.info(f"🔥 退课捡漏: [{existing.name}] 新增 {new_remaining} 个名额!")
 
-                # 更新已有课程信息
-                existing.name = data.get("name", existing.name)
-                existing.category = data.get("category", existing.category)
-                existing.location = data.get("location", existing.location)
-                existing.teacher = data.get("teacher", existing.teacher)
-                existing.college = data.get("college", existing.college)
+                # 更新已有课程信息。字符串字段一律采用「空值不覆盖」语义：
+                # 网络层快照常带空字符串，quick 轮也完全不解析详情字段，
+                # 若允许空值落库会把此前详情抓取补到的签到方式等数据擦掉。
+                existing.name = data.get("name") or existing.name
+                existing.category = data.get("category") or existing.category
+                existing.location = data.get("location") or existing.location
+                existing.teacher = data.get("teacher") or existing.teacher
+                existing.college = data.get("college") or existing.college
                 existing.start_time = start_time_dt or existing.start_time
                 existing.end_time = end_time_dt or existing.end_time
                 existing.enroll_start = enroll_start_dt or existing.enroll_start
                 existing.enroll_end = enroll_end_dt or existing.enroll_end
-                existing.sign_method = data.get("sign_method", existing.sign_method)
+                existing.sign_method = data.get("sign_method") or existing.sign_method
                 existing.enrolled = new_enrolled
                 existing.capacity = new_capacity
-                existing.status = data.get("status", existing.status)
-                existing.campus = data.get("campus", existing.campus)
-                existing.open_college = data.get("open_college", existing.open_college)
-                existing.open_grade = data.get("open_grade", existing.open_grade)
-                existing.open_group = data.get("open_group", existing.open_group)
-                existing.has_homework = data.get("has_homework", existing.has_homework)
-                existing.check_in_method = data.get("check_in_method", existing.check_in_method)
-                existing.description = data.get("description", existing.description)
-                existing.organizer = data.get("organizer", existing.organizer)
+                existing.status = data.get("status") or existing.status
+                existing.campus = data.get("campus") or existing.campus
+                existing.open_college = data.get("open_college") or existing.open_college
+                existing.open_grade = data.get("open_grade") or existing.open_grade
+                existing.open_group = data.get("open_group") or existing.open_group
+                existing.has_homework = data.get("has_homework") or existing.has_homework
+                existing.check_in_method = data.get("check_in_method") or existing.check_in_method
+                existing.description = data.get("description") or existing.description
+                existing.organizer = data.get("organizer") or existing.organizer
                 existing.expired = is_expired
                 existing.last_seen = now
             else:

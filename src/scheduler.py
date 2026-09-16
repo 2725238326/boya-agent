@@ -128,6 +128,9 @@ _push_buffer = {
 
 # 连续失败计数器（用于 Telegram 告警）
 _consecutive_failures = 0
+# 进程内已尝试过详情页抓取的课程 id。详情页本身没有「签到方式」等
+# 字段的课程会保持空值，若没有这层去重，quick 巡检会每轮重复点开。
+_detail_attempted_ids = set()
 _MAX_FAILURES_BEFORE_ALERT = 3
 URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
 SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
@@ -344,6 +347,22 @@ def _load_active_enrollment_targets(session):
     )
 
 
+def _load_detail_enrich_context(session):
+    """返回 (待补详情的课程 id 集合, 库中全部课程 id 集合)。
+
+    quick 巡检用它们在当轮顺手补抓详情页，让新发现课程尽快获得
+    签到方式等字段，而不是等下一次 full 抓取（间隔可达数小时）。
+    """
+    needs_ids = {
+        row[0]
+        for row in session.query(Course.id)
+        .filter(or_(Course.check_in_method == None, Course.check_in_method == ""))  # noqa: E711
+        .all()
+    }
+    known_ids = {row[0] for row in session.query(Course.id).all()}
+    return needs_ids, known_ids
+
+
 def _is_hot_course(course, now: datetime) -> bool:
     return is_hot_course(
         course,
@@ -466,6 +485,21 @@ async def _run_scrape_task_impl(mode: str = "full"):
         last_scrape_error = None
         last_scrape_status = None
         scrape_status = None
+        detail_ids = None
+        known_ids = None
+        if mode == "quick":
+            # 定点补抓是增强而非必需路径：查询失败时按普通 quick 轮处理。
+            try:
+                session = get_session()
+                try:
+                    detail_ids, known_ids = _load_detail_enrich_context(session)
+                finally:
+                    session.close()
+                detail_ids -= _detail_attempted_ids
+            except Exception as e:
+                logger.warning(f"加载待补详情课程列表失败，本轮按普通 quick 抓取处理: {e}")
+                detail_ids = None
+                known_ids = None
         for attempt in range(2):
             if attempt > 0:
                 logger.warning("scrape failed, recreate browser and retry once")
@@ -477,7 +511,13 @@ async def _run_scrape_task_impl(mode: str = "full"):
 
             _sync_course_lifecycle()
             try:
-                outcome = await scrape_courses_result(page, include_details=(mode != "quick"))
+                outcome = await scrape_courses_result(
+                    page,
+                    include_details=(mode != "quick"),
+                    detail_ids=detail_ids,
+                    known_ids=known_ids,
+                    attempted_ids=_detail_attempted_ids,
+                )
                 _mark_browser_used()
                 scrape_status = outcome.status.value
                 run_status["last_scrape_duration_ms"] = outcome.metadata.get("duration_ms")

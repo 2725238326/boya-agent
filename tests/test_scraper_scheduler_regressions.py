@@ -12,6 +12,7 @@ from src.course_state import get_check_in_display_label, is_self_check_in
 from src.models import Base, Course, CourseReminder, EmailSubscriber, FilterConfig, NotificationJob
 from src.scrape_outcome import ScrapeOutcome, ScrapeStatus
 from src.scraper import (
+    _enrich_with_details,
     _extract_courses_from_network_payload,
     _build_course_row_payload,
     _cleanup_near_duplicate_courses,
@@ -22,6 +23,7 @@ from src.scraper import (
     _is_near_duplicate_triplet,
     _parse_visible_course_tables,
     _select_best_header_row,
+    _select_detail_enrich_targets,
     _wait_course_tables_ready,
     assess_scrape_health,
     generate_course_id,
@@ -1185,6 +1187,231 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual({row["id"] for row in rows}, {"dom-only", "locator-only"})
         self.assertEqual(parse_table_mock.await_count, 1)
+
+
+class DetailEnrichRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+
+    def test_save_courses_to_db_does_not_wipe_enriched_fields_with_empty_values(self):
+        now = business_now()
+        session = self.Session()
+        try:
+            session.add(
+                Course(
+                    id="enriched-course",
+                    name="已补详情课程",
+                    teacher="王老师",
+                    location="学院路主M201",
+                    campus="学院路校区",
+                    start_time=now + timedelta(days=1),
+                    enroll_start=now - timedelta(hours=1),
+                    enroll_end=now + timedelta(hours=2),
+                    capacity=100,
+                    enrolled=50,
+                    sign_method="直接选课",
+                    check_in_method="自主签到",
+                    description="课程介绍原文",
+                    organizer="校团委",
+                    expired=False,
+                    last_seen=now,
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        # 网络层快照会携带空字符串的详情字段；quick 轮 DOM 行则完全没有
+        # 这些键。两种情况都不允许把已抓到的签到方式擦回空值。
+        payload = {
+            "id": "enriched-course",
+            "name": "已补详情课程",
+            "teacher": "王老师",
+            "location": "学院路主M201",
+            "campus": "学院路校区",
+            "start_time": (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
+            "enroll_start": (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"),
+            "enroll_end": (now + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M"),
+            "capacity": 100,
+            "enrolled": 51,
+            "status": "可选",
+            "sign_method": "",
+            "check_in_method": "",
+            "description": "",
+            "organizer": "",
+        }
+
+        with patch("src.scraper.get_session", side_effect=lambda: self.Session()):
+            save_courses_to_db([payload])
+
+        verify = self.Session()
+        try:
+            row = verify.query(Course).filter_by(id="enriched-course").first()
+            self.assertEqual(row.check_in_method, "自主签到")
+            self.assertEqual(row.description, "课程介绍原文")
+            self.assertEqual(row.organizer, "校团委")
+            self.assertEqual(row.sign_method, "直接选课")
+            self.assertEqual(row.enrolled, 51)
+        finally:
+            verify.close()
+
+    def test_select_detail_enrich_targets_picks_missing_and_new_courses(self):
+        page_rows = [
+            {"id": "known-complete"},
+            {"id": "known-missing"},
+            {"id": "brand-new"},
+            {"id": ""},
+        ]
+
+        targets = _select_detail_enrich_targets(
+            page_rows,
+            detail_ids={"known-missing", "not-on-page"},
+            known_ids={"known-complete", "known-missing"},
+        )
+
+        self.assertEqual(targets, {"known-missing", "not-on-page", "brand-new"})
+
+        self.assertEqual(
+            _select_detail_enrich_targets(page_rows, detail_ids=None, known_ids=None),
+            set(),
+        )
+        self.assertEqual(
+            _select_detail_enrich_targets(page_rows, detail_ids={"known-missing"}, known_ids=None),
+            {"known-missing"},
+        )
+
+    def test_load_detail_enrich_context_returns_missing_and_known_ids(self):
+        now = business_now()
+        session = self.Session()
+        try:
+            session.add_all(
+                [
+                    Course(
+                        id="has-detail",
+                        name="已有详情",
+                        check_in_method="自主签到",
+                        enroll_end=now + timedelta(hours=1),
+                    ),
+                    Course(
+                        id="missing-detail",
+                        name="缺详情",
+                        check_in_method="",
+                        enroll_end=now + timedelta(hours=1),
+                    ),
+                    Course(
+                        id="null-detail",
+                        name="空详情",
+                        check_in_method=None,
+                        enroll_end=now + timedelta(hours=1),
+                    ),
+                ]
+            )
+            session.commit()
+
+            needs_ids, known_ids = scheduler._load_detail_enrich_context(session)
+        finally:
+            session.close()
+
+        self.assertEqual(needs_ids, {"missing-detail", "null-detail"})
+        self.assertEqual(known_ids, {"has-detail", "missing-detail", "null-detail"})
+
+
+class _ClickableLocator:
+    """供详情抓取测试使用的最小 locator 假实现。"""
+
+    def __init__(self, clicks):
+        self._clicks = clicks
+
+    @property
+    def first(self):
+        return self
+
+    def nth(self, _index):
+        return self
+
+    def locator(self, *_args, **_kwargs):
+        return self
+
+    async def count(self):
+        return 1
+
+    async def click(self):
+        self._clicks.append("click")
+
+
+class _DetailFakePage:
+    def __init__(self):
+        self.clicks = []
+
+    def locator(self, *_args, **_kwargs):
+        return _ClickableLocator(self.clicks)
+
+    async def inner_text(self, _selector):
+        return "签到方式：自主签到"
+
+
+class EnrichDetailTests(unittest.IsolatedAsyncioTestCase):
+    async def _run_enrich(self, courses, **kwargs):
+        page = _DetailFakePage()
+        with (
+            patch("src.scraper._wait_for_network_idle", new=AsyncMock()),
+            patch("src.scraper._wait_course_tables_ready", new=AsyncMock(return_value=True)),
+        ):
+            result = await _enrich_with_details(page, courses, **kwargs)
+        return page, result
+
+    def _row(self, course_id, row_index):
+        return {
+            "id": course_id,
+            "name": f"课程{course_id}",
+            "__row_index": row_index,
+            "__table_index": 0,
+        }
+
+    async def test_quick_enrich_skips_already_attempted_courses(self):
+        attempted = {"a"}
+        courses = [self._row("a", 0), self._row("b", 1), self._row("c", 2)]
+
+        page, result = await self._run_enrich(
+            courses,
+            target_ids={"a", "b", "c"},
+            attempted_ids=attempted,
+        )
+
+        # a 本进程内已尝试过，不再点开；b、c 各点详情 + 返回共 4 次点击
+        self.assertEqual(len(page.clicks), 4)
+        self.assertEqual(attempted, {"a", "b", "c"})
+        self.assertEqual(result[1]["check_in_method"], "自主签到")
+        self.assertNotIn("check_in_method", result[0])
+        for row in result:
+            self.assertNotIn("__row_index", row)
+
+    async def test_quick_enrich_respects_limit(self):
+        attempted = set()
+        courses = [self._row("a", 0), self._row("b", 1), self._row("c", 2)]
+
+        page, _ = await self._run_enrich(
+            courses,
+            target_ids={"a", "b", "c"},
+            attempted_ids=attempted,
+            limit=1,
+        )
+
+        self.assertEqual(len(page.clicks), 2)
+        self.assertEqual(attempted, {"a"})
+
+    async def test_full_enrich_processes_every_row(self):
+        courses = [self._row("a", 0), self._row("b", 1)]
+
+        page, result = await self._run_enrich(courses)
+
+        self.assertEqual(len(page.clicks), 4)
+        self.assertTrue(all(row["check_in_method"] == "自主签到" for row in result))
 
 
 if __name__ == "__main__":
