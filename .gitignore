@@ -23,6 +23,7 @@ logs/
 # IDE
 .vscode/
 .idea/
+.omx/
 
 # OS
 .DS_Store
