@@ -823,6 +823,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             id="hot-json",
             name="热点展示课",
             campus="全部校区",
+            check_in_method="常规签到",
             enroll_start=now - timedelta(minutes=10),
             enroll_end=now + timedelta(hours=1),
             end_time=now + timedelta(hours=2),
@@ -849,7 +850,7 @@ class ScraperSchedulerRegressionTests(unittest.TestCase):
             check_in_method="",
         )
 
-        self.assertEqual(get_check_in_display_label(course), "常规签到")
+        self.assertEqual(get_check_in_display_label(course), "待确认")
         self.assertFalse(is_self_check_in(course))
 
         course.check_in_method = "自主签到"
