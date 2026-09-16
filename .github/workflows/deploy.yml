@@ -77,7 +77,59 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: python3 scripts/check_ssh_connectivity.py
 
+      # 依赖未变化时跳过 wheelhouse 构建与上传：GitHub 云端到生产机的 SCP
+      # 带宽实测仅 ~29KB/s，200MB+ 依赖包上传是该流水线的主要瓶颈。
+      # 服务器在上一次成功部署后写入 .deps-sha256 标记，此处比对内容哈希。
+      - name: Compute dependency hash
+        id: deps
+        shell: bash
+        run: |
+          DEPS_HASH="$(cat requirements.txt constraints.txt | sha256sum | cut -d' ' -f1)"
+          echo "hash=$DEPS_HASH" >> "$GITHUB_OUTPUT"
+          echo "deps hash: $DEPS_HASH"
+
+      - name: Fetch server dependency marker
+        id: serverdeps
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+        run: |
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SERVER_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -H "$SERVER_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+          APP_DIR="${APP_DIR:-/home/boya-agent}"
+          REMOTE_STATE="$(ssh -i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o ConnectTimeout=15 \
+            "$SERVER_USER@$SERVER_HOST" \
+            "echo HASH=\$(cat '$APP_DIR/.deps-sha256' 2>/dev/null); \
+             if [ -x '$APP_DIR/venv/bin/python' ]; then echo VENV=ok; else echo VENV=missing; fi")"
+          REMOTE_HASH="$(printf '%s\n' "$REMOTE_STATE" | sed -n 's/^HASH=//p' | head -1 | tr -d '[:space:]')"
+          VENV_STATE="$(printf '%s\n' "$REMOTE_STATE" | sed -n 's/^VENV=//p' | head -1 | tr -d '[:space:]')"
+          echo "server deps hash: ${REMOTE_HASH:-<none>}, venv: ${VENV_STATE:-unknown}"
+          echo "remote_hash=$REMOTE_HASH" >> "$GITHUB_OUTPUT"
+          echo "venv_state=$VENV_STATE" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether dependency bundle is needed
+        id: depsdecision
+        shell: bash
+        run: |
+          if [ "${{ steps.serverdeps.outputs.venv_state }}" != "ok" ]; then
+            echo "deps_changed=true" >> "$GITHUB_OUTPUT"
+            echo "server venv missing/broken; wheelhouse build required for recovery"
+          elif [ -n "${{ steps.serverdeps.outputs.remote_hash }}" ] && \
+             [ "${{ steps.deps.outputs.hash }}" = "${{ steps.serverdeps.outputs.remote_hash }}" ]; then
+            echo "deps_changed=false" >> "$GITHUB_OUTPUT"
+            echo "server dependencies already match requirements+constraints; wheelhouse not needed"
+          else
+            echo "deps_changed=true" >> "$GITHUB_OUTPUT"
+            echo "dependency change detected (or no marker); wheelhouse build required"
+          fi
+
       - name: Setup uv for production dependency bundle
+        if: steps.depsdecision.outputs.deps_changed == 'true'
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -86,6 +138,7 @@ jobs:
             constraints.txt
 
       - name: Build offline Linux wheelhouse
+        if: steps.depsdecision.outputs.deps_changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -112,6 +165,7 @@ jobs:
           du -h production-wheelhouse.tgz
 
       - name: Upload offline dependency bundle
+        if: steps.depsdecision.outputs.deps_changed == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -130,6 +184,8 @@ jobs:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
           WHEELHOUSE_PATH: /tmp/boya-agent-deploy-${{ github.run_id }}/production-wheelhouse.tgz
+          DEPS_HASH: ${{ steps.deps.outputs.hash }}
+          DEPS_CHANGED: ${{ steps.depsdecision.outputs.deps_changed }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -138,14 +194,16 @@ jobs:
           # 生产机首次用 uv 安装 Playwright 可能受上游带宽影响，
           # 给依赖安装和浏览器/服务核对留出足够时间；SSH 仍由 job timeout 限制。
           command_timeout: 30m
-          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME,WHEELHOUSE_PATH
+          envs: DEPLOY_BRANCH,DEPLOY_SHA,APP_DIR,SERVICE_NAME,WHEELHOUSE_PATH,DEPS_HASH,DEPS_CHANGED
           script: |
             set -euo pipefail
 
             APP_DIR="${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
             DEPLOY_SHA="${DEPLOY_SHA:?github.sha was not provided}"
-            WHEELHOUSE_PATH="${WHEELHOUSE_PATH:?offline wheelhouse path was not provided}"
+            WHEELHOUSE_PATH="${WHEELHOUSE_PATH:-}"
+            DEPS_CHANGED="${DEPS_CHANGED:-true}"
+            DEPS_HASH="${DEPS_HASH:-}"
             DEPLOY_SHA_SHORT="$(printf '%s' "$DEPLOY_SHA" | cut -c1-7)"
 
             echo "Deploy branch: $DEPLOY_BRANCH"
@@ -229,17 +287,29 @@ jobs:
               exit 1
             fi
 
-            if [ ! -f "$WHEELHOUSE_PATH" ]; then
-              echo "Offline dependency bundle is missing: $WHEELHOUSE_PATH"
-              exit 1
+            # venv 缺失时强制按依赖变化处理，保证环境可恢复。
+            if [ "$DEPS_CHANGED" != "true" ] && [ ! -x venv/bin/python ]; then
+              echo "venv missing on server; forcing dependency install"
+              DEPS_CHANGED=true
             fi
-            WHEELHOUSE_DIR="$(mktemp -d /tmp/boya-agent-wheelhouse.XXXXXX)"
+
+            WHEELHOUSE_DIR=""
             cleanup_wheelhouse() {
-              rm -rf "$WHEELHOUSE_DIR"
-              rm -f "$WHEELHOUSE_PATH"
-              rmdir "$(dirname "$WHEELHOUSE_PATH")" 2>/dev/null || true
+              if [ -n "$WHEELHOUSE_DIR" ]; then rm -rf "$WHEELHOUSE_DIR"; fi
+              if [ -n "$WHEELHOUSE_PATH" ]; then
+                rm -f "$WHEELHOUSE_PATH"
+                rmdir "$(dirname "$WHEELHOUSE_PATH")" 2>/dev/null || true
+              fi
             }
-            tar -xzf "$WHEELHOUSE_PATH" -C "$WHEELHOUSE_DIR"
+
+            if [ "$DEPS_CHANGED" = "true" ]; then
+              if [ -z "$WHEELHOUSE_PATH" ] || [ ! -f "$WHEELHOUSE_PATH" ]; then
+                echo "Offline dependency bundle is missing: $WHEELHOUSE_PATH"
+                exit 1
+              fi
+              WHEELHOUSE_DIR="$(mktemp -d /tmp/boya-agent-wheelhouse.XXXXXX)"
+              tar -xzf "$WHEELHOUSE_PATH" -C "$WHEELHOUSE_DIR"
+            fi
 
             # setup-uv installs into ~/.local/bin; include it before falling back
             # to the one-time network bootstrap for an older server.
@@ -252,14 +322,18 @@ jobs:
               uv venv --python 3.10 venv
             fi
 
-            uv pip install --offline --no-index \
-              --no-build-isolation \
-              --find-links "$WHEELHOUSE_DIR" \
-              --python ./venv/bin/python setuptools wheel
-            uv pip install --offline --no-index \
-              --no-build-isolation \
-              --find-links "$WHEELHOUSE_DIR" \
-              --python ./venv/bin/python -r requirements.txt -c constraints.txt
+            if [ "$DEPS_CHANGED" = "true" ]; then
+              uv pip install --offline --no-index \
+                --no-build-isolation \
+                --find-links "$WHEELHOUSE_DIR" \
+                --python ./venv/bin/python setuptools wheel
+              uv pip install --offline --no-index \
+                --no-build-isolation \
+                --find-links "$WHEELHOUSE_DIR" \
+                --python ./venv/bin/python -r requirements.txt -c constraints.txt
+            else
+              echo "Skipping offline dependency install; requirements/constraints unchanged since last deploy."
+            fi
             ./venv/bin/python -m compileall -q src web tests
 
             EMAIL_WAS_ENABLED="$(python3 - "$DATABASE_PATH" <<'PY'
@@ -401,6 +475,12 @@ jobs:
                 connection.close()
             PY
             echo "Database integrity and notification schema checks passed."
+
+            # 部署全部验收通过后写入依赖哈希标记；下次依赖未变的推送将跳过
+            # wheelhouse 构建与上传。标记写入放在验收之后，避免失败部署误标记。
+            if [ -n "$DEPS_HASH" ]; then
+              printf '%s\n' "$DEPS_HASH" > "$APP_DIR/.deps-sha256"
+            fi
 
             echo "Server runtime summary:"
             printf '  commit: '; git rev-parse --short=12 HEAD
