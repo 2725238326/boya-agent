@@ -102,9 +102,10 @@ jobs:
           chmod 600 "$HOME/.ssh/deploy_key"
           ssh-keyscan -H "$SERVER_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
           APP_DIR="${APP_DIR:-/home/boya-agent}"
+          # 标记放在仓库外的运行时目录，避免让 git 工作树变脏导致部署自检中止。
           REMOTE_STATE="$(ssh -i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o ConnectTimeout=15 \
             "$SERVER_USER@$SERVER_HOST" \
-            "echo HASH=\$(cat '$APP_DIR/.deps-sha256' 2>/dev/null); \
+            "echo HASH=\$(cat /var/lib/boya-agent/.deps-sha256 2>/dev/null); \
              if [ -x '$APP_DIR/venv/bin/python' ]; then echo VENV=ok; else echo VENV=missing; fi")"
           REMOTE_HASH="$(printf '%s\n' "$REMOTE_STATE" | sed -n 's/^HASH=//p' | head -1 | tr -d '[:space:]')"
           VENV_STATE="$(printf '%s\n' "$REMOTE_STATE" | sed -n 's/^VENV=//p' | head -1 | tr -d '[:space:]')"
@@ -477,9 +478,10 @@ jobs:
             echo "Database integrity and notification schema checks passed."
 
             # 部署全部验收通过后写入依赖哈希标记；下次依赖未变的推送将跳过
-            # wheelhouse 构建与上传。标记写入放在验收之后，避免失败部署误标记。
+            # wheelhouse 构建与上传。标记写入放在验收之后，避免失败部署误标记；
+            # 文件放在运行时目录而非仓库内，避免污染 git 工作树检查。
             if [ -n "$DEPS_HASH" ]; then
-              printf '%s\n' "$DEPS_HASH" > "$APP_DIR/.deps-sha256"
+              printf '%s\n' "$DEPS_HASH" > /var/lib/boya-agent/.deps-sha256
             fi
 
             echo "Server runtime summary:"
