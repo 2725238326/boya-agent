@@ -118,6 +118,8 @@ body.home-body {
     margin: 0;
     font-size: clamp(34px, 5vw, 58px);
     line-height: 1.08;
+    word-break: keep-all;
+    text-wrap: balance;
 }
 
 .home-subtitle {
@@ -272,8 +274,17 @@ body.home-body {
 .home-filters button { cursor:pointer; font:inherit; min-height:44px; }
 .home-course-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:18px; }
 .home-course { min-width:0; overflow-wrap:anywhere; }
-.home-course .home-course-status { color:var(--home-primary-strong); font-weight:700; margin:0 0 8px; }
+.home-course .home-course-status { font-weight:700; margin:0 0 8px; }
+.home-course-status[data-state="open"] { color:#0f766e; }
+.home-course-status[data-state="upcoming"] { color:var(--home-primary-strong); }
+.home-course-status[data-state="full"] { color:#b45309; }
+.home-course-status[data-state="expired"] { color:var(--home-muted); }
 .home-course .home-course-seats { color:var(--home-text); font-size:20px; font-weight:700; }
+.home-course .home-course-seats.is-low { color:#b45309; }
+.home-course .home-course-checkin { font-weight:600; font-size:14px; }
+.home-course-checkin[data-state="self"] { color:#0f766e; }
+.home-course-checkin[data-state="normal"] { color:var(--home-muted); }
+.home-course-checkin[data-state="pending"] { color:#b45309; }
 .home-course details { margin-top:16px; }
 .home-course summary { cursor:pointer; padding:8px 0; }
 .home-personal-link { margin-left:20px; }

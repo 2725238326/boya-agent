@@ -183,19 +183,29 @@ function renderPublicCourses() {
         && (!state || courseLabel(course) === labels[state]));
     summary.textContent = courses.length ? `显示 ${courses.length} 门课程（在最近 ${publicCourses.length} 条记录中筛选，最多读取 200 条）。`
         : publicCourses.length ? '没有匹配的课程，可清除筛选。' : '当前列表暂无课程，可稍后重新加载或查看官方选课页。';
+    const statusStates = { '可报名': 'open', '未开选': 'upcoming', '已满': 'full', '已结束': 'expired' };
+    const checkinStates = { '自主签到': 'self', '常规签到': 'normal' };
     const fragment = document.createDocumentFragment();
     for (const course of courses) {
         const card = homeNode('article', '', 'home-card home-course');
-        card.append(homeNode('p', courseLabel(course), 'home-course-status'));
+        const status = homeNode('p', courseLabel(course), 'home-course-status');
+        status.dataset.state = statusStates[courseLabel(course)] || 'upcoming';
+        card.append(status);
         card.append(homeNode('h3', course.name));
-        card.append(homeNode('p', `剩余 ${Math.max(0, Number(course.remaining) || 0)} 个名额`, 'home-course-seats'));
+        const remaining = Math.max(0, Number(course.remaining) || 0);
+        const seats = homeNode('p', `剩余 ${remaining} 个名额`, 'home-course-seats');
+        if (remaining > 0 && remaining <= 3 && course.enrollment_open) seats.classList.add('is-low');
+        card.append(seats);
         card.append(homeNode('p', `报名：${course.enroll_start || '时间待确认'} — ${course.enroll_end || '时间待确认'}`));
         card.append(homeNode('p', `${course.campus || '校区待确认'} · ${course.category || '类别待确认'}`));
+        const checkinLabel = course.display_check_in_method || '待确认';
+        const checkin = homeNode('p', `签到：${checkinLabel}`, 'home-course-checkin');
+        checkin.dataset.state = checkinStates[checkinLabel] || 'pending';
+        card.append(checkin);
         const details = document.createElement('details');
         details.append(homeNode('summary', '课程详情'));
         details.append(homeNode('p', `上课：${course.start_time || '待确认'} — ${course.end_time || '待确认'}`));
         details.append(homeNode('p', `教师：${course.teacher || '待确认'}；地点：${course.location || '待确认'}`));
-        details.append(homeNode('p', `签到：${course.display_check_in_method || '待确认'}`));
         card.append(details);
         const official = document.createElement('a');
         official.href = 'https://bykc.buaa.edu.cn/';

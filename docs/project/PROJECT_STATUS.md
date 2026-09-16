@@ -1,5 +1,17 @@
 # BOYA Agent 当前项目状态
 
+## 2026-09-16 公开首页与门户展示优化（本地验证通过，待生产复核）
+
+**改动内容**：
+- 首页课程卡片把“签到方式”从折叠详情提到卡片正面，不再要求展开才能看到；报名状态按“可报名 / 未开选 / 已满 / 已结束”分色（绿 / 蓝 / 琥珀 / 灰），可报名且剩余名额 ≤3 时名额数字高亮。
+- Hero 标题加 `word-break: keep-all` 与 `text-wrap: balance`，修正中文断词换行。
+- 门户修复一处残留不一致：`getPortalCourseCheckInLabel` 原先用 `sign_method`（选课方式）参与判断且空值回退为“常规签到”，已改为只看 `check_in_method`、空值显示“待确认”，与后端和首页语义一致。
+- 门户签到徽章新增“待确认”专用样式（琥珀虚线），与“常规签到”（实心橙）视觉区分。
+
+**本地验证（已运行）**：`npm run check`（JS 语法 + tsc）通过；`pytest` 91 项全过；`verify_home_browser.py --screenshots` 双宽度通过并截图确认；`verify_portal_browser.py` 10 项全过。
+
+**待验证**：部署后生产页面实际渲染效果与 `/api/courses` 字段一致性。
+
 ## 2026-09-16 事故复盘与恢复部署：主机假死根因已定位并修复
 
 **故障现象**：`buaaboya.top` 全端口表现为 TCP 握手成功但应用零响应（SSH 无 banner、HTTPS 无 ServerHello、HTTP 零字节），内核存活而用户态全部饿死；每次强制重启后 6-10 分钟内复发。

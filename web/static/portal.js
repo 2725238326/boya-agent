@@ -675,9 +675,10 @@ function toggleFullCourses() {
 function renderCourseCard(course, isFull = false) {
     const checkIn = getPortalCourseCheckInLabel(course);
     const isSelf = checkIn.includes('\u81ea\u4e3b');
+    const isPending = checkIn === '\u5f85\u786e\u8ba4';
     const signBadge = isSelf
         ? '<span class="portal-badge portal-badge-self">\u2713 \u81ea\u4e3b\u7b7e\u5230</span>'
-        : `<span class="portal-badge portal-badge-regular">${escapeHtml(checkIn)}</span>`;
+        : `<span class="portal-badge ${isPending ? 'portal-badge-pending' : 'portal-badge-regular'}">${escapeHtml(checkIn)}</span>`;
 
     const remaining = course.remaining;
     const capacity = course.capacity || 1;
@@ -742,11 +743,10 @@ function getPortalCourseCheckInLabel(course) {
     if (displayLabel) return displayLabel;
 
     const rawCheckIn = String(course.check_in_method || '').trim();
-    const rawSignMethod = String(course.sign_method || '').trim();
-    if (`${rawCheckIn} ${rawSignMethod}`.includes('\u81ea\u4e3b')) {
+    if (rawCheckIn.includes('\u81ea\u4e3b') || rawCheckIn.includes('\u81ea\u9009')) {
         return '\u81ea\u4e3b\u7b7e\u5230';
     }
-    return '\u5e38\u89c4\u7b7e\u5230';
+    return rawCheckIn ? '\u5e38\u89c4\u7b7e\u5230' : '\u5f85\u786e\u8ba4';
 }
 
 function buildPortalCoursePrimaryAction(course) {

@@ -1033,6 +1033,11 @@ body.portal-body {
     background: rgba(255, 149, 0, 0.1);
     color: #c93400;
 }
+.portal-badge-pending {
+    background: rgba(255, 149, 0, 0.08);
+    color: #b45309;
+    border: 1px dashed rgba(180, 83, 9, 0.35);
+}
 
 .portal-badge-category {
     background: rgba(0, 113, 227, 0.06);
