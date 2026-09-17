@@ -137,6 +137,10 @@ _MAX_FAILURES_BEFORE_ALERT = 3
 _alert_sent = False
 _last_alert_at = None
 ALERT_COOLDOWN_MINUTES = max(5, int(os.getenv("SCRAPE_ALERT_COOLDOWN_MINUTES", "60")))
+# 连续该天数未被上游列表命中且抓取管道健康的课程，标记为过期。
+# 上游已下架的行不会一直停留在公开列表；若课程重新出现，保存路径
+# 会按当前时间重算 expired 自动复活，所以这里是可自愈的软过期。
+STALE_COURSE_EXPIRE_DAYS = max(1, int(os.getenv("STALE_COURSE_EXPIRE_DAYS", "3")))
 URGENT_DIGEST_MINUTES = max(1, int(os.getenv("PUSH_URGENT_DIGEST_MINUTES", "5")))
 SOON_DIGEST_MINUTES = max(5, int(os.getenv("PUSH_SOON_DIGEST_MINUTES", "30")))
 ACTIVE_ENROLL_SCRAPE_SECONDS = max(15, int(os.getenv("ACTIVE_ENROLL_SCRAPE_SECONDS", "30")))
@@ -961,6 +965,7 @@ async def _check_and_alert_failures():
         return
     now = business_now()
     if _last_alert_at and now - _last_alert_at < timedelta(minutes=ALERT_COOLDOWN_MINUTES):
+        logger.info(f"连续失败 {_consecutive_failures} 次，告警冷却中（距上次告警不足 {ALERT_COOLDOWN_MINUTES} 分钟）")
         return
     msg = (
         f"⚠️ 博雅报警：已连续失败 {_consecutive_failures} 次\n"
@@ -1450,6 +1455,9 @@ def _sync_course_lifecycle():
     同步课程生命周期：
     - 课程结束时间已过 -> 立即标记 expired
     - 选课结束超过 30 分钟 -> 标记 expired
+    - 连续 STALE_COURSE_EXPIRE_DAYS 天未被上游命中 -> 标记 expired
+      （仅在抓取管道近期有成功时执行，避免故障期把全库误清；
+      行若重新出现，保存路径会重算 expired 自动复活）
     长期清理由 cleanup_old_courses 统一处理，避免已结束课程被立即删库后失去排查上下文。
     """
     session = get_session()
@@ -1469,23 +1477,36 @@ def _sync_course_lifecycle():
             .all()
         )
 
-        if not ended_courses:
+        last_success = run_status.get("last_success")
+        pipeline_healthy = bool(last_success and last_success >= now - timedelta(hours=1))
+        stale_courses = []
+        if pipeline_healthy:
+            stale_cutoff = now - timedelta(days=STALE_COURSE_EXPIRE_DAYS)
+            stale_courses = (
+                session.query(Course)
+                .filter(Course.expired == False)  # noqa: E712
+                .filter(Course.last_seen != None, Course.last_seen < stale_cutoff)  # noqa: E711
+                .all()
+            )
+            stale_courses = [c for c in stale_courses if c.id not in {e.id for e in ended_courses}]
+
+        if not ended_courses and not stale_courses:
             return
 
-        ended_ids = {c.id for c in ended_courses}
+        ended_ids = {c.id for c in ended_courses} | {c.id for c in stale_courses}
 
         for key in _push_buffer:
             _push_buffer[key] = [cid for cid in _push_buffer[key] if cid not in ended_ids]
 
         newly_expired = 0
-        for course in ended_courses:
+        for course in ended_courses + stale_courses:
             if not course.expired:
                 newly_expired += 1
             course.expired = True
 
         session.commit()
         if newly_expired:
-            logger.info(f"已标记 {newly_expired} 门已结束或已截止的课程为过期")
+            logger.info(f"已标记 {newly_expired} 门已结束、已截止或长期未命中的课程为过期")
 
     except Exception as e:
         session.rollback()

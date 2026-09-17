@@ -1320,6 +1320,70 @@ class DetailEnrichRegressionTests(unittest.TestCase):
         self.assertEqual(needs_ids, {"missing-detail", "null-detail"})
         self.assertEqual(known_ids, {"has-detail", "missing-detail", "null-detail"})
 
+    def _seed_stale_pair(self, now):
+        session = self.Session()
+        try:
+            session.add_all(
+                [
+                    Course(
+                        id="ghost-course",
+                        name="长期未命中课程",
+                        check_in_method="",
+                        enroll_end=now + timedelta(days=2),
+                        last_seen=now - timedelta(days=scheduler.STALE_COURSE_EXPIRE_DAYS + 1),
+                        expired=False,
+                    ),
+                    Course(
+                        id="fresh-course",
+                        name="近期命中课程",
+                        check_in_method="自主签到",
+                        enroll_end=now + timedelta(days=2),
+                        last_seen=now,
+                        expired=False,
+                    ),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+    def _read_expired(self, course_id):
+        session = self.Session()
+        try:
+            return session.query(Course).filter_by(id=course_id).one().expired
+        finally:
+            session.close()
+
+    def test_stale_unseen_course_expires_only_when_pipeline_healthy(self):
+        now = business_now()
+        self._seed_stale_pair(now)
+
+        previous = scheduler.run_status.get("last_success")
+        scheduler.run_status["last_success"] = now
+        try:
+            with patch.object(scheduler, "get_session", side_effect=lambda: self.Session()):
+                scheduler._sync_course_lifecycle()
+        finally:
+            scheduler.run_status["last_success"] = previous
+
+        self.assertTrue(self._read_expired("ghost-course"))
+        self.assertFalse(self._read_expired("fresh-course"))
+
+    def test_stale_course_survives_when_pipeline_has_no_recent_success(self):
+        now = business_now()
+        self._seed_stale_pair(now)
+
+        previous = scheduler.run_status.get("last_success")
+        scheduler.run_status["last_success"] = None
+        try:
+            with patch.object(scheduler, "get_session", side_effect=lambda: self.Session()):
+                scheduler._sync_course_lifecycle()
+        finally:
+            scheduler.run_status["last_success"] = previous
+
+        self.assertFalse(self._read_expired("ghost-course"))
+        self.assertFalse(self._read_expired("fresh-course"))
+
 
 class _ClickableLocator:
     """供详情抓取测试使用的最小 locator 假实现。"""
