@@ -1462,6 +1462,52 @@ class EnrichDetailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(enrich_mock.await_args.args[1], rows)
 
 
+class EmptyStateConfirmTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transient_empty_state_is_rechecked_before_accepted(self):
+        from src.scraper import _confirm_course_page_empty_state
+
+        page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
+        with (
+            patch(
+                "src.scraper._course_page_has_empty_state",
+                new=AsyncMock(side_effect=[True, False]),
+            ) as empty_mock,
+            patch("src.scraper._wait_for_network_idle", new=AsyncMock()),
+        ):
+            result = await _confirm_course_page_empty_state(page, settle_ms=1)
+
+        self.assertFalse(result)
+        self.assertEqual(empty_mock.await_count, 2)
+
+    async def test_persistent_empty_state_is_confirmed(self):
+        from src.scraper import _confirm_course_page_empty_state
+
+        page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
+        with (
+            patch(
+                "src.scraper._course_page_has_empty_state",
+                new=AsyncMock(side_effect=[True, True]),
+            ),
+            patch("src.scraper._wait_for_network_idle", new=AsyncMock()),
+        ):
+            result = await _confirm_course_page_empty_state(page, settle_ms=1)
+
+        self.assertTrue(result)
+
+    async def test_non_empty_page_skips_recheck(self):
+        from src.scraper import _confirm_course_page_empty_state
+
+        page = types.SimpleNamespace()
+        with patch(
+            "src.scraper._course_page_has_empty_state",
+            new=AsyncMock(return_value=False),
+        ) as empty_mock:
+            result = await _confirm_course_page_empty_state(page)
+
+        self.assertFalse(result)
+        empty_mock.assert_awaited_once()
+
+
 class FailureAlertTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         scheduler._consecutive_failures = 0

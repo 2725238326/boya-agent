@@ -1003,6 +1003,26 @@ async def _course_page_has_empty_state(page: Page) -> bool:
     return has_course_context and has_empty_marker
 
 
+async def _confirm_course_page_empty_state(page: Page, settle_ms: int = 800) -> bool:
+    """复核“无课空状态”，防止 SPA 加载中的半渲染页面被误判为空。
+
+    选课页跳转后表格可能先渲染“暂无数据”占位再填充课程行；这里在
+    首次判定为空后等待网络空闲并短暂静置，二次检查仍为空才返回 True。
+    """
+    if not await _course_page_has_empty_state(page):
+        return False
+    await _wait_for_network_idle(page)
+    wait_for_timeout = getattr(page, "wait_for_timeout", None)
+    if callable(wait_for_timeout):
+        try:
+            await wait_for_timeout(settle_ms)
+        except Exception:
+            pass
+    else:
+        await asyncio.sleep(settle_ms / 1000)
+    return await _course_page_has_empty_state(page)
+
+
 async def _wait_for_network_idle(page: Page, timeout_ms: int = COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS) -> bool:
     """Wait for a navigation to settle without adding an unconditional delay."""
     try:
@@ -1682,6 +1702,18 @@ async def _open_course_select_page(page: Page) -> bool:
         if await select_menu.count() > 0:
             await select_menu.first.click()
             await _wait_for_network_idle(page)
+            # SPA 路由跳转可能滞后于点击：先等 URL 落到选课页再判断页面
+            # 状态，否则会把跳转途中或首页的半成品 DOM 误判为无课空状态。
+            if not _is_course_select_url(page.url):
+                wait_for_url = getattr(page, "wait_for_url", None)
+                if callable(wait_for_url):
+                    try:
+                        await wait_for_url("**/system/course-select**", timeout=8000)
+                    except Exception:
+                        pass
+            if not _is_course_select_url(page.url):
+                logger.warning("菜单点击后未进入选课页，改为直接导航")
+                await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30000)
             logger.info(f"已点击「选择课程」，当前 URL: {safe_url_for_log(page.url)}")
         else:
             logger.warning("未找到「选择课程」菜单项")
@@ -1720,7 +1752,7 @@ async def _scrape_courses_impl(
             await page.screenshot(path="logs/scrape_page.png", full_page=True)
             logger.info("选课页面诊断截图已保存")
 
-        if await _course_page_has_empty_state(page):
+        if await _confirm_course_page_empty_state(page):
             logger.info("当前选课窗口没有可选课程，按空状态完成本轮抓取")
             return []
 
