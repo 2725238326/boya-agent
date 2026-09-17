@@ -15,162 +15,161 @@
                 <a class="qrcode-link" href="/portal">返回门户</a>
                 {% if qrcode_course %}
                 <a class="qrcode-link secondary" href="/QRcode">二维码共享页</a>
-                {% else %}
-                <a class="qrcode-link secondary" href="#qrcodeUploadSection">上传二维码</a>
                 {% endif %}
             </div>
         </div>
     </header>
 
     <main class="qrcode-main">
-        <section class="qrcode-hero">
-            <div class="qrcode-hero-copy">
-                {% if qrcode_course %}
-                <div class="qrcode-eyebrow">签到二维码</div>
-                <h1>{{ qrcode_course.name }}</h1>
-                <p class="qrcode-hero-desc">课程信息已带好，直接上传二维码即可。想先看看别人上传的码，往下看就行。</p>
-                {% elif qrcode_missing_course %}
-                <div class="qrcode-eyebrow">入口失效</div>
-                <h1>未找到对应课程</h1>
-                <p class="qrcode-hero-desc">这个入口可能已经失效。返回课程页，从“签到二维码”重新进入就可以。</p>
-                {% else %}
-                <div class="qrcode-eyebrow">二维码共享</div>
-                <h1>课程签到二维码</h1>
-                <p class="qrcode-hero-desc">上传和查看二维码都在这里。想更省事的话，建议从课程卡片直接进入。</p>
-                {% endif %}
-
-                <nav class="qrcode-jump-nav" aria-label="快捷操作">
-                    <a class="qrcode-jump-link primary" href="#qrcodeUploadSection">上传二维码</a>
-                    <a class="qrcode-jump-link" href="#qrcodeListSection">查看二维码</a>
-                </nav>
+        {% if qrcode_course %}
+        {% set check_in_label = qrcode_course.check_in_label or '待确认' %}
+        <section class="qrcode-course-strip">
+            <div class="qrcode-strip-top">
+                <span class="qrcode-eyebrow">签到二维码</span>
+                <span class="qrcode-checkin-badge{% if '自主' in check_in_label %} self{% elif '待确认' in check_in_label %} pending{% endif %}">{{ check_in_label }}</span>
+                {% if qrcode_course.expired %}<span class="qrcode-checkin-badge ended">已结束</span>{% endif %}
             </div>
+            <h1>{{ qrcode_course.name }}</h1>
+            <p class="qrcode-course-meta">
+                <span>{{ qrcode_course.course_time or '时间待补充' }}</span>
+                <span>{{ qrcode_course.location or '地点待补充' }}</span>
+                <span>{{ qrcode_course.campus or '校区待补充' }}</span>
+            </p>
+        </section>
+        {% elif qrcode_missing_course %}
+        <section class="qrcode-course-strip">
+            <div class="qrcode-strip-top">
+                <span class="qrcode-eyebrow">入口失效</span>
+            </div>
+            <h1>未找到对应课程</h1>
+            <p class="qrcode-course-meta"><span>这个入口可能已经失效，返回课程页从“签到二维码”重新进入即可。</span></p>
+        </section>
+        {% else %}
+        <section class="qrcode-course-strip">
+            <div class="qrcode-strip-top">
+                <span class="qrcode-eyebrow">二维码共享</span>
+            </div>
+            <h1>课程签到二维码</h1>
+            <p class="qrcode-course-meta"><span>下面是最近共享的二维码；想更省事的话，从课程卡片直接进入对应页面。</span></p>
+        </section>
+        {% endif %}
 
-            <aside class="qrcode-hero-card">
-                {% if qrcode_course %}
-                <div class="qrcode-hero-card-label">课程信息</div>
-                <div class="qrcode-hero-card-value">{{ qrcode_course.check_in_label }}</div>
-                <div class="qrcode-hero-card-meta">
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">时间</span>
-                        <span>{{ qrcode_course.course_time or '时间待补充' }}</span>
-                    </div>
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">地点</span>
-                        <span>{{ qrcode_course.location or '地点待补充' }}</span>
-                    </div>
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">校区</span>
-                        <span>{{ qrcode_course.campus or '校区待补充' }}</span>
-                    </div>
+        <section class="qrcode-panel qrcode-list-panel" id="qrcodeListSection">
+            <div class="qrcode-panel-head qrcode-list-head">
+                <div>
+                    <div class="qrcode-section-kicker">查看</div>
+                    <h2>{% if qrcode_course %}这门课的二维码{% else %}最近共享二维码{% endif %}</h2>
+                    <p>{% if qrcode_course %}点开图片可以放大，方便直接扫码。{% else %}这里展示最近上传且已通过的二维码，点开就能放大。{% endif %}</p>
                 </div>
-                {% elif qrcode_missing_course %}
-                <div class="qrcode-hero-card-label">当前状态</div>
-                <div class="qrcode-hero-card-value">课程不存在</div>
-                <div class="qrcode-hero-card-meta">
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">建议</span>
-                        <span>返回门户后重新进入</span>
-                    </div>
+                <div class="qrcode-list-actions">
+                    <button type="button" class="qrcode-button secondary" id="qrcodeRefreshButton">刷新</button>
+                    <a class="qrcode-button secondary" href="#qrcodeUploadSection">上传一张</a>
                 </div>
-                {% else %}
-                <div class="qrcode-hero-card-label">当前模式</div>
-                <div class="qrcode-hero-card-value">共享大厅</div>
-                <div class="qrcode-hero-card-meta">
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">适合</span>
-                        <span>统一查看最近上传的二维码</span>
-                    </div>
-                    <div class="qrcode-hero-card-line">
-                        <span class="qrcode-hero-card-key">建议</span>
-                        <span>从课程卡片进入会更省事</span>
-                    </div>
-                </div>
-                {% endif %}
-            </aside>
+            </div>
+            <div class="qrcode-list" id="qrcodeList" aria-live="polite" aria-busy="true">
+                <div class="qrcode-empty">正在加载二维码...</div>
+            </div>
         </section>
 
-        <section class="qrcode-sections">
-            <section class="qrcode-panel qrcode-upload-panel" id="qrcodeUploadSection">
-                <div class="qrcode-panel-head">
-                    <div class="qrcode-section-kicker">上传</div>
-                    <h2>{% if qrcode_course %}上传这门课的二维码{% else %}上传二维码{% endif %}</h2>
-                    <p>{% if qrcode_course %}课程信息已带好，上传图片即可。{% else %}如果不是从课程页进来，再手动补课程信息。{% endif %}</p>
-                </div>
+        <section class="qrcode-panel qrcode-upload-panel" id="qrcodeUploadSection">
+            <div class="qrcode-panel-head">
+                <div class="qrcode-section-kicker">上传</div>
+                <h2>{% if qrcode_course %}上传这门课的二维码{% else %}上传二维码{% endif %}</h2>
+                <p>{% if qrcode_course %}课程信息已带好，选图片上传即可，通过审核后会显示在上面的列表里。{% else %}如果不是从课程页进来，需要手动补课程信息。{% endif %}</p>
+            </div>
 
-                <form id="qrcodeUploadForm" class="qrcode-form" enctype="multipart/form-data">
-                    <input type="hidden" name="course_id" value="{{ qrcode_course.id if qrcode_course else '' }}">
+            {% if qrcode_course and qrcode_course.expired %}
+            <div class="qrcode-status-box">这门课程已经结束，不能再上传二维码。</div>
+            {% else %}
+            <form id="qrcodeUploadForm" class="qrcode-form" enctype="multipart/form-data">
+                <input type="hidden" name="course_id" value="{{ qrcode_course.id if qrcode_course else '' }}">
 
-                    {% if qrcode_course %}
-                    <div class="qrcode-course-summary" id="qrcodeCourseSummary">
-                        <div class="qrcode-summary-row">
-                            <span class="qrcode-summary-label">课程</span>
-                            <span class="qrcode-summary-value">{{ qrcode_course.name }}</span>
-                        </div>
-                        <div class="qrcode-summary-row">
-                            <span class="qrcode-summary-label">时间</span>
-                            <span class="qrcode-summary-value">{{ qrcode_course.course_time or '时间待补充' }}</span>
-                        </div>
-                        <div class="qrcode-summary-row">
-                            <span class="qrcode-summary-label">地点</span>
-                            <span class="qrcode-summary-value">{{ qrcode_course.location or '地点待补充' }}</span>
-                        </div>
-                    </div>
-                    <div class="qrcode-form-hint">登录后会自动识别账号，不用再填邮箱。</div>
-                    {% else %}
-                    <div class="qrcode-form-hint">需要先登录门户；贡献者邮箱由当前会话自动识别，不接受手动填写。</div>
+                {% if not qrcode_course %}
+                <div class="qrcode-form-hint">需要先登录门户；贡献者邮箱由当前会话自动识别，不接受手动填写。</div>
 
+                <label class="qrcode-field">
+                    <span>课程名称</span>
+                    <input type="text" name="course_name" placeholder="例如：中医药文化体验活动" required>
+                </label>
+
+                <div class="qrcode-grid-two">
                     <label class="qrcode-field">
-                        <span>课程名称</span>
-                        <input type="text" name="course_name" placeholder="例如：中医药文化体验活动" required>
+                        <span>课程时间</span>
+                        <input type="text" name="course_time" placeholder="例如：2026-03-22 10:30 ~ 11:30">
                     </label>
-
-                    <div class="qrcode-grid-two">
-                        <label class="qrcode-field">
-                            <span>课程时间</span>
-                            <input type="text" name="course_time" placeholder="例如：2026-03-22 10:30 ~ 2026-03-22 11:30">
-                        </label>
-                        <label class="qrcode-field">
-                            <span>上课地点</span>
-                            <input type="text" name="course_location" placeholder="例如：学院路校区主南106">
-                        </label>
-                    </div>
-                    {% endif %}
-
                     <label class="qrcode-field">
-                        <span>补充说明</span>
-                        <textarea name="notes" rows="3" placeholder="例如：适用于本场次，扫码后可直接签到"></textarea>
+                        <span>上课地点</span>
+                        <input type="text" name="course_location" placeholder="例如：学院路校区主南106">
                     </label>
+                </div>
+                {% endif %}
 
-                    <label class="qrcode-field">
-                        <span>二维码图片</span>
-                        <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp" required>
+                <div class="qrcode-field">
+                    <span id="qrcodeImageLabel">二维码图片</span>
+                    <label class="qrcode-dropzone" id="qrcodeDropzone" aria-labelledby="qrcodeImageLabel">
+                        <input type="file" id="qrcodeImageInput" name="image" accept=".png,.jpg,.jpeg,.gif,.webp" class="qrcode-dropzone-input" required>
+                        <span class="qrcode-dropzone-prompt" id="qrcodeDropzonePrompt">
+                            <span class="qrcode-dropzone-icon" aria-hidden="true">+</span>
+                            <span class="qrcode-dropzone-title">拖入图片，或点击选择</span>
+                            <span class="qrcode-dropzone-hint">支持 png / jpg / jpeg / gif / webp，不超过 5MB</span>
+                        </span>
+                        <span class="qrcode-file-preview" id="qrcodeFilePreview" hidden>
+                            <img id="qrcodeFilePreviewImage" src="" alt="已选择的二维码预览">
+                            <span class="qrcode-file-preview-info">
+                                <span class="qrcode-file-preview-name" id="qrcodeFilePreviewName"></span>
+                                <span class="qrcode-file-preview-action">点击可重新选择</span>
+                            </span>
+                        </span>
                     </label>
+                </div>
 
-                    <div class="qrcode-form-hint">只传图片也可以，补充说明不是必填。</div>
+                <label class="qrcode-field">
+                    <span>补充说明（选填）</span>
+                    <textarea name="notes" rows="2" placeholder="例如：适用于本场次，扫码后可直接签到"></textarea>
+                </label>
 
-                    <div class="qrcode-form-actions">
-                        <button type="submit" class="qrcode-button primary" id="qrcodeSubmitButton">上传二维码</button>
+                <div class="qrcode-form-actions">
+                    <button type="submit" class="qrcode-button primary" id="qrcodeSubmitButton">上传二维码</button>
+                </div>
+            </form>
+
+            <div class="qrcode-status-box" id="qrcodeStatusBox" role="status" aria-live="polite">
+                上传后会先进入审核，通过后才会显示在列表里。有效贡献累计达到门槛后，系统会主动通知你。
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="qrcode-panel qrcode-stats-panel">
+            <div class="qrcode-panel-head">
+                <div class="qrcode-section-kicker">贡献</div>
+                <h2>贡献与奖励</h2>
+            </div>
+            <div class="qrcode-stats-grid">
+                <div class="qrcode-stats-me">
+                    <div class="qrcode-stats-row">
+                        <span class="qrcode-stats-key">当前账号</span>
+                        <span class="qrcode-stats-value" id="qrcodeCurrentUser">加载中...</span>
                     </div>
-                </form>
-
-                <div class="qrcode-status-box" id="qrcodeStatusBox">
-                    {% if qrcode_course %}上传后会自动出现在这门课的二维码列表里。有效贡献累计达到门槛后，系统会主动通知你。{% else %}上传后会出现在共享二维码列表里。有效贡献累计达到门槛后，系统会主动通知你。{% endif %}
-                </div>
-            </section>
-
-            <section class="qrcode-panel qrcode-list-panel" id="qrcodeListSection">
-                <div class="qrcode-panel-head qrcode-list-head">
-                    <div>
-                        <div class="qrcode-section-kicker">查看</div>
-                        <h2>{% if qrcode_course %}这门课的二维码{% else %}最近共享二维码{% endif %}</h2>
-                        <p>{% if qrcode_course %}点开图片可以放大，方便直接扫码。{% else %}这里展示最近上传的二维码，点开就能放大。{% endif %}</p>
+                    <div class="qrcode-stats-row">
+                        <span class="qrcode-stats-key">累计有效上传</span>
+                        <span class="qrcode-stats-value"><span id="qrcodeUploadCount">0</span> 次</span>
                     </div>
-                    <button type="button" class="qrcode-button secondary" id="qrcodeRefreshButton">刷新二维码</button>
+                    <div class="qrcode-stats-row">
+                        <span class="qrcode-stats-key">下一档奖励</span>
+                        <span class="qrcode-stats-value" id="qrcodeNextReward">—</span>
+                    </div>
                 </div>
-                <div class="qrcode-list" id="qrcodeList">
-                    <div class="qrcode-empty">正在加载二维码...</div>
+                <div class="qrcode-boards">
+                    <div class="qrcode-board">
+                        <h3 id="qrcodeCurrentLeaderboardTitle">本期贡献榜</h3>
+                        <div id="qrcodeCurrentLeaderboard"></div>
+                    </div>
+                    <div class="qrcode-board">
+                        <h3>累计贡献榜</h3>
+                        <div id="qrcodeAllTimeLeaderboard"></div>
+                    </div>
                 </div>
-            </section>
+            </div>
         </section>
     </main>
 

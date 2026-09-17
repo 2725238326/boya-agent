@@ -147,6 +147,8 @@ def _format_course_time(course: Course) -> str:
     start = course.start_time.strftime("%Y-%m-%d %H:%M") if course.start_time else ""
     end = course.end_time.strftime("%Y-%m-%d %H:%M") if course.end_time else ""
     if start and end:
+        if course.start_time.date() == course.end_time.date():
+            end = course.end_time.strftime("%H:%M")
         return f"{start} ~ {end}"
     return start or end
 

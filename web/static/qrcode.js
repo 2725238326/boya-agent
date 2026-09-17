@@ -2,6 +2,10 @@ const qrcodePageState = {
     courseId: "",
 };
 
+/** @type {HTMLElement | null} */
+let qrcodePreviewTrigger = null;
+let qrcodePreviewObjectUrl = "";
+
 function qrcodeStatusBox() {
     return document.getElementById("qrcodeStatusBox");
 }
@@ -75,11 +79,6 @@ function updateContributorStats(data = {}) {
     if (nextRewardEl) {
         nextRewardEl.textContent = stats.next_reward_threshold ? `${stats.next_reward_threshold} 次` : "已达最高档";
     }
-
-    const emailInput = document.getElementById("qrcodeEmail");
-    if (email && emailInput instanceof HTMLInputElement && !emailInput.value) {
-        emailInput.value = email;
-    }
 }
 
 function renderLeaderboard(containerId, leaderboard, emptyText) {
@@ -111,26 +110,33 @@ function updateLeaderboardTitles(currentBoard) {
         : "本期贡献榜";
 }
 
-function openQrcodePreview(imageUrl, title) {
+function openQrcodePreview(imageUrl, title, trigger) {
     const root = document.getElementById("qrcodePreview");
     const image = document.getElementById("qrcodePreviewImage");
     const titleEl = document.getElementById("qrcodePreviewTitle");
     if (!root || !image || !titleEl) return;
     if (!(image instanceof HTMLImageElement) || !(titleEl instanceof HTMLElement)) return;
+    qrcodePreviewTrigger = trigger || null;
     image.src = imageUrl;
     titleEl.textContent = title || "二维码预览";
     root.hidden = false;
     document.body.classList.add("qrcode-preview-open");
+    document.getElementById("qrcodePreviewClose")?.focus();
 }
 
 function closeQrcodePreview() {
     const root = document.getElementById("qrcodePreview");
     const image = document.getElementById("qrcodePreviewImage");
     if (!root || !image) return;
+    if (root.hidden) return;
     root.hidden = true;
     if (!(image instanceof HTMLImageElement)) return;
     image.src = "";
     document.body.classList.remove("qrcode-preview-open");
+    if (qrcodePreviewTrigger instanceof HTMLElement) {
+        qrcodePreviewTrigger.focus();
+    }
+    qrcodePreviewTrigger = null;
 }
 
 function renderUploads(items) {
@@ -154,7 +160,7 @@ function renderUploads(items) {
                     data-title="${title}"
                     aria-label="查看 ${title} 的二维码大图"
                 >
-                    <img src="${imageUrl}" alt="${title}">
+                    <img src="${imageUrl}" alt="${title}" loading="lazy" decoding="async">
                     <span class="qrcode-card-image-tip">点开看大图</span>
                 </button>
                 <div class="qrcode-card-title">${title}</div>
@@ -175,7 +181,7 @@ function renderUploads(items) {
     const imageButtons = container.querySelectorAll(".qrcode-card-image");
     imageButtons.forEach((button) => {
         button.addEventListener("click", () => {
-            openQrcodePreview(button.dataset.imageUrl || "", button.dataset.title || "");
+            openQrcodePreview(button.dataset.imageUrl || "", button.dataset.title || "", button);
         });
     });
 }
@@ -195,13 +201,82 @@ async function loadQrcodeContext() {
 }
 
 async function loadQrcodeUploads() {
+    const container = document.getElementById("qrcodeList");
+    if (container) container.setAttribute("aria-busy", "true");
     const result = await qrcodeApi(buildQrcodeApiUrl("/api/qrcode/uploads"));
     if (!result.success) {
         renderUploads([]);
         setQrcodeStatus(result.error || "二维码加载失败", "error");
+        if (container) container.setAttribute("aria-busy", "false");
         return;
     }
     renderUploads(result.data || []);
+    if (container) container.setAttribute("aria-busy", "false");
+}
+
+function clearFilePreview() {
+    const preview = document.getElementById("qrcodeFilePreview");
+    const previewImage = document.getElementById("qrcodeFilePreviewImage");
+    const prompt = document.getElementById("qrcodeDropzonePrompt");
+    if (qrcodePreviewObjectUrl) {
+        URL.revokeObjectURL(qrcodePreviewObjectUrl);
+        qrcodePreviewObjectUrl = "";
+    }
+    if (previewImage instanceof HTMLImageElement) previewImage.src = "";
+    if (preview) preview.hidden = true;
+    if (prompt) prompt.hidden = false;
+}
+
+function showFilePreview(file) {
+    const preview = document.getElementById("qrcodeFilePreview");
+    const previewImage = document.getElementById("qrcodeFilePreviewImage");
+    const previewName = document.getElementById("qrcodeFilePreviewName");
+    const prompt = document.getElementById("qrcodeDropzonePrompt");
+    if (!preview || !(previewImage instanceof HTMLImageElement) || !previewName || !prompt) return;
+
+    if (qrcodePreviewObjectUrl) {
+        URL.revokeObjectURL(qrcodePreviewObjectUrl);
+        qrcodePreviewObjectUrl = "";
+    }
+    if (!file) {
+        clearFilePreview();
+        return;
+    }
+    qrcodePreviewObjectUrl = URL.createObjectURL(file);
+    previewImage.src = qrcodePreviewObjectUrl;
+    previewName.textContent = file.name;
+    prompt.hidden = true;
+    preview.hidden = false;
+}
+
+function wireDropzone() {
+    const dropzone = document.getElementById("qrcodeDropzone");
+    const input = document.getElementById("qrcodeImageInput");
+    if (!dropzone || !(input instanceof HTMLInputElement)) return;
+
+    input.addEventListener("change", () => {
+        showFilePreview(input.files && input.files[0] ? input.files[0] : null);
+    });
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            dropzone.classList.add("dragover");
+        });
+    });
+    ["dragleave", "drop"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            dropzone.classList.remove("dragover");
+        });
+    });
+    dropzone.addEventListener("drop", (event) => {
+        const files = event.dataTransfer?.files;
+        if (files && files.length) {
+            input.files = files;
+            showFilePreview(files[0]);
+        }
+    });
 }
 
 async function submitQrcodeForm(event) {
@@ -226,6 +301,7 @@ async function submitQrcodeForm(event) {
 
     if (result.success) {
         form.reset();
+        clearFilePreview();
         if (qrcodePageState.courseId) {
             const hiddenCourseId = form.querySelector('input[name="course_id"]');
             if (hiddenCourseId) hiddenCourseId.value = qrcodePageState.courseId;
@@ -237,6 +313,7 @@ async function submitQrcodeForm(event) {
         await loadQrcodeContext();
         await loadQrcodeUploads();
         setQrcodeStatus(result.message || "上传成功", "success");
+        document.getElementById("qrcodeListSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
         setQrcodeStatus(result.error || "上传失败，请稍后重试", "error");
     }
@@ -254,6 +331,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (form) {
         form.addEventListener("submit", submitQrcodeForm);
     }
+
+    wireDropzone();
 
     const refreshButton = document.getElementById("qrcodeRefreshButton");
     if (refreshButton) {
