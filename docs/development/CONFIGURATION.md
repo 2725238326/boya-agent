@@ -59,6 +59,7 @@
 | `BROWSER_RETRY_BACKOFF_BASE_SECONDS` / `BROWSER_RETRY_BACKOFF_MAX_SECONDS` | `30`（最少 `5`）/ `600` | 否 | 重启 | 浏览器创建或登录连续失败时的指数退避窗口，防止启动失败被高频重试放大 |
 | `QUICK_DETAIL_ENRICH_LIMIT` | `8`，最少 `1` | 否 | 重启 | quick 巡检单轮最多补抓详情页的课程数；用于给新发现或缺少签到方式的课程补数据，超过上限的留到后续轮次 |
 | `SCRAPE_ALERT_COOLDOWN_MINUTES` | `60`，最少 `5` | 否 | 重启 | 连续抓取失败的 Telegram 告警冷却间隔；持续故障期间最多每隔该时长发一条，恢复时补发一条恢复通知 |
+| `STALE_COURSE_EXPIRE_DAYS` | `3`，最少 `1` | 否 | 重启 | 连续该天数未被上游列表命中的课程标记为过期；仅在抓取管道近 1 小时内有成功时执行，课程重新出现时自动复活 |
 | `SCRAPE_TASK_TIMEOUT_SECONDS` | `900`，最少 `180` | 否 | 重启 | 单次抓取超时 |
 | `COURSE_PAGE_NETWORK_IDLE_TIMEOUT_MS` | `5000`，最少 `1000` | 否 | 重启 | 课程页面动作后的网络空闲等待上限；超时后继续按页面状态判断 |
 | `SCRAPE_CAPTURE_DIAGNOSTICS` | `false` | 否 | 重启 | 是否在正常抓取轮次保存课程页诊断截图；失败时仍按错误路径保存必要资料 |

@@ -174,7 +174,20 @@ curl -su 管理员用户名:管理员密码 \
 
 ### 抓取失败
 
-确认北航账号仍可用、主机可访问 WebVPN/课程系统、Chromium 可启动；检查 `last_scrape_health`、截图和日志。连续失败达到阈值时向管理员发 Telegram 告警；告警带冷却期（`SCRAPE_ALERT_COOLDOWN_MINUTES`，默认 60 分钟），持续故障期间不会每几轮重复推送，抓取恢复成功后会补发一条恢复通知。Telegram 告警还必须满足 Telegram 通道已开启并配置凭据。自动选课当天失败达到 `AUTO_ENROLL_FAILURE_LIMIT` 后会熔断本轮后续尝试；恢复前先确认账号、选课页面和错误原因。
+确认北航账号仍可用、主机可访问 WebVPN/课程系统、Chromium 可启动；检查 `last_scrape_health`、截图和日志。连续失败达到阈值时向管理员发 Telegram 告警；告警带冷却期（`SCRAPE_ALERT_COOLDOWN_MINUTES`，默认 60 分钟），持续故障期间不会每几轮重复推送，冷却期内的失败会以 INFO 日志记录"告警冷却中"，抓取恢复成功后会补发一条恢复通知。Telegram 告警还必须满足 Telegram 通道已开启并配置凭据。自动选课当天失败达到 `AUTO_ENROLL_FAILURE_LIMIT` 后会熔断本轮后续尝试；恢复前先确认账号、选课页面和错误原因。
+
+## 变更后监测清单
+
+2026-09-17 批次上线后需要观察的项，确认正常后从清单划掉：
+
+| 观察项 | 正常表现 | 检查方式 |
+| --- | --- | --- |
+| 空状态误报 | 浏览器回收（日志 `browser recycled after 48 runs`）后的首轮不再出现 `blocked as suspicious` | `journalctl -u boya-agent --since today \| grep "blocked as suspicious"` |
+| full 轮定向详情 | full 轮日志 `开始抓取 N 门课程的详情` 中 N 明显小于课程总数；无缺口时不出现该行 | `journalctl -u boya-agent \| grep "开始抓取"` |
+| 陈旧行过期 | 正念沙龙 09-24/09-25 两场（`last_seen` 停在 09-11）在管道健康满 3 天后自动消失于公开列表（不等报名截止） | `/api/courses` 中不再出现；日志 `已标记 N 门…长期未命中` |
+| 告警冷却 | 持续故障时 Telegram 告警间隔 ≥60 分钟，恢复后收到一条"已恢复正常" | 告警群消息间隔；日志"告警冷却中" |
+| 周更备份 | 每周日 04:00 后 `/var/lib/boya-agent/backups/` 出现 `boya_agent-weekly-*.db`，总数不超过 4 份 | `ls -1t /var/lib/boya-agent/backups/` |
+| 资源水位 | run-driver 进程稳定为 1 个；`available` 内存长期不低于 ~300Mi | `pgrep -fc run-driver`、`free -m` |
 
 ### SQLite 锁竞争
 
