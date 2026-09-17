@@ -283,6 +283,12 @@ async function submitQrcodeForm(event) {
     event.preventDefault();
 
     const form = event.currentTarget;
+    const imageInput = document.getElementById("qrcodeImageInput");
+    if (imageInput instanceof HTMLInputElement && !(imageInput.files && imageInput.files.length)) {
+        setQrcodeStatus("请先选择二维码图片", "error");
+        document.getElementById("qrcodeDropzone")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+    }
     const submitButton = document.getElementById("qrcodeSubmitButton");
     if (submitButton instanceof HTMLButtonElement) {
         submitButton.disabled = true;

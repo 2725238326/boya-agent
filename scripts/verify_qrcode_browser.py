@@ -159,6 +159,11 @@ def main():
                             expect(page.locator("#qrcodePreview")).to_be_hidden()
                             expect(card_button).to_be_focused()
 
+                        # 未选图直接提交 → JS 拦截并播报，不发出 POST
+                        page.get_by_role("button", name="上传二维码", exact=True).click()
+                        expect(page.locator("#qrcodeStatusBox")).to_contain_text("请先选择二维码图片")
+                        assert posts == [], posts
+
                         # 拖拽区选图 → 本地预览出现
                         page.locator("#qrcodeImageInput").set_input_files(str(upload_file))
                         expect(page.locator("#qrcodeFilePreview")).to_be_visible()
