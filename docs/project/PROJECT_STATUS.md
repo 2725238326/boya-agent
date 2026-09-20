@@ -1,5 +1,20 @@
 # BOYA Agent 当前项目状态
 
+## 2026-09-20 仓库整理与推送渠道调研批次（本地验证通过，待部署）
+
+**仓库整理（GitHub CLI）**：
+- 仓库元数据补齐：描述、主页 `https://buaaboya.top`、主题标签（buaa/course-reminder/playwright/flask/telegram-bot/python）、开启 PR 合并后自动删分支。
+- 清理 4 个陈旧远端分支（`codex/*`，均 0 commits ahead of main，纯冗余引用）。
+- README 修复 GitHub 上失效的绝对路径链接（`/E:/Demo/...` → 相对路径）、更新能力清单（二维码共享/告警冷却/双通道投递）、补 `/QRcode` 本地入口、加 CI badge。
+
+**Telegram 模块缺陷修复**：
+- `send_enroll_result` 在 `HAS_TELEGRAM` 检查后直接隐式返回，真正的发送代码错位成 `deliver_auto_enroll_result_telegram_job` 尾部的不可达代码——自动选课结果通知此前必然失败并触发任务重试。已把发送逻辑归位并删除死代码。
+- 移除 `enroll_{id}` callback 按钮：项目没有 polling/webhook 运行时处理 `callback_query`，按钮按下永远转圈；保留"查看详情" URL 按钮。同步删除不再使用的 `include_enroll_button` 参数。
+
+**调研产出**：新增 `docs/development/MESSAGING_BOT_RESEARCH.md`——Telegram Bot API 近况（当前 10.3；彩色按钮/Rich Messages 表格/Ephemeral 消息/DisabledButton 与本项目的对应价值，SDK 现锁 22.8 覆盖 9.x）+ 飞书机器人两种形态（自定义 webhook 机器人 vs 自建应用）对比、签名校验实现、lark-oapi 长连接事件、分阶段接入建议和学习路径。
+
+**待办**：部署后观察 Telegram 选课结果通知（自动选课默认关闭，路径需等真实触发）；飞书自定义机器人接入列入 backlog P1。
+
 ## 2026-09-17 二维码共享页重构：操作顺序、信息去重、贡献面板补全（`972e7d3` 已部署）
 
 **改动内容**：

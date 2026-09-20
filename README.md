@@ -1,6 +1,10 @@
 # BUAA 博雅课程提醒系统
 
-基于 Playwright 抓取北航博雅选课系统课程信息，按统一课程状态和用户偏好提供公开课程页、邮箱通知、个人门户和管理后台。
+[![Deploy](https://github.com/2725238326/boya-agent/actions/workflows/deploy.yml/badge.svg)](https://github.com/2725238326/boya-agent/actions/workflows/deploy.yml)
+
+基于 Playwright 抓取北航博雅选课系统课程信息，按统一课程状态和用户偏好提供公开课程页、邮箱/Telegram 通知、个人门户、签到二维码共享和管理后台。
+
+线上地址：<https://buaaboya.top>
 
 ## 当前入口结构
 
@@ -14,12 +18,13 @@
 
 ## 核心能力
 
-- 基于 Playwright 的课程抓取
+- 基于 Playwright 的课程抓取（quick/full 双周期、浏览器回收、空状态防误报、定向详情补抓）
 - 邮箱一次性链接或 6 位验证码验证和登录
-- 用户级提醒、通知与偏好设置
+- 用户级提醒、通知与偏好设置（自主签到偏好、校区、类别、剩余名额）
+- 邮件与 Telegram 双通道投递，可靠队列 + 失败重试 + 告警冷却
 - RSS/Atom 课程内容流
-- 后台抓取控制、筛选配置、日志与订阅用户管理
-- 二维码上传、审核、过期控制与贡献统计（基础版）
+- 后台抓取控制、筛选配置、日志、订阅用户与二维码审核管理
+- 签到二维码上传、审核、过期控制、贡献统计与排行榜
 - 自动选课实验能力（默认关闭）
 
 ## 项目结构
@@ -103,6 +108,7 @@ python scripts/verify_release.py --require-clean
 - 健康探活：`http://127.0.0.1:5000/healthz`
 - 订阅页：`http://127.0.0.1:5000/subscribe`
 - 用户门户：`http://127.0.0.1:5000/portal`
+- 签到二维码：`http://127.0.0.1:5000/QRcode`
 - 后台：`http://127.0.0.1:5000/admin`
 
 ## 部署建议
@@ -111,7 +117,7 @@ python scripts/verify_release.py --require-clean
 - Flask 仅监听 `127.0.0.1:5000`
 - Nginx 反代应用
 - `/admin` 和管理 API 同时通过 Nginx Basic Auth 与 Flask 应用层认证保护
-- 参考 [deploy/nginx_boya.conf](/E:/Demo/boya-agent/deploy/nginx_boya.conf) 和 [deploy/admin_access.md](/E:/Demo/boya-agent/deploy/admin_access.md)
+- 参考 [deploy/nginx_boya.conf](deploy/nginx_boya.conf) 和 [deploy/admin_access.md](deploy/admin_access.md)
 - 完整步骤见 [docs/operations/DEPLOYMENT.md](docs/operations/DEPLOYMENT.md)
 
 ## 数据说明

@@ -84,13 +84,12 @@ def _escape_md(text: str) -> str:
     return text
 
 
-async def send_course_notification(course, include_enroll_button: bool = False) -> bool:
+async def send_course_notification(course) -> bool:
     """
     发送单条课程通知到 Telegram
 
     Args:
         course: Course 对象
-        include_enroll_button: 是否包含选课按钮
 
     Returns:
         是否发送成功
@@ -104,15 +103,10 @@ async def send_course_notification(course, include_enroll_button: bool = False) 
         chat_id = get_chat_id()
         message = format_course_message(course)
 
-        # 构建 inline 键盘
-        keyboard = []
-        if include_enroll_button and course.is_enrollable:
-            keyboard.append([
-                InlineKeyboardButton("🎯 一键选课", callback_data=f"enroll_{course.id}"),
-            ])
-        keyboard.append([
-            InlineKeyboardButton("🔍 查看详情", url=f"https://bykc.buaa.edu.cn/system/course-select"),
-        ])
+        # 只保留 URL 按钮；callback_data 需要 polling/webhook 处理器，当前没有运行时会永远转圈。
+        keyboard = [[
+            InlineKeyboardButton("🔍 查看详情", url="https://bykc.buaa.edu.cn/system/course-select"),
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await bot.send_message(
@@ -141,7 +135,7 @@ async def send_batch_notifications(courses: list) -> int:
     """
     success_count = 0
     for course in courses:
-        ok = await send_course_notification(course, include_enroll_button=True)
+        ok = await send_course_notification(course)
         if ok:
             success_count += 1
         # Telegram API 限频：每秒最多 1 条
@@ -329,20 +323,6 @@ async def send_enroll_result(course, success: bool, message: str = "") -> bool:
     if not HAS_TELEGRAM:
         return False
 
-
-async def deliver_auto_enroll_result_telegram_job(job) -> NotificationDeliveryResult:
-    from src.models import Course, get_session
-    session = get_session()
-    try:
-        course = session.query(Course).filter(Course.id == (job.course_ids or [None])[0]).first()
-        if not course:
-            return NotificationDeliveryResult(True, message="课程已删除，跳过投递")
-        payload = job.payload
-        ok = await send_enroll_result(course, bool(payload.get("success")), str(payload.get("message", "")))
-        return NotificationDeliveryResult(ok, delivered_count=1 if ok else 0, message="Telegram 发送失败" if not ok else "")
-    finally:
-        session.close()
-
     try:
         bot = get_bot()
         chat_id = get_chat_id()
@@ -366,6 +346,20 @@ async def deliver_auto_enroll_result_telegram_job(job) -> NotificationDeliveryRe
     except Exception as e:
         logger.error(f"发送选课结果失败: {e}")
         return False
+
+
+async def deliver_auto_enroll_result_telegram_job(job) -> NotificationDeliveryResult:
+    from src.models import Course, get_session
+    session = get_session()
+    try:
+        course = session.query(Course).filter(Course.id == (job.course_ids or [None])[0]).first()
+        if not course:
+            return NotificationDeliveryResult(True, message="课程已删除，跳过投递")
+        payload = job.payload
+        ok = await send_enroll_result(course, bool(payload.get("success")), str(payload.get("message", "")))
+        return NotificationDeliveryResult(ok, delivered_count=1 if ok else 0, message="Telegram 发送失败" if not ok else "")
+    finally:
+        session.close()
 
 
 async def send_status_message(text: str) -> bool:

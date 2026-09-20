@@ -23,6 +23,7 @@
 | 历史资料和替代关系 | [docs/archive/README.md](archive/README.md) |
 | 用户可见文字审阅记录 | [docs/review/language-review.md](review/language-review.md) |
 | 项目改进工作提示词 | [PROJECT_IMPROVEMENT_PROMPT.md](development/PROJECT_IMPROVEMENT_PROMPT.md) |
+| 消息机器人渠道调研（Telegram 更新、飞书接入） | [MESSAGING_BOT_RESEARCH.md](development/MESSAGING_BOT_RESEARCH.md) |
 | 改进清单和验收目标 | [IMPROVEMENT_BACKLOG.md](project/IMPROVEMENT_BACKLOG.md) |
 | 工程与发布体系 | [ENGINEERING_SYSTEM.md](project/ENGINEERING_SYSTEM.md) |
 | 最终新版上线计划 | [FINAL_RELEASE_PLAN.md](project/FINAL_RELEASE_PLAN.md) |
