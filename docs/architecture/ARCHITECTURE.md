@@ -2,7 +2,7 @@
 
 文档用途：解释当前组件、数据流、数据库和外部依赖。
 面向读者：开发者、测试人员和运维人员。
-文档状态：当前实现说明；更新时间：2026-09-07。
+文档状态：当前实现说明；更新时间：2026-09-24。
 相关代码：`src/`、`web/`、`deploy/`。
 
 ## 总体拓扑
@@ -119,4 +119,4 @@ SQLite 使用 WAL、`busy_timeout` 和有限重试，单进程部署时由各请
 
 ## 当前运行边界
 
-生产入口为 `https://buaaboya.top`，Nginx 在 443 端口终止 TLS，并将请求转发到本机 `127.0.0.1:5000`。服务器运行代码为 `main` 的应用提交 `92e53b2`；后续只涉及文档或工作流的 Git 提交可以同步到服务器仓库，但不会改变运行代码，也不会触发应用重启。实际生产状态和最近验收以 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md) 与 [RELEASE_NOTES.md](../project/RELEASE_NOTES.md) 为准。
+生产入口为 `https://buaaboya.top`，Nginx 在 443 端口终止 TLS，并将请求转发到本机 `127.0.0.1:5000`。2026-09-24 只读核对确认服务器运行提交为 `d9f3fda52b8e`；本地仓库后续的文档提交不会改变运行代码，也不会触发应用重启。实际生产状态和最近验收以 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md)、[RELEASE_NOTES.md](../project/RELEASE_NOTES.md) 与 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md) 为准。

@@ -2,8 +2,8 @@
 
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
-文档状态：当前部署方案；更新时间：2026-09-07。
-事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd、公开/管理边界和新版本发布验收。2026-09-04 曾观察到真实课程抓取和邮件 outbox 投递；2026-09-07 发布时当前课程周期暂无可选课程；2026-09-08 起邮件自动课程通知和每日摘要已暂停，Telegram 和自动选课保持关闭，长期稳定性继续观察。
+文档状态：当前部署方案；更新时间：2026-09-24。
+事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd、公开/管理边界和新版本发布验收。2026-09-24 最新只读服务、数据库、资源和接口结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。2026-09-04 的真实课程抓取和邮件 outbox 投递属于历史观察；当前邮件自动课程通知和每日摘要、Telegram、自动选课均保持关闭。
 
 ## 部署拓扑
 
@@ -120,7 +120,7 @@ curl -i https://你的域名/api/courses
 
 应确认：HTTP 跳转到 HTTPS；`/healthz` 返回 `200` 和 `status=ok`；未认证的后台状态返回 401；认证后的后台状态返回 JSON；课程页和订阅页可访问；响应包含 `HttpOnly`/`Secure` 会话 Cookie（由 HTTPS 下的验证或登录接口产生）；Nginx 日志中没有把 `.env`、上传目录或数据库暴露为静态文件。
 
-历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次核对见 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md)。
+历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次只读核对见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。
 
 ## 更新原则
 
