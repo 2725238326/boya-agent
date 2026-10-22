@@ -3,7 +3,7 @@
 # Database changes are additive; recovery deliberately retains database/outbox.
 
 release_guard_prepare() {
-  RECOVERY_DIR="$(mktemp -d /var/lib/boya-agent/release-recovery.XXXXXX)"
+  RECOVERY_DIR="$(mktemp -d "${RELEASE_RECOVERY_ROOT:-/var/lib/boya-agent}/release-recovery.XXXXXX")"
   chmod 700 "$RECOVERY_DIR"
   VENV_SNAPSHOT_READY=0
   DEPENDENCIES_TOUCHED=0

@@ -49,9 +49,20 @@ jobs:
             sudo systemctl show "$SERVICE_NAME" -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp --no-pager
             sudo systemctl show "$SERVICE_NAME" -p User -p Group -p TasksMax -p MemoryMax --no-pager
             sudo nginx -t
-            printf 'playwright drivers: '; pgrep -fc 'playwright/driver/node' || true
+            python3 - <<'PY'
+            from pathlib import Path
+            count = 0
+            for proc in Path('/proc').glob('[0-9]*'):
+                try:
+                    args = (proc / 'cmdline').read_bytes().split(b'\0')
+                    if args and args[0].endswith(b'/playwright/driver/node'):
+                        count += 1
+                except OSError:
+                    pass
+            print('playwright drivers:', count)
+            PY
 
-            echo "== mail and runtime policy (no credentials) =="
+            echo "== .env mail and runtime policy (not process environment; no credentials) =="
             ./venv/bin/python - <<'PY'
             from dotenv import dotenv_values
             config = dotenv_values('.env')
