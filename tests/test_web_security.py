@@ -65,6 +65,20 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual({"success": True, "status": "ok"}, response.get_json())
         self.assertEqual("no-store", response.headers["Cache-Control"])
 
+    def test_auth_scope_allows_login_page_but_blocks_admin_mail(self):
+        import base64
+        credentials = base64.b64encode(b"test-admin:test-admin-password").decode()
+        with patch.dict(os.environ, {"EMAIL_DELIVERY_SCOPE": "auth"}), patch.object(
+            web_app, "get_session", side_effect=AssertionError("database accessed")
+        ):
+            page = self.client.get("/subscribe").get_data(as_text=True)
+            self.assertNotIn('id="submitBtn" disabled', page)
+            self.assertIn("课程通知邮件暂未开放", page)
+            for path in ("/api/test-email", "/api/manual-push", "/api/admin/broadcast/service-update"):
+                response = self.client.post(path, json={}, headers={"Authorization": "Basic " + credentials})
+                self.assertEqual(response.status_code, 503)
+            self.assertEqual(self.client.post("/api/test-email", json={}).status_code, 401)
+
     def test_public_pages_explain_mail_pause_before_submission(self):
         with patch.dict(os.environ, {"EMAIL_DELIVERY_ENABLED": "false"}):
             for path in ("/", "/subscribe"):

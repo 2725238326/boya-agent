@@ -24,6 +24,7 @@ logs/
 .vscode/
 .idea/
 .omx/
+runtime/
 
 # OS
 .DS_Store

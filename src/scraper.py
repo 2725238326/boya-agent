@@ -138,6 +138,9 @@ async def create_browser_context() -> tuple:
     Returns:
         (playwright, browser, context, page) 元组
     """
+    from src.runtime import is_staging
+    if is_staging():
+        raise RuntimeError("Real browser scraping is disabled in staging")
     pw = await async_playwright().start()
     try:
         browser = await pw.chromium.launch(

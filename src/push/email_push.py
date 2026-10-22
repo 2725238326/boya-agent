@@ -5,6 +5,7 @@
 支持通过 HTTP CONNECT 代理发送（绕过云厂商端口封锁）
 """
 
+import asyncio
 import os
 import ssl
 import socket
@@ -14,7 +15,8 @@ import re
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
+from html.parser import HTMLParser
 from html import escape as html_escape
 from typing import List
 from urllib.parse import quote
@@ -129,7 +131,10 @@ def _pick_from_email(config: dict, from_kind: str, transport_group: str = "") ->
     }
     key = key_map.get(from_kind, "")
     candidate = ""
-    if transport_group in transport_from_key:
+    if key and (transport_group == from_kind or (from_kind == "login" and transport_group == "verify")
+                or (from_kind == "reminder" and transport_group == "notify")):
+        candidate = config.get(key, "")
+    if not candidate and transport_group in transport_from_key:
         candidate = config.get(transport_from_key[transport_group], "")
     if not candidate and key:
         candidate = config.get(key, "")
@@ -153,97 +158,92 @@ def _get_proxy_config():
         parsed = urlparse(proxy_url)
         host = parsed.hostname
         port = parsed.port
-        if host and port:
+        if parsed.scheme == "http" and host and port and not parsed.username and not parsed.password:
             return (host, port)
-    except Exception as e:
-        logger.warning(f"解析代理配置失败: {e}")
-    return None
+    except Exception as error:
+        raise ValueError("Invalid SMTP_PROXY") from error
+    raise ValueError("Invalid SMTP_PROXY")
 
 
-def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 15):
-    """通过 HTTP CONNECT 隧道创建到目标的 TCP 连接"""
+def _create_proxy_socket(dest_host: str, dest_port: int, timeout: int = 10):
+    """Open a bounded CONNECT tunnel; configured proxy errors never bypass it."""
     proxy = _get_proxy_config()
     if not proxy:
         return None
-
-    proxy_host, proxy_port = proxy
+    sock = None
     try:
-        sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
-        # 发送 CONNECT 请求
-        connect_req = f"CONNECT {dest_host}:{dest_port} HTTP/1.1\r\nHost: {dest_host}:{dest_port}\r\n\r\n"
-        sock.sendall(connect_req.encode())
-        # 读取代理响应
+        sock = socket.create_connection(proxy, timeout=timeout)
+        request = f"CONNECT {dest_host}:{dest_port} HTTP/1.1\r\nHost: {dest_host}:{dest_port}\r\n\r\n"
+        sock.sendall(request.encode("ascii"))
         response = b""
         while b"\r\n\r\n" not in response:
-            chunk = sock.recv(4096)
+            # Consume exactly the proxy header; the same packet may already
+            # contain the SMTP greeting which smtplib must read itself.
+            chunk = sock.recv(1)
             if not chunk:
-                break
+                raise OSError("SMTP proxy closed before CONNECT response")
             response += chunk
-        response_line = response.decode("utf-8", errors="replace").split("\r\n")[0]
-        if "200" in response_line:
-            logger.debug(f"SMTP 代理隧道建立成功: {proxy_host}:{proxy_port} -> {dest_host}:{dest_port}")
-            return sock
-        else:
+            if len(response) > 16384:
+                raise OSError("SMTP proxy response too large")
+        status = response.split(b"\r\n", 1)[0].split()
+        if len(status) < 2 or status[1] != b"200":
+            raise OSError("SMTP proxy CONNECT rejected")
+        return sock
+    except Exception:
+        if sock is not None:
             sock.close()
-            logger.error(f"代理 CONNECT 失败: {response_line}")
-            return None
-    except Exception as e:
-        logger.error(f"代理连接失败: {e}")
-        return None
+        raise
 
 
-def _send_with_transport(msg, transport: dict) -> bool:
-    """使用指定的 transport 发送邮件"""
-    if not email_delivery_enabled():
+def _send_with_transport(msg, transport: dict, from_kind: str = "notify") -> bool:
+    """Send once, always closing resources, with verified TLS in both modes."""
+    if not email_delivery_enabled(from_kind):
+        return False
+    from src.runtime import notification_mode
+    if notification_mode() != "smtp":
         return False
     if not transport["username"] or not transport["password"]:
-        logger.error(f"未配置 SMTP 账号/密码: group={transport['group']}")
+        logger.error("SMTP credentials missing: group={}", transport["group"])
         return False
-
-    proxy_sock = _create_proxy_socket(transport["server"], transport["port"])
+    proxy_sock = None
+    server = None
     try:
-        if transport["use_tls"]:
-            if proxy_sock:
-                server = smtplib.SMTP()
-                server.timeout = 15
-                server._host = transport["server"]
+        proxy_sock = _create_proxy_socket(transport["server"], transport["port"])
+        context = ssl.create_default_context()
+        if proxy_sock is not None:
+            if transport["use_tls"]:
+                server = smtplib.SMTP(timeout=10)
                 server.sock = proxy_sock
-                server.file = proxy_sock.makefile('rb')
-                server.getreply()
-                server.ehlo()
             else:
-                server = smtplib.SMTP(transport["server"], transport["port"], timeout=15)
-                server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(transport["username"], transport["password"])
-            server.send_message(msg)
-            server.quit()
+                server = smtplib.SMTP_SSL(context=context, timeout=10)
+                server.sock = context.wrap_socket(proxy_sock, server_hostname=transport["server"])
+            server._host = transport["server"]
+            code, _ = server.getreply()
+            if code != 220:
+                raise smtplib.SMTPConnectError(code, b"SMTP greeting rejected")
+        elif transport["use_tls"]:
+            server = smtplib.SMTP(transport["server"], transport["port"], timeout=10)
         else:
-            context = ssl.create_default_context()
-            if proxy_sock:
-                ssl_sock = context.wrap_socket(proxy_sock, server_hostname=transport["server"])
-                server = smtplib.SMTP_SSL(context=context, timeout=15)
-                server._host = transport["server"]
-                server.sock = ssl_sock
-                server.file = ssl_sock.makefile('rb')
-                server.getreply()
-                server.ehlo_or_helo_if_needed()
-                server.login(transport["username"], transport["password"])
-                server.send_message(msg)
-                server.quit()
-            else:
-                with smtplib.SMTP_SSL(transport["server"], transport["port"], context=context, timeout=15) as server:
-                    server.login(transport["username"], transport["password"])
-                    server.send_message(msg)
-        return True
-    except Exception:
-        if proxy_sock:
+            server = smtplib.SMTP_SSL(transport["server"], transport["port"], context=context, timeout=10)
+        server.ehlo_or_helo_if_needed()
+        if transport["use_tls"]:
+            server.starttls(context=context)
+            server.ehlo()
+        server.login(transport["username"], transport["password"])
+        refused = server.send_message(msg)
+        return not refused
+    finally:
+        # QUIT failure after accepted DATA must not cause duplicate delivery.
+        if server is not None:
+            try:
+                server.close()
+            except Exception:
+                pass
+        if proxy_sock is not None:
             try:
                 proxy_sock.close()
             except Exception:
                 pass
-        raise
 
 
 def _resolve_fallback_transport(config: dict, from_kind: str, primary: dict):
@@ -256,72 +256,116 @@ def _resolve_fallback_transport(config: dict, from_kind: str, primary: dict):
         return None
 
     if (
-        fallback["group"] == primary["group"]
-        and fallback["server"] == primary["server"]
+        fallback["server"] == primary["server"]
         and fallback["port"] == primary["port"]
         and fallback["username"] == primary["username"]
+        and fallback["use_tls"] == primary["use_tls"]
     ):
         return None
     return fallback
 
 
-def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
-    """底层发邮件函数，notify/reminder 失败时自动回退到 verify 通道"""
-    if not email_delivery_enabled():
-        return False
-    if not isinstance(to_email, str) or any(ord(char) < 32 or ord(char) == 127 for char in to_email):
-        logger.error("邮件收件人地址包含非法控制字符，已拒绝发送")
-        return False
-    masked_recipient = _mask_email(to_email)
-    config = _get_smtp_config()
-    primary = _resolve_transport(config, from_kind)
-    if not primary["username"] or not primary["password"]:
-        logger.error(f"未配置 SMTP 账号/密码: group={primary['group']}, kind={from_kind}")
-        return False
-
-    fallback = _resolve_fallback_transport(config, from_kind, primary)
-    attempts = [(primary, "primary")]
-    if from_kind in {"notify", "reminder"}:
-        attempts.append((primary, "retry"))
-    if fallback:
-        attempts.append((fallback, f"fallback:{fallback['group']}"))
-
-    last_error = None
-    for transport, stage in attempts:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = _email_subject_text(subject)
-            sender = _pick_from_email(config, from_kind, transport["group"])
-            if any(ord(char) < 32 or ord(char) == 127 for char in sender):
-                logger.error("邮件发件人地址包含非法控制字符，已拒绝发送")
-                return False
-            msg["From"] = formataddr(("\u8a00\u828a\u828a", sender))
-            msg["To"] = to_email
-            msg.attach(MIMEText(html, "html", "utf-8"))
-            if not _send_with_transport(msg, transport):
-                return False
-
-            if stage == "retry":
-                logger.warning(
-                    f"邮件主通道重试成功 [{masked_recipient}]: kind={from_kind}, group={transport['group']}"
-                )
-            elif stage.startswith("fallback:"):
-                logger.warning(
-                    f"邮件回退通道发送成功 [{masked_recipient}]: kind={from_kind}, group={transport['group']}"
-                )
-            return True
-        except Exception as e:
-            last_error = e
-            logger.error(
-                f"邮件发送失败 [{masked_recipient}]: kind={from_kind}, stage={stage}, "
-                f"group={transport['group']}, server={transport['server']}:{transport['port']} - {e}"
+def email_readiness() -> dict:
+    """Administrator diagnostics without credentials, recipients or connections."""
+    result = {
+        "auth_allowed": email_delivery_enabled("login"),
+        "notifications_allowed": email_delivery_enabled("notify"),
+        "transport_configured": {},
+    }
+    try:
+        from src.runtime import notification_mode
+        result["mode"] = notification_mode()
+        if result["mode"] == "dry_run":
+            return result
+        config = _get_smtp_config()
+        for kind in ("login", "notify"):
+            transport = _resolve_transport(config, kind)
+            result["transport_configured"][kind] = bool(
+                transport["server"] and 1 <= transport["port"] <= 65535
+                and transport["username"] and transport["password"]
             )
-            if stage == "primary" and from_kind in {"notify", "reminder"}:
-                time.sleep(0.8)
+    except Exception:
+        result["configuration_error"] = True
+    return result
 
-    if last_error:
-        logger.error(f"邮件发送最终失败 [{_mask_email(to_email)}]: {last_error}")
-    return False
+
+class _PlainMail(HTMLParser):
+    """Readable text alternative, including actionable link destinations."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = 0
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"style", "script", "head"}:
+            self.hidden += 1
+        if self.hidden:
+            return
+        if tag in {"p", "div", "tr", "br", "h1", "h2"}:
+            self.parts.append("\n")
+        if tag == "a":
+            self.links.append(dict(attrs).get("href", ""))
+
+    def handle_endtag(self, tag):
+        if tag in {"style", "script", "head"}:
+            self.hidden = max(0, self.hidden - 1)
+        if not self.hidden and tag == "a" and self.links:
+            self.parts.append(f" ({self.links.pop()}) ")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+
+def _send_raw_email(to_email: str, subject: str, html: str, from_kind: str = "notify") -> bool:
+    """One primary attempt plus a distinct fallback; outbox owns later retries."""
+    if not email_delivery_enabled(from_kind):
+        return False
+    if (not isinstance(to_email, str) or to_email.count("@") != 1
+            or any(char.isspace() or char in ",;<>" or ord(char) < 32 or ord(char) == 127 for char in to_email)):
+        logger.error("Invalid email recipient rejected")
+        return False
+    try:
+        from src.runtime import notification_mode, write_preview_email
+        mode = notification_mode()
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = _email_subject_text(subject)
+        msg["To"] = to_email
+        msg["Date"] = formatdate(localtime=False, usegmt=True)
+        msg["Message-ID"] = make_msgid(domain="buaaboya.top")
+        plain = _PlainMail()
+        plain.feed(html)
+        msg.attach(MIMEText(re.sub(r"[ \t]+", " ", "".join(plain.parts)).strip(), "plain", "utf-8"))
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        if mode == "dry_run":
+            msg["From"] = "BOYA Preview <preview@example.test>"
+            return write_preview_email(msg)
+        config = _get_smtp_config()
+        primary = _resolve_transport(config, from_kind)
+        fallback = _resolve_fallback_transport(config, from_kind, primary)
+        for transport in [primary] + ([fallback] if fallback else []):
+            sender = _pick_from_email(config, from_kind, transport["group"])
+            if ("@" not in sender or any(char.isspace() or char in ",;<>" or ord(char) < 32
+                                          or ord(char) == 127 for char in sender)):
+                logger.error("Invalid email sender rejected")
+                return False
+            if "From" in msg:
+                del msg["From"]
+            msg["From"] = formataddr(("博雅课程提醒", sender))
+            try:
+                if _send_with_transport(msg, transport, from_kind):
+                    return True
+            except Exception as error:
+                # SMTP replies can contain addresses or credentials. Log only
+                # the exception class and numeric response code.
+                logger.warning("Email transport failed: kind={} group={} error={} code={}",
+                               from_kind, transport["group"], type(error).__name__,
+                               getattr(error, "smtp_code", "none"))
+        return False
+    except Exception as error:
+        logger.error("Email preparation failed: kind={} error={}", from_kind, type(error).__name__)
+        return False
 
 
 # ========== 通用样式 ==========
@@ -466,11 +510,7 @@ def send_login_code_email(to_email: str, login_url: str, login_code: str, subscr
     if ok:
         logger.info(f"一次性登录邮件已发送: {_mask_email(to_email)}")
         return True
-    time.sleep(0.8)
-    retry_ok = _send_raw_email(to_email, "登录你的博雅课程门户", html, from_kind="login")
-    if retry_ok:
-        logger.info(f"一次性登录邮件重试成功: {_mask_email(to_email)}")
-    return retry_ok
+    return False
 
 
 def send_verification_email(to_email: str, verify_url: str, verify_code: str, subscribe_url: str) -> bool:
@@ -1180,7 +1220,7 @@ async def deliver_email_notification_job(job) -> NotificationDeliveryResult:
             subscriber=subscriber,
         )
         subject = _build_notification_subject(job.event_type, job.delivery_mode, len(courses))
-        ok = _send_raw_email(subscriber.email, subject, html, from_kind="notify")
+        ok = await asyncio.to_thread(_send_raw_email, subscriber.email, subject, html, from_kind="notify")
 
         for course in courses:
             session.add(
@@ -1253,7 +1293,7 @@ async def send_enroll_result_email(course, success: bool, message: str = "") -> 
 
         sent = 0
         for sub in subs:
-            if _send_raw_email(sub.email, _email_subject_text(f"选课{status_label}: {getattr(course, 'name', '')}"), html, from_kind="notify"):
+            if await asyncio.to_thread(_send_raw_email, sub.email, _email_subject_text(f"选课{status_label}: {getattr(course, 'name', '')}"), html, from_kind="notify"):
                 sent += 1
         return sent > 0
     finally:
@@ -1282,7 +1322,10 @@ async def deliver_service_update_email_job(job) -> NotificationDeliveryResult:
     try:
         subs = session.query(EmailSubscriber).filter_by(verified=True, active=True).all()
         payload = job.payload
-        sent = sum(1 for sub in subs if send_service_update_email(sub.email, payload.get("home_url", ""), payload.get("portal_url", ""), payload.get("subscribe_url", "")))
+        sent = 0
+        for sub in subs:
+            if await asyncio.to_thread(send_service_update_email, sub.email, payload.get("home_url", ""), payload.get("portal_url", ""), payload.get("subscribe_url", "")):
+                sent += 1
         return NotificationDeliveryResult(sent == len(subs) or not subs, delivered_count=sent)
     finally:
         session.close()
@@ -1325,7 +1368,7 @@ async def deliver_course_reminder_email_job(job) -> NotificationDeliveryResult:
             session.commit()
             return NotificationDeliveryResult(True, message="提醒已失效或被跳过")
 
-        ok = send_enroll_reminder_email(subscriber.email, course)
+        ok = await asyncio.to_thread(send_enroll_reminder_email, subscriber.email, course)
         session.add(
             NotificationEvent(
                 subscriber_id=subscriber.id,

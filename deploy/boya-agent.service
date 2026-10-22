@@ -11,6 +11,8 @@ WorkingDirectory=/home/boya-agent
 ExecStart=/home/boya-agent/venv/bin/python src/main.py
 Restart=always
 RestartSec=10
+MemoryMax=1300M
+TasksMax=250
 EnvironmentFile=/home/boya-agent/.env
 Environment=HOME=/var/lib/boya-agent
 Environment=XDG_CACHE_HOME=/var/lib/boya-agent/cache

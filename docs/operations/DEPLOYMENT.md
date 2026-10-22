@@ -2,8 +2,8 @@
 
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
-文档状态：当前部署方案；更新时间：2026-09-07。
-事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd、公开/管理边界和新版本发布验收。2026-09-04 曾观察到真实课程抓取和邮件 outbox 投递；2026-09-07 发布时当前课程周期暂无可选课程；2026-09-08 起邮件自动课程通知和每日摘要已暂停，Telegram 和自动选课保持关闭，长期稳定性继续观察。
+文档状态：当前部署方案；更新时间：2026-09-24。
+事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd、公开/管理边界和新版本发布验收。2026-09-24 最新只读服务、数据库、资源和接口结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。2026-09-04 的真实课程抓取和邮件 outbox 投递属于历史观察；当前邮件自动课程通知和每日摘要、Telegram、自动选课均保持关闭。
 
 ## 部署拓扑
 
@@ -120,7 +120,7 @@ curl -i https://你的域名/api/courses
 
 应确认：HTTP 跳转到 HTTPS；`/healthz` 返回 `200` 和 `status=ok`；未认证的后台状态返回 401；认证后的后台状态返回 JSON；课程页和订阅页可访问；响应包含 `HttpOnly`/`Secure` 会话 Cookie（由 HTTPS 下的验证或登录接口产生）；Nginx 日志中没有把 `.env`、上传目录或数据库暴露为静态文件。
 
-历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次核对见 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md)。
+历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次只读核对见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。
 
 ## 更新原则
 
@@ -135,6 +135,16 @@ curl -i https://你的域名/api/courses
 更新后按 [RUNBOOK.md](RUNBOOK.md) 做健康检查。不要在没有备份和现场确认的情况下删除数据库、上传文件或旧日志。
 
 ## 常规发布节奏
+
+### 2026-10-22 待发布改进
+
+新工作流把 `deploy/**` 纳入自动部署触发路径。发布前同时保存 SQLite 一致性备份与二维码 tar 备份；依赖改变时先保存旧 venv，再停服安装。`release_guard.sh` 在安装浏览器、依赖、启动或验收失败时恢复旧提交和必要的 venv，并尝试恢复原活动服务及健康状态；保留数据库和 outbox。Playwright 使用 `PLAYWRIGHT_SKIP_BROWSER_GC=1` 保留旧浏览器以支持回退，需按资源情况另行审阅清理。
+
+工作流还会拒绝已经被新推送替代的目标提交，检查未授权管理接口 401、二维码页及当前启动后的成功采集时间，避免只依赖“系统已就绪”日志。配置样例和部署目录都可能触发生产，功能分支只运行 CI。
+
+恢复目录 `/var/lib/boya-agent/release-recovery.*` 保留旧 venv 或失败环境，用于现场核对；当前不会自动删除。依赖变更发布前确认足够磁盘空间，发布验收后再根据明确清单清理，避免持续积累。回退依赖和旧浏览器的真实 Linux/systemd 现场演练仍需在受控发布窗口完成，不能由本地 mock 测试代替。service 样例增加内存/进程限制；现有主机仍应核对实际 drop-in，工作流不会自动替换 systemd 单元。
+
+邮件首次开放建议先 `EMAIL_DELIVERY_ENABLED=true`、`EMAIL_DELIVERY_SCOPE=auth`，业务课程邮件/摘要/Telegram/自动选课维持关闭；必须单独确认收件范围并完成真实登录验收。关闭总开关即可回退邮件开放。`auth` 模式不会领取历史 email 通知任务。
 
 生产发布遵循“候选版本验证、变更审阅、受控部署、业务观察”的顺序：
 

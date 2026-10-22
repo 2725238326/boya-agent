@@ -6,12 +6,16 @@
 
 关闭时，邮件发送接口返回 HTTP 503 和 `email_delivery_paused`，不会创建登录挑战；管理端仍先验证权限。已有邮件队列不领取、不消耗重试次数，新课程邮件不创建任务。暂停期间没有生成的通知不会在恢复后自动补发。恢复邮件需要单独确认，不能作为部署后的默认步骤。
 
+2026-10-22 新增 `EMAIL_DELIVERY_SCOPE`：`auth` 只开放验证码、验证和登录；`all` 允许其他邮件，自动通知仍受数据库通道开关约束。未配置时保持旧版 `all`，非法值拒绝全部邮件。总开关为 false 时 scope 无法绕过。配置样例推荐先 auth；auth 模式同时阻止管理员测试、手动课程推送、站点通知与 email 队列领取，页面说明登录可用但课程邮件暂停。
+
+SMTP 每次发送尝试主通道，通知类可回退到不同配置的验证通道；不在同一次函数调用中重试相同通道，后续重试交给 outbox。每次 socket 操作超时 10 秒；整个 SMTP 会话可能包含多次操作。发送异常只记录异常类型和响应码。后台 SMTP 在线程中执行，通知处理中定期续租，避免慢投递被另一个扫描任务提前领取。管理员 `/api/status` 新增 mail 配置摘要与 notification_jobs 状态计数，不包含凭据或收件人；配置齐全不代表外部送达已验证。
+
 文档用途：作为配置名称、默认值、来源和生效方式的单一说明。
 面向读者：开发者和部署维护者。
-文档状态：当前配置事实；更新时间：2026-09-07。
+文档状态：当前配置事实；更新时间：2026-09-24。
 来源优先级：启动/运行代码和数据库模型 > `config/.env.example` > `config/default_config.json` > 历史文档。
 
-当前生产边界（不含凭据）：公网基址为 `https://buaaboya.top`，数据库为 `/var/lib/boya-agent/data/boya_agent.db`，服务名为 `boya-agent`。业务开关以生产数据库 `filter_config` 为准；2026-09-08 起邮件自动课程通知和每日摘要已关闭，Telegram 和自动选课也关闭。需要改变这些开关时，先记录旧值，再按 [DEPLOYMENT.md](../operations/DEPLOYMENT.md) 和 [RUNBOOK.md](../operations/RUNBOOK.md) 验证。
+当前生产边界（不含凭据）：公网基址为 `https://buaaboya.top`，数据库为 `/var/lib/boya-agent/data/boya_agent.db`，服务名为 `boya-agent`。2026-09-24 生产开关核对结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)：邮件、Telegram、每日摘要和自动选课关闭，RSS 开启。环境变量 `EMAIL_DELIVERY_ENABLED` 的真实值不从数据库推断，变更前必须在服务器上受控核对。需要改变业务开关时，先记录旧值，再按 [DEPLOYMENT.md](../operations/DEPLOYMENT.md) 和 [RUNBOOK.md](../operations/RUNBOOK.md) 验证。
 
 ## 两类配置
 
@@ -24,6 +28,10 @@
 | 名称 | 类型 / 默认值 | 敏感 | 生效 | 用途 |
 | --- | --- | --- | --- | --- |
 | `BUAA_USERNAME` | 字符串 / 空 | 是 | 重启 | 北航课程系统登录账号 |
+| `EMAIL_DELIVERY_ENABLED` / `EMAIL_DELIVERY_SCOPE` | false / all | 否 | 重启 | 邮件总开关和 auth/all 开放范围 |
+| `APP_ENV` / `NOTIFICATION_MODE` / `SCRAPE_SOURCE` | production / smtp / 真实抓取 | 否 | 重启 | 预发布由 run_staging.py 成套设置 staging/dry_run/fixture |
+| `STAGING_ROOT` / `MAIL_PREVIEW_DIR` | 无 | 是（预览目录含测试票据） | 重启 | 本地隔离根目录和 .eml 输出；生产不得使用 dry_run |
+| `LOG_DIR` / `QRCODE_UPLOAD_ROOT` | logs / config/uploads/qrcode | 否 | 重启 | 可指定日志和二维码存储路径；staging 必须位于独立根目录 |
 | `BUAA_PASSWORD` | 字符串 / 空 | 是 | 重启 | 北航课程系统登录密码 |
 | `TELEGRAM_BOT_TOKEN` | 字符串 / 空 | 是 | 重启 | Telegram Bot 凭据 |
 | `TELEGRAM_CHAT_ID` | 字符串 / 空 | 否（但应保护） | 重启 | Telegram 接收会话 |

@@ -2,8 +2,8 @@
 
 文档用途：提供可复制的启动、检查、备份和故障处理步骤。
 面向读者：值班维护者。
-文档状态：当前运行手册；更新时间：2026-09-07。
-当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。其他环境执行命令前仍需核对域名、路径和凭据。
+文档状态：当前运行手册；更新时间：2026-09-24。
+当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。2026-09-24 的只读服务、数据库、资源和公开接口结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。其他环境执行命令前仍需核对域名、路径和凭据。
 
 ## 服务控制
 
@@ -18,7 +18,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## 当前测试期的外部通知策略
 
-2026-09-08 起，生产数据库中的 `email_enabled` 和 `daily_summary_enabled` 均为 `0`，Telegram 和自动选课也为关闭状态。自动课程通知、每日摘要、选课提醒和自动选课结果邮件不会由调度器发送。测试期间不要调用邮箱验证/登录、管理员测试邮件、手动推送或站点调整通知接口；这些路径仍是独立的 SMTP 调用路径，最终版上线前必须增加邮件总开关并逐一验证。
+2026-09-08 起，生产数据库中的 `email_enabled` 和 `daily_summary_enabled` 均为 `0`，Telegram 和自动选课也为关闭状态；2026-09-24 只读快照再次确认这些值。自动课程通知、每日摘要、选课提醒和自动选课结果邮件不会由调度器发送。代码另有 `EMAIL_DELIVERY_ENABLED` 进程级总开关，只有值为 `true` 才允许 SMTP；其生产环境值必须单独受控核对。测试期间不要调用邮箱验证/登录、管理员测试邮件、手动推送或站点调整通知接口。
 
 暂停配置前已生成数据库备份：`/var/lib/boya-agent/backups/boya_agent-email-paused-20260908-024504.db`。恢复邮件前先得到明确授权，记录旧值和启用范围，再按 [FINAL_RELEASE_PLAN.md](../project/FINAL_RELEASE_PLAN.md) 做检查。
 
@@ -92,6 +92,12 @@ quick 轮会顺手为两类课程补抓详情页：库里缺少签到方式等�
 
 ## 邮件与推送检查
 
+2026-10-22 新版本支持先开放身份邮件：EMAIL_DELIVERY_ENABLED=true + EMAIL_DELIVERY_SCOPE=auth。该范围允许验证和登录，但拒绝管理员测试邮件、手动课程推送和站点群发，email outbox 不领取、不消耗重试。关闭总开关即可停止全部邮件。打开 all 前需要核对数据库渠道开关与历史任务，不能把 auth 改 all 当作无副作用操作。
+
+管理认证后的 /api/status 提供 mail.auth_allowed、mail.notifications_allowed、传输配置是否齐全和 notification_jobs 状态计数。配置齐全不是送达证明；真实发送只对已授权收件范围进行。生产恢复前核对 SPF/DKIM/DMARC、SMTP 响应、收件箱及垃圾箱、验证码/链接有效性与暂停/退订行为。
+
+本地使用 scripts/run_staging.py 生成 .eml；scripts/verify_staging.py 会阻断真实连接并自动演练失败恢复。不得将文件发送成功记录为生产送达。
+
 测试邮件接口只接受管理员请求：
 
 ```bash
@@ -101,7 +107,7 @@ curl -su 管理员用户名:管理员密码 \
   -X POST https://你的域名/api/test-email
 ```
 
-课程推送是否自动发送由数据库中的 `FilterConfig.email_enabled`、`telegram_enabled`、`daily_summary_enabled` 控制；这些开关默认关闭。手动推送接口是管理员明确要求的邮件发送动作，不能把它当作自动通道开关的健康检查。
+课程推送是否自动发送由数据库中的 `FilterConfig.email_enabled`、`telegram_enabled`、`daily_summary_enabled` 控制，并且邮件还必须通过 `EMAIL_DELIVERY_ENABLED` 总开关；这些开关默认关闭。手动推送接口是管理员明确要求的邮件发送动作，不能把它当作自动通道开关的健康检查。
 
 课程邮件已经接入持久化 outbox。日志中的主 SMTP 超时不等于任务立即丢失，应先查看 `notification_jobs` 的状态汇总；只有任务进入 `failed` 且达到重试上限，才需要按收件人范围和失败原因进一步处理。不要为了验证通道而重复触发整批手动推送。
 

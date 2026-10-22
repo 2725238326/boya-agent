@@ -47,6 +47,38 @@ jobs:
             printf 'active: '; sudo systemctl is-active "$SERVICE_NAME"
             printf 'enabled: '; sudo systemctl is-enabled "$SERVICE_NAME"
             sudo systemctl show "$SERVICE_NAME" -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp --no-pager
+            sudo systemctl show "$SERVICE_NAME" -p User -p Group -p TasksMax -p MemoryMax --no-pager
+            sudo nginx -t
+            python3 - <<'PY'
+            from pathlib import Path
+            count = 0
+            for proc in Path('/proc').glob('[0-9]*'):
+                try:
+                    args = (proc / 'cmdline').read_bytes().split(b'\0')
+                    if args and args[0].endswith(b'/playwright/driver/node'):
+                        count += 1
+                except OSError:
+                    pass
+            print('playwright drivers:', count)
+            PY
+
+            echo "== .env mail and runtime policy (not process environment; no credentials) =="
+            ./venv/bin/python - <<'PY'
+            from dotenv import dotenv_values
+            config = dotenv_values('.env')
+            for key in ('EMAIL_DELIVERY_ENABLED', 'EMAIL_DELIVERY_SCOPE', 'APP_ENV', 'NOTIFICATION_MODE'):
+                allowed = {
+                    'EMAIL_DELIVERY_ENABLED': {'true', 'false'},
+                    'EMAIL_DELIVERY_SCOPE': {'auth', 'all'},
+                    'APP_ENV': {'production', 'staging'},
+                    'NOTIFICATION_MODE': {'smtp', 'dry_run'},
+                }[key]
+                value = (config.get(key) or '').strip().lower()
+                print(key + ':', value if value in allowed else ('unset' if not value else 'invalid'))
+            for prefix in ('SMTP', 'SMTP_VERIFY', 'SMTP_NOTIFY'):
+                print(prefix + '_configured:', all(bool(config.get(prefix + '_' + field))
+                                                   for field in ('SERVER', 'USERNAME', 'PASSWORD')))
+            PY
 
             echo "== memory and load =="
             free -h
@@ -73,7 +105,8 @@ jobs:
             import sqlite3
             import sys
 
-            db = sqlite3.connect(sys.argv[1], timeout=30)
+            from pathlib import Path
+            db = sqlite3.connect(Path(sys.argv[1]).resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
             try:
                 config = db.execute(
                     "SELECT interval_minutes, email_enabled, telegram_enabled, "
@@ -96,3 +129,16 @@ jobs:
             echo "== storage =="
             df -h "$APP_DIR" "$DATABASE_PATH" | tail -n +2
             du -sh "$APP_DIR" "$APP_DIR/logs" "/var/lib/boya-agent" 2>/dev/null || true
+            echo "== latest backups =="
+            python3 - <<'PY'
+            from pathlib import Path
+            from datetime import datetime, timezone
+            directory = Path('/var/lib/boya-agent/backups')
+            for pattern in ('boya_agent-weekly-*.db', 'boya_agent-*.db', 'qrcode-*.tar.gz'):
+                files = sorted(directory.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+                print(pattern, 'count=', len(files))
+                if files:
+                    info = files[0].stat()
+                    print('newest:', files[0].name, 'bytes=', info.st_size,
+                          'modified_utc=', datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat())
+            PY

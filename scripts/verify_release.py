@@ -69,6 +69,7 @@ def main() -> None:
         [sys.executable, "-m", "compileall", "-q", "src", "web", "tests", "scripts"],
     )
     _run("Python tests", [sys.executable, "-m", "pytest", "-q"])
+    _run("Isolated staging and mail recovery", [sys.executable, "scripts/verify_staging.py"])
     _run("Frontend syntax and TypeScript check", [_npm_command(), "run", "check"])
     _run("Git whitespace check", ["git", "diff", "--check", "HEAD"])
     print("\n发布候选版本检查通过。该结果不代表已经部署或真实业务效果已经确认。")

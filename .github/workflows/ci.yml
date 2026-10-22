@@ -18,6 +18,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -38,7 +42,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.12 .venv
+          uv venv --python ${{ matrix.python }} .venv
           uv pip install --python .venv/bin/python -r requirements-dev.txt -c constraints.txt
 
       - name: Install frontend tooling
@@ -47,6 +51,9 @@ jobs:
       - name: Verify release candidate
         run: .venv/bin/python scripts/verify_release.py --require-clean
 
+      - name: Exercise recovery with an isolated systemd service
+        run: bash scripts/verify_release_systemd.sh
+
       - name: Install browser for offline portal checks
         run: .venv/bin/python -m playwright install --with-deps chromium
 
@@ -54,3 +61,4 @@ jobs:
         run: |
           .venv/bin/python scripts/verify_portal_browser.py
           .venv/bin/python scripts/verify_home_browser.py
+          .venv/bin/python scripts/verify_qrcode_browser.py
