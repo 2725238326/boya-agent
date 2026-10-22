@@ -7,6 +7,7 @@ on:
       - 'src/**'
       - 'web/**'
       - 'config/**'
+      - 'deploy/**'
       - 'requirements.txt'
       - 'constraints.txt'
   workflow_dispatch:
@@ -230,12 +231,20 @@ jobs:
               git status --short
               exit 1
             fi
+            PREVIOUS_SHA="$(git rev-parse HEAD)"
+            SERVICE_WAS_ACTIVE=0
+            if sudo systemctl is-active --quiet "$SERVICE_NAME"; then SERVICE_WAS_ACTIVE=1; fi
 
             DATABASE_PATH="$(awk -F= '$1 == "DATABASE_PATH" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
             DATABASE_PATH="${DATABASE_PATH:-/var/lib/boya-agent/data/boya_agent.db}"
             PUBLIC_BASE_URL="$(awk -F= '$1 == "APP_PUBLIC_BASE_URL" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
             PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://buaaboya.top}"
             PUBLIC_BASE_URL="${PUBLIC_BASE_URL%/}"
+            SOURCE_TIMEZONE="$(awk -F= '$1 == "APP_TIMEZONE" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
+            SOURCE_TIMEZONE="${SOURCE_TIMEZONE:-Asia/Shanghai}"
+            QRCODE_PATH="$(awk -F= '$1 == "QRCODE_UPLOAD_ROOT" {sub(/^[^=]*=/, ""); print; exit}' .env 2>/dev/null || true)"
+            QRCODE_PATH="${QRCODE_PATH:-$APP_DIR/config/uploads/qrcode}"
+            case "$QRCODE_PATH" in /*) ;; *) QRCODE_PATH="$APP_DIR/$QRCODE_PATH" ;; esac
             LOCAL_HEALTHCHECK_URL="http://127.0.0.1:5000/healthz"
             echo "Public base: $PUBLIC_BASE_URL"
             echo "Local healthcheck: $LOCAL_HEALTHCHECK_URL"
@@ -269,13 +278,31 @@ jobs:
             chmod 640 "$BACKUP_PATH"
             echo "Database backup created: $BACKUP_PATH"
 
+            if [ -d "$QRCODE_PATH" ]; then
+              UPLOAD_BACKUP="$BACKUP_DIR/qrcode-$(date +%Y%m%d-%H%M%S)-pre-$DEPLOY_SHA_SHORT.tar.gz"
+              tar -C "$(dirname "$QRCODE_PATH")" -czf "$UPLOAD_BACKUP" "$(basename "$QRCODE_PATH")"
+              chmod 640 "$UPLOAD_BACKUP"
+              tar -tzf "$UPLOAD_BACKUP" >/dev/null
+              echo "QRCode backup created: $UPLOAD_BACKUP"
+            fi
+
             # 备份只保留最近 30 份，避免旧备份无限增长占满磁盘。
             find "$BACKUP_DIR" -maxdepth 1 -type f -name 'boya_agent-*.db' -printf '%T@ %p\n' \
               | sort -rn | tail -n +31 | cut -d' ' -f2- | xargs -r rm -f
 
             git fetch --prune origin
 
+            REMOTE_SHA="$(git rev-parse "origin/$DEPLOY_BRANCH")"
+            if [ "$REMOTE_SHA" != "$DEPLOY_SHA" ]; then
+              echo "Remote branch moved after this run was queued; deploy the newer run instead."
+              exit 1
+            fi
+
             if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+              if ! git merge-base --is-ancestor "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"; then
+                echo "Server branch diverged; aborting before checkout."
+                exit 1
+              fi
               git switch "$DEPLOY_BRANCH"
             else
               git switch -c "$DEPLOY_BRANCH" --track "origin/$DEPLOY_BRANCH"
@@ -288,6 +315,12 @@ jobs:
               echo "Checked out commit does not match workflow commit: $CURRENT_SHA"
               exit 1
             fi
+
+            EMAIL_GUARD_ACTIVE=0
+            # Install recovery before changing dependencies or stopping service.
+            source "$APP_DIR/deploy/release_guard.sh"
+            trap release_guard_exit EXIT
+            release_guard_prepare
 
             # venv 缺失时强制按依赖变化处理，保证环境可恢复。
             if [ "$DEPS_CHANGED" != "true" ] && [ ! -x venv/bin/python ]; then
@@ -325,6 +358,10 @@ jobs:
             fi
 
             if [ "$DEPS_CHANGED" = "true" ]; then
+              # Never modify the venv while the running app may still import it.
+              RELEASE_MUTATED=1
+              sudo systemctl stop "$SERVICE_NAME"
+              DEPENDENCIES_TOUCHED=1
               uv pip install --offline --no-index \
                 --no-build-isolation \
                 --find-links "$WHEELHOUSE_DIR" \
@@ -375,8 +412,7 @@ jobs:
               EMAIL_GUARD_ACTIVE=0
               echo "Restored email_enabled=$EMAIL_WAS_ENABLED"
             }
-            trap 'cleanup_wheelhouse; restore_email_state' EXIT
-
+            RELEASE_MUTATED=1
             sudo systemctl stop "$SERVICE_NAME"
 
             # Playwright 包升级后必须同步浏览器二进制；2026-09-16 的事故即因
@@ -386,6 +422,7 @@ jobs:
             sudo -u boya-agent env \
               HOME=/var/lib/boya-agent \
               PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright \
+              PLAYWRIGHT_SKIP_BROWSER_GC=1 \
               PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright \
               ./venv/bin/playwright install chromium
 
@@ -407,7 +444,7 @@ jobs:
               echo "Temporarily disabled email delivery during startup scrape."
             fi
 
-            STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
+            STARTED_AT="$(date --iso-8601=seconds)"
             sudo systemctl start "$SERVICE_NAME"
             sudo systemctl is-active --quiet "$SERVICE_NAME"
 
@@ -430,7 +467,7 @@ jobs:
               exit 1
             fi
 
-            for path in / /subscribe /portal /api/courses /rss; do
+            for path in / /subscribe /portal /QRcode /api/courses /rss; do
               if curl --fail --silent --show-error --max-time 20 "$PUBLIC_BASE_URL$path" >/dev/null; then
                 echo "Smoke check passed: $path"
               else
@@ -439,6 +476,12 @@ jobs:
                 exit 1
               fi
             done
+
+            ADMIN_HTTP_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "$PUBLIC_BASE_URL/api/status")"
+            if [ "$ADMIN_HTTP_STATUS" != "401" ]; then
+              echo "Unauthenticated admin boundary failed: HTTP $ADMIN_HTTP_STATUS"
+              exit 1
+            fi
 
             STARTUP_SCRAPE_COMPLETE=0
             for attempt in $(seq 1 48); do
@@ -455,6 +498,26 @@ jobs:
               sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 || true
               exit 1
             fi
+
+            # A ready log is emitted after failed scrapes too. Require actual
+            # fresh successful source metadata before accepting the release.
+            curl --fail --silent --show-error --max-time 20 "$LOCAL_HEALTHCHECK_URL" >/dev/null
+            ./venv/bin/python - "$PUBLIC_BASE_URL/api/courses" "$STARTED_AT" "$SOURCE_TIMEZONE" <<'PY'
+            import json
+            import sys
+            from urllib.request import urlopen
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            with urlopen(sys.argv[1], timeout=20) as response:
+                payload = json.load(response)
+            source = payload.get("source", {})
+            if not payload.get("success") or source.get("degraded") or not source.get("last_success"):
+                raise SystemExit("startup scrape did not report a successful result")
+            started = datetime.fromisoformat(sys.argv[2])
+            last = datetime.fromisoformat(source["last_success"]).replace(tzinfo=ZoneInfo(sys.argv[3]))
+            if last < started:
+                raise SystemExit("source success predates this release startup")
+            PY
 
             python3 - "$DATABASE_PATH" <<'PY'
             import sqlite3
@@ -500,4 +563,5 @@ jobs:
             restore_email_state
             cleanup_wheelhouse
             trap - EXIT
+            echo "Previous commit: $PREVIOUS_SHA; recovery artifacts: $RECOVERY_DIR"
             echo "Deploy complete at $(date)"

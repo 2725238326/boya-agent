@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 from datetime import timedelta
@@ -32,6 +33,26 @@ class NotificationJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
     def _session_factory(self):
         return self.Session()
+
+    async def test_slow_delivery_renews_lease_before_another_worker_can_reclaim(self):
+        from src.notification_jobs import _keep_notification_lease
+        session = self.Session()
+        enqueue_notification_job(session, channel="email", course_ids=["slow-fixture"])
+        session.commit()
+        claimed = claim_next_notification_job(session, lease_seconds=30)
+        initial = claimed.locked_at
+        session.close()
+        future = initial + timedelta(seconds=25)
+        with patch("src.notification_jobs.get_session", side_effect=self._session_factory), patch(
+            "src.notification_jobs.business_now", return_value=future
+        ), patch("src.notification_jobs.asyncio.sleep", new=AsyncMock(side_effect=[None, asyncio.CancelledError])):
+            with self.assertRaises(asyncio.CancelledError):
+                await _keep_notification_lease(claimed, 30)
+        self.assertEqual(claimed.locked_at, future)
+        session = self.Session()
+        with patch("src.notification_jobs.business_now", return_value=initial + timedelta(seconds=40)):
+            self.assertIsNone(claim_next_notification_job(session, lease_seconds=30))
+        session.close()
 
     def test_enqueue_is_idempotent_and_does_not_put_email_in_key(self):
         session = self.Session()

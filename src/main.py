@@ -15,8 +15,18 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-load_dotenv()
-load_dotenv(os.path.join(PROJECT_ROOT, "config", ".env"))
+from src.runtime import is_staging, notification_mode, validate_staging
+
+if is_staging():
+    validate_staging()
+else:
+    load_dotenv()
+    load_dotenv(os.path.join(PROJECT_ROOT, "config", ".env"))
+    # A .env file selecting staging must pass the same boundary before imports.
+    if is_staging():
+        validate_staging()
+
+notification_mode()
 
 
 def _validate_runtime_security_config():
@@ -44,7 +54,7 @@ logger.add(
     level="INFO",
 )
 logger.add(
-    "logs/boya_agent_{time:YYYY-MM-DD}.log",
+    os.path.join(os.getenv("LOG_DIR", "logs"), "boya_agent_{time:YYYY-MM-DD}.log"),
     rotation="1 day",
     retention="30 days",
     level="DEBUG",
@@ -92,7 +102,9 @@ async def main():
 
     if "--once" in sys.argv:
         logger.info("以单次运行模式执行")
-        await run_scrape_task()
+        result = await run_scrape_task()
+        if not result.get("success"):
+            raise SystemExit(1)
         logger.info("单次运行完成")
         return
 
@@ -103,7 +115,9 @@ async def main():
     start_scheduler(interval_minutes=interval)
 
     logger.info("执行首次抓取任务...")
-    await run_scrape_task()
+    result = await run_scrape_task()
+    if not result.get("success"):
+        logger.warning("首次抓取未成功，服务保留运行并等待调度重试")
 
     logger.info("系统已就绪，等待定时任务触发")
     try:

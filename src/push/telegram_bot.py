@@ -24,6 +24,9 @@ except ImportError:
 
 def get_bot() -> "Bot":
     """获取 Telegram Bot 实例"""
+    from src.runtime import is_staging
+    if is_staging():
+        raise RuntimeError("Telegram is disabled in staging")
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token:
         raise ValueError("未配置 TELEGRAM_BOT_TOKEN")

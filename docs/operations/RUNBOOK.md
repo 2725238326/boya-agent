@@ -92,6 +92,12 @@ quick 轮会顺手为两类课程补抓详情页：库里缺少签到方式等�
 
 ## 邮件与推送检查
 
+2026-10-22 新版本支持先开放身份邮件：EMAIL_DELIVERY_ENABLED=true + EMAIL_DELIVERY_SCOPE=auth。该范围允许验证和登录，但拒绝管理员测试邮件、手动课程推送和站点群发，email outbox 不领取、不消耗重试。关闭总开关即可停止全部邮件。打开 all 前需要核对数据库渠道开关与历史任务，不能把 auth 改 all 当作无副作用操作。
+
+管理认证后的 /api/status 提供 mail.auth_allowed、mail.notifications_allowed、传输配置是否齐全和 notification_jobs 状态计数。配置齐全不是送达证明；真实发送只对已授权收件范围进行。生产恢复前核对 SPF/DKIM/DMARC、SMTP 响应、收件箱及垃圾箱、验证码/链接有效性与暂停/退订行为。
+
+本地使用 scripts/run_staging.py 生成 .eml；scripts/verify_staging.py 会阻断真实连接并自动演练失败恢复。不得将文件发送成功记录为生产送达。
+
 测试邮件接口只接受管理员请求：
 
 ```bash

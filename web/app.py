@@ -93,7 +93,10 @@ def static_asset(filename: str) -> str:
 @app.context_processor
 def public_delivery_context():
     from src.email_policy import email_delivery_enabled
-    return {"email_delivery_available": email_delivery_enabled()}
+    return {
+        "email_delivery_available": email_delivery_enabled("login"),
+        "email_notifications_available": email_delivery_enabled("notify"),
+    }
 
 
 def public_course_source():
@@ -158,14 +161,19 @@ def _security_boundary():
 
     from src.email_policy import email_delivery_enabled
 
-    if request.method == "POST" and request.path in {
-        "/api/subscribe", "/api/login/request", "/api/test-email",
-        "/api/admin/broadcast/service-update", "/api/manual-push",
-    } and not email_delivery_enabled():
+    mail_routes = {
+        "/api/subscribe": "verify", "/api/login/request": "login",
+        "/api/test-email": "notify", "/api/admin/broadcast/service-update": "notify",
+        "/api/manual-push": "notify",
+    }
+    if (request.method == "POST" and request.path in mail_routes
+            and not email_delivery_enabled(mail_routes[request.path])):
         response = jsonify({
             "success": False,
             "code": "email_delivery_paused",
-            "error": "邮件服务暂时关闭，验证码和邮件通知暂不可用。您仍可浏览课程。",
+            "error": ("邮件服务暂时关闭，验证码暂不可用。您仍可浏览课程。"
+                      if mail_routes[request.path] in {"verify", "login"}
+                      else "课程通知邮件暂未开放，验证和登录邮件以页面提示为准。"),
         })
         response.status_code = 503
         response.headers["Cache-Control"] = "no-store"
@@ -1030,6 +1038,9 @@ def api_status():
     """获取系统运行状态"""
     from src.scheduler import _browser_state, _push_buffer
     status = get_run_status()
+    from src.models import NotificationJob
+    from src.push.email_push import email_readiness
+    status["mail"] = email_readiness()
     now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -1056,6 +1067,12 @@ def api_status():
         )
         status["total_push_logs"] = session.query(PushLog).count()
         status["total_enroll_logs"] = session.query(EnrollLog).count()
+        status["notification_jobs"] = [
+            {"channel": channel, "status": state, "count": count}
+            for channel, state, count in session.query(
+                NotificationJob.channel, NotificationJob.status, func.count(NotificationJob.id)
+            ).group_by(NotificationJob.channel, NotificationJob.status).all()
+        ]
     finally:
         session.close()
 

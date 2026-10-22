@@ -4,4 +4,9 @@
     验证码和邮件通知暂不可用。已登录用户仍可管理设置，保存提醒不代表邮件会发送。
     <a href="/#courses" style="color:#2454a5;text-decoration:underline;">无需登录，先看课程</a>
 </aside>
+{% elif email_notifications_available is defined and not email_notifications_available %}
+<aside role="status" style="padding:14px 18px;margin:12px 0;border:1px solid #d6dfeb;border-radius:12px;background:#f3f6fa;color:#334155;line-height:1.65;">
+    <strong>邮箱验证和登录可用</strong><br>
+    课程通知邮件暂未开放，保存提醒后仍需自行关注报名时间。
+</aside>
 {% endif %}

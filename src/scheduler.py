@@ -55,6 +55,7 @@ from src.push.telegram_bot import (
     send_status_message,
 )
 from src.time_utils import now as business_now
+from src.runtime import is_staging, validate_staging
 
 # 全局调度器实例
 scheduler = AsyncIOScheduler()
@@ -514,23 +515,31 @@ async def _run_scrape_task_impl(mode: str = "full"):
         for attempt in range(2):
             if attempt > 0:
                 logger.warning("scrape failed, recreate browser and retry once")
-            page = await _ensure_browser(force_recreate=attempt > 0)
-            if not page:
+            if is_staging():
+                validate_staging()
+                page = None
+            else:
+                page = await _ensure_browser(force_recreate=attempt > 0)
+            if not page and not is_staging():
                 last_scrape_error = "browser/login unavailable"
                 last_scrape_status = "browser_unavailable"
                 continue
 
             _sync_course_lifecycle()
             try:
-                outcome = await scrape_courses_result(
-                    page,
-                    include_details=(mode != "quick"),
-                    detail_ids=detail_ids,
-                    known_ids=known_ids,
-                    attempted_ids=_detail_attempted_ids if mode == "quick" else None,
-                    detail_limit=QUICK_DETAIL_ENRICH_LIMIT if mode == "quick" else 0,
-                )
-                _mark_browser_used()
+                if is_staging():
+                    from src.staging_fixtures import fixture_outcome
+                    outcome = fixture_outcome()
+                else:
+                    outcome = await scrape_courses_result(
+                        page,
+                        include_details=(mode != "quick"),
+                        detail_ids=detail_ids,
+                        known_ids=known_ids,
+                        attempted_ids=_detail_attempted_ids if mode == "quick" else None,
+                        detail_limit=QUICK_DETAIL_ENRICH_LIMIT if mode == "quick" else 0,
+                    )
+                    _mark_browser_used()
                 scrape_status = outcome.status.value
                 run_status["last_scrape_duration_ms"] = outcome.metadata.get("duration_ms")
                 if not outcome.success:
@@ -719,7 +728,8 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 )
 
             run_status["total_pushed"] += pushed_count
-            await auto_enroll_if_enabled(page, passed_courses)
+            if not is_staging():
+                await auto_enroll_if_enabled(page, passed_courses)
         finally:
             session.close()
 

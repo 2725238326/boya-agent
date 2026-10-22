@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
@@ -337,6 +338,30 @@ def mark_notification_job_failure(
     return updated == 1
 
 
+async def _keep_notification_lease(job: NotificationJob, lease_seconds: int) -> None:
+    """Keep slow asynchronous/SMTP handlers from being reclaimed mid-delivery."""
+    interval = max(1, max(30, int(lease_seconds)) // 3)
+    while True:
+        await asyncio.sleep(interval)
+        session = get_session()
+        try:
+            timestamp = business_now()
+            updated = _owned_notification_job_query(session, job).update(
+                {NotificationJob.locked_at: timestamp, NotificationJob.updated_at: timestamp},
+                synchronize_session=False,
+            )
+            commit_with_retry(session)
+            if updated != 1:
+                logger.warning("notification lease lost: id={}", job.id)
+                return
+            job.locked_at = timestamp
+        except Exception:
+            session.rollback()
+            logger.warning("notification lease renewal failed: id={}", job.id)
+        finally:
+            session.close()
+
+
 async def drain_notification_jobs(
     handlers: Dict[str, Callable[[NotificationJob], Any]],
     *,
@@ -387,6 +412,7 @@ async def drain_notification_jobs(
         result["claimed"] += 1
         handler = handlers.get(job.channel)
         delivery = NotificationDeliveryResult(False, message=f"unsupported channel: {job.channel}")
+        heartbeat = asyncio.create_task(_keep_notification_lease(job, lease_seconds))
         try:
             raw_result = handler(job) if handler else delivery
             if inspect.isawaitable(raw_result):
@@ -402,6 +428,10 @@ async def drain_notification_jobs(
         except Exception as error:
             logger.exception("notification job handler failed: id={}", job.id)
             delivery = NotificationDeliveryResult(False, message=str(error))
+        finally:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
 
         finish_session = get_session()
         try:

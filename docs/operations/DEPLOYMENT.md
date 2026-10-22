@@ -136,6 +136,16 @@ curl -i https://你的域名/api/courses
 
 ## 常规发布节奏
 
+### 2026-10-22 待发布改进
+
+新工作流把 `deploy/**` 纳入自动部署触发路径。发布前同时保存 SQLite 一致性备份与二维码 tar 备份；依赖改变时先保存旧 venv，再停服安装。`release_guard.sh` 在安装浏览器、依赖、启动或验收失败时恢复旧提交和必要的 venv，并尝试恢复原活动服务及健康状态；保留数据库和 outbox。Playwright 使用 `PLAYWRIGHT_SKIP_BROWSER_GC=1` 保留旧浏览器以支持回退，需按资源情况另行审阅清理。
+
+工作流还会拒绝已经被新推送替代的目标提交，检查未授权管理接口 401、二维码页及当前启动后的成功采集时间，避免只依赖“系统已就绪”日志。配置样例和部署目录都可能触发生产，功能分支只运行 CI。
+
+恢复目录 `/var/lib/boya-agent/release-recovery.*` 保留旧 venv 或失败环境，用于现场核对；当前不会自动删除。依赖变更发布前确认足够磁盘空间，发布验收后再根据明确清单清理，避免持续积累。回退依赖和旧浏览器的真实 Linux/systemd 现场演练仍需在受控发布窗口完成，不能由本地 mock 测试代替。service 样例增加内存/进程限制；现有主机仍应核对实际 drop-in，工作流不会自动替换 systemd 单元。
+
+邮件首次开放建议先 `EMAIL_DELIVERY_ENABLED=true`、`EMAIL_DELIVERY_SCOPE=auth`，业务课程邮件/摘要/Telegram/自动选课维持关闭；必须单独确认收件范围并完成真实登录验收。关闭总开关即可回退邮件开放。`auth` 模式不会领取历史 email 通知任务。
+
 生产发布遵循“候选版本验证、变更审阅、受控部署、业务观察”的顺序：
 
 1. 在本地运行 `python scripts/verify_release.py --require-clean`，确认工作区没有凭据、数据库、日志或上传文件，并保存检查结果。

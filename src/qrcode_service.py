@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - production installs Pillow from requir
     UnidentifiedImageError = OSError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-QRCODE_UPLOAD_ROOT = BASE_DIR / "config" / "uploads" / "qrcode"
+QRCODE_UPLOAD_ROOT = Path(os.getenv("QRCODE_UPLOAD_ROOT", str(BASE_DIR / "config" / "uploads" / "qrcode")))
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 ALLOWED_IMAGE_FORMATS = {
     ".png": "PNG",

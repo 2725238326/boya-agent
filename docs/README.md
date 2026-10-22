@@ -2,7 +2,7 @@
 
 文档用途：帮助读者在几分钟内找到当前状态、用户行为、技术实现、部署和历史资料。
 面向读者：第一次接触项目的开发者、运维人员、管理员和业务读者。
-文档状态：当前文档导航；更新时间：2026-09-24。
+文档状态：当前文档导航；更新时间：2026-10-22。
 
 这组文档以当前代码、当前配置和当前部署样例为依据。若文档与代码冲突，以代码和配置为准，并在下一次改动中修正文档。
 
@@ -11,6 +11,7 @@
 | 主题 | 权威位置 |
 | --- | --- |
 | 当前项目状态、已实现能力和风险 | [docs/project/PROJECT_STATUS.md](project/PROJECT_STATUS.md) |
+| 10 月升级实现、验证和上线安排 | [UPGRADE_EXECUTION_2026_10_22.md](project/UPGRADE_EXECUTION_2026_10_22.md) |
 | 系统组件和数据流 | [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | 用户可见行为 | [docs/product/PRODUCT_BEHAVIOR.md](product/PRODUCT_BEHAVIOR.md) |
 | 安全边界 | [docs/security/SECURITY.md](security/SECURITY.md) |
