@@ -506,22 +506,9 @@ jobs:
             # A ready log is emitted after failed scrapes too. Require actual
             # fresh successful source metadata before accepting the release.
             curl --fail --silent --show-error --max-time 20 "$LOCAL_HEALTHCHECK_URL" >/dev/null
-            ./venv/bin/python - "$PUBLIC_BASE_URL/api/courses" "$STARTED_AT" "$SOURCE_TIMEZONE" <<'PY'
-            import json
-            import sys
-            from urllib.request import urlopen
-            from datetime import datetime
-            from zoneinfo import ZoneInfo
-            with urlopen(sys.argv[1], timeout=20) as response:
-                payload = json.load(response)
-            source = payload.get("source", {})
-            if not payload.get("success") or source.get("degraded") or not source.get("last_success"):
-                raise SystemExit("startup scrape did not report a successful result")
-            started = datetime.fromisoformat(sys.argv[2])
-            last = datetime.fromisoformat(source["last_success"]).replace(tzinfo=ZoneInfo(sys.argv[3]))
-            if last < started:
-                raise SystemExit("source success predates this release startup")
-            PY
+            ./venv/bin/python scripts/check_startup_source.py \
+              --url "http://127.0.0.1:5000/api/courses" \
+              --started-at "$STARTED_AT" --timezone "$SOURCE_TIMEZONE" --timeout 240
 
             python3 - "$DATABASE_PATH" <<'PY'
             import sqlite3
