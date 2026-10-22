@@ -31,7 +31,8 @@
 | 新版本候选说明 | [RELEASE_CANDIDATE.md](project/RELEASE_CANDIDATE.md) |
 | 进度、测试和部署汇报标准 | [REPORTING_STANDARD.md](project/REPORTING_STANDARD.md) |
 | 发布与部署记录 | [RELEASE_NOTES.md](project/RELEASE_NOTES.md) |
-| 当前生产运行快照 | [PRODUCTION_RUNTIME_2026_09_24.md](project/PRODUCTION_RUNTIME_2026_09_24.md) |
+| 当前生产运行快照 | [PRODUCTION_RUNTIME_2026_10_22.md](project/PRODUCTION_RUNTIME_2026_10_22.md) |
+| 10 月实际发布结果与剩余事项 | [RELEASE_VALIDATION_2026_10_22.md](project/RELEASE_VALIDATION_2026_10_22.md) |
 | 本地预发布边界 | [LOCAL_STAGING.md](development/LOCAL_STAGING.md) |
 | 项目目录与环境边界 | [PROJECT_LAYOUT.md](project/PROJECT_LAYOUT.md) |
 | 通用清晰表达提示词 | [PLAIN_LANGUAGE_REVIEW_PROMPT.md](../PLAIN_LANGUAGE_REVIEW_PROMPT.md) |
@@ -42,7 +43,7 @@
 - 生产上线：先看 [DEPLOYMENT.md](operations/DEPLOYMENT.md)，再按 [RUNBOOK.md](operations/RUNBOOK.md) 做上线后检查。
 - 准备最终新版：按 [FINAL_RELEASE_PLAN.md](project/FINAL_RELEASE_PLAN.md) 顺序执行，邮件恢复必须单独评审。
 - 当前生产实例：`https://buaaboya.top`；应用版本、运行事实和剩余风险见 [PROJECT_STATUS.md](project/PROJECT_STATUS.md)。
-- 当前服务器提交、服务状态、数据库完整性和资源核对见 [生产运行快照](project/PRODUCTION_RUNTIME_2026_09_24.md)。
+- 当前服务器提交、服务状态、数据库完整性和资源核对见 [生产运行快照](project/PRODUCTION_RUNTIME_2026_10_22.md)。
 - 常规更新：运行代码、生产依赖或配置样例变更先通过本地/CI 验收，再形成 Git 提交；`main/master` 中命中部署路径的提交会触发生产工作流。单纯文档或工作流调整不会自动重启应用，工作流调整需要显式手动运行。功能分支不进入生产。
 - `config/**` 当前属于生产工作流的触发路径；即使只改 `.env.example`，合并到 `main/master` 前也必须完成生产影响审阅。配置样例不含真实凭据，但不能把它当作普通文档变更。
 - 修改环境变量：只按 [CONFIGURATION.md](development/CONFIGURATION.md) 操作，不从历史文档复制默认值。
