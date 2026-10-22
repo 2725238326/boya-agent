@@ -445,6 +445,10 @@ jobs:
             fi
 
             STARTED_AT="$(date --iso-8601=seconds)"
+            # Older production systemd rejects ISO T/offset syntax for --since.
+            # Keep timezone-aware STARTED_AT for Python and a portable local
+            # timestamp specifically for journalctl.
+            JOURNAL_SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
             sudo systemctl start "$SERVICE_NAME"
             sudo systemctl is-active --quiet "$SERVICE_NAME"
 
@@ -485,7 +489,7 @@ jobs:
 
             STARTUP_SCRAPE_COMPLETE=0
             for attempt in $(seq 1 48); do
-              if sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 | grep -F "系统已就绪" >/dev/null; then
+              if sudo journalctl -u "$SERVICE_NAME" --since "$JOURNAL_SINCE" --no-pager -n 160 | grep -F "系统已就绪" >/dev/null; then
                 STARTUP_SCRAPE_COMPLETE=1
                 echo "Startup scrape completed on attempt $attempt."
                 break
@@ -495,7 +499,7 @@ jobs:
 
             if [ "$STARTUP_SCRAPE_COMPLETE" != "1" ]; then
               echo "Startup scrape did not report completion within the expected window."
-              sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 160 || true
+              sudo journalctl -u "$SERVICE_NAME" --since "$JOURNAL_SINCE" --no-pager -n 160 || true
               exit 1
             fi
 
@@ -556,7 +560,7 @@ jobs:
             printf '  database: '; stat -c '%U:%G %a %s bytes' "$DATABASE_PATH"
             printf '  backups: '; find "$BACKUP_DIR" -maxdepth 1 -type f -name 'boya_agent-*.db' | wc -l
             echo "Recent scrape lifecycle messages:"
-            sudo journalctl -u "$SERVICE_NAME" --since "$STARTED_AT" --no-pager -n 120 \
+            sudo journalctl -u "$SERVICE_NAME" --since "$JOURNAL_SINCE" --no-pager -n 120 \
               | grep -E '抓取|scrape|系统已就绪|调度已启动' \
               | tail -n 20 || true
 

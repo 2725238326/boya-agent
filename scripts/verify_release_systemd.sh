@@ -51,6 +51,8 @@ EOF
 sudo install -m 644 "$SANDBOX/unit" "$UNIT_PATH"
 sudo systemctl daemon-reload
 sudo systemctl start "$UNIT"
+JOURNAL_SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
+sudo journalctl -u "$UNIT" --since "$JOURNAL_SINCE" --no-pager -n 1 >/dev/null
 for attempt in $(seq 1 20); do
   if curl --fail --silent --max-time 2 "$LOCAL_HEALTHCHECK_URL" >/dev/null; then break; fi
   sleep 1
