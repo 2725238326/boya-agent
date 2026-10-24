@@ -252,7 +252,15 @@ jobs:
                         pager_structure: Array.from(document.querySelectorAll('.pagination')).map(root => Array.from(root.querySelectorAll('*')).map(el => ({
                           tag: el.tagName, text: (el.children.length ? '' : (el.textContent || '').trim()).slice(0,50),
                           attributes: Object.fromEntries(Array.from(el.attributes).filter(a => ['class','id','name','type','value','aria-current','aria-label','data-page'].includes(a.name)).map(a => [a.name,a.value.slice(0,100)]))
-                        })))
+                        }))),
+                        pager_parent: Array.from(document.querySelectorAll('.pagination')).map(root => ({
+                          tag: root.parentElement.tagName,
+                          text: (root.parentElement.innerText || '').slice(-700),
+                          numeric_inputs: Array.from(root.parentElement.querySelectorAll('input,select')).map(el => ({
+                            tag: el.tagName, value: /^\\d+$/.test(el.value || '') ? el.value : 'non-numeric',
+                            options: el.options ? Array.from(el.options).map(o => o.textContent.trim()).filter(t => /^\\d+$/.test(t)).slice(0,50) : []
+                          }))
+                        }))
                       };
                     }''')
                     print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
