@@ -1041,6 +1041,8 @@ def api_status():
     from src.models import NotificationJob
     from src.push.email_push import email_readiness
     status["mail"] = email_readiness()
+    from src.push.feishu_bot import readiness as feishu_readiness
+    status["feishu"] = feishu_readiness()
     now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 

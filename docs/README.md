@@ -12,6 +12,8 @@
 | --- | --- |
 | 当前项目状态、已实现能力和风险 | [docs/project/PROJECT_STATUS.md](project/PROJECT_STATUS.md) |
 | 10 月升级实现、验证和上线安排 | [UPGRADE_EXECUTION_2026_10_22.md](project/UPGRADE_EXECUTION_2026_10_22.md) |
+| 飞书群推送配置与回退 | [FEISHU.md](operations/FEISHU.md) |
+| 飞书接入和实际验收 | [FEISHU_RELEASE_2026_10_24.md](project/FEISHU_RELEASE_2026_10_24.md) |
 | 系统组件和数据流 | [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | 用户可见行为 | [docs/product/PRODUCT_BEHAVIOR.md](product/PRODUCT_BEHAVIOR.md) |
 | 安全边界 | [docs/security/SECURITY.md](security/SECURITY.md) |

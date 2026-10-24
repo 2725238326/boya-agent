@@ -55,6 +55,7 @@ from src.push.telegram_bot import (
     send_status_message,
 )
 from src.time_utils import now as business_now
+from src.push import feishu_bot
 from src.runtime import is_staging, validate_staging
 
 # 全局调度器实例
@@ -877,6 +878,15 @@ async def _do_push(courses, config, session, event_type: str = "new", delivery_m
     """按统一配置创建持久化通知任务并执行有限数量的投递。"""
     pushed_count = 0
 
+    # Feishu never waits for the external network in the scraping pipeline.
+    # Global filters are applied again before queueing and before delivery.
+    if feishu_bot.enabled("courses"):
+        selected = [course for course, _ in filter_courses(courses, config)]
+        queued = feishu_bot.enqueue_courses(session, selected, event_type=event_type, delivery_mode=delivery_mode)
+        session.commit()
+        if queued:
+            logger.info("Feishu course jobs queued: {}", len(queued))
+
     if config.email_enabled:
         sent_count = await send_email_notification(courses, event_type=event_type, delivery_mode=delivery_mode)
         if sent_count > 0:
@@ -939,6 +949,12 @@ async def _deliver_scheduled_notification_job(job):
 
 async def drain_pending_notification_jobs():
     """定时恢复服务重启或外部通道故障后留下的通知任务。"""
+    try:
+        delivery = await feishu_bot.drain_jobs()
+        if delivery["claimed"]:
+            logger.info("Feishu queue delivery: {}", delivery)
+    except Exception as error:
+        logger.warning("Feishu queue drain failed: type={}", type(error).__name__)
     config = load_filter_config()
 
     handlers = {}
@@ -973,6 +989,12 @@ async def _check_and_alert_failures():
     global _alert_sent, _last_alert_at
     if _consecutive_failures < _MAX_FAILURES_BEFORE_ALERT:
         return
+    try:
+        feishu_bot.queue_scrape_state(failures=_consecutive_failures,
+                                     status=run_status.get("last_scrape_status"),
+                                     cooldown_minutes=ALERT_COOLDOWN_MINUTES)
+    except Exception as error:
+        logger.warning("Feishu alert enqueue failed: type={}", type(error).__name__)
     now = business_now()
     if _last_alert_at and now - _last_alert_at < timedelta(minutes=ALERT_COOLDOWN_MINUTES):
         logger.info(f"连续失败 {_consecutive_failures} 次，告警冷却中（距上次告警不足 {ALERT_COOLDOWN_MINUTES} 分钟）")
@@ -1000,6 +1022,11 @@ async def _note_scrape_success():
     run_status["last_success"] = business_now()
     run_status["last_error"] = None
     _consecutive_failures = 0
+    try:
+        # Run even if the in-memory Telegram flag was lost on restart.
+        feishu_bot.queue_scrape_state(recovered=True)
+    except Exception as error:
+        logger.warning("Feishu recovery enqueue failed: type={}", type(error).__name__)
     if not _alert_sent:
         return
     _alert_sent = False
@@ -1148,6 +1175,13 @@ async def run_daily_summary_task():
             return
 
         pushed_count = 0
+        feishu_queued = 0
+
+        if feishu_bot.enabled("courses"):
+            feishu_queued = len(feishu_bot.enqueue_courses(
+                session, passed_courses, delivery_mode="digest_daily",
+                summary_date=business_now().strftime("%Y-%m-%d")))
+            session.commit()
 
         if config.email_enabled:
             ok = await send_email_notification(
@@ -1191,6 +1225,8 @@ async def run_daily_summary_task():
             run_status["total_pushed"] += pushed_count
             run_status["last_daily_summary"] = business_now()
             logger.info(f"每日汇总推送完成：{len(passed_courses)} 门课程")
+        elif feishu_queued:
+            logger.info("每日汇总已加入飞书队列：{} 条，等待独立投递", feishu_queued)
         else:
             logger.warning("每日汇总推送失败：未通过任何推送通道成功发送")
     except Exception as e:

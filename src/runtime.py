@@ -27,7 +27,7 @@ def validate_staging() -> Path:
         raise RuntimeError("staging requires loopback and a separate port >= 5001")
     for name, value in os.environ.items():
         if value and (name in {"BUAA_USERNAME", "BUAA_PASSWORD", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"}
-                      or name.startswith("SMTP_")):
+                      or name.startswith("SMTP_") or name.startswith("FEISHU_")):
             raise RuntimeError("staging must not contain external credentials or SMTP configuration")
     return root
 
@@ -46,7 +46,7 @@ def configure_staging(root: Path, *, port: int = 5001, scenario: str = "healthy"
     """Launcher owns every runtime path and removes inherited external config."""
     root = root.resolve()
     for name in list(os.environ):
-        if name.startswith("SMTP_") or name in {
+        if name.startswith("SMTP_") or name.startswith("FEISHU_") or name in {
             "BUAA_USERNAME", "BUAA_PASSWORD", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
         }:
             os.environ.pop(name, None)

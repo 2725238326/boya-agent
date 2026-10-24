@@ -27,6 +27,13 @@ class ReleaseGuardTests(unittest.TestCase):
         result = subprocess.run([bash_path(), "-n"], input=script, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_feishu_configuration_shell_syntax(self):
+        workflow = (ROOT / ".github/workflows/configure-feishu.yml").read_text(encoding="utf-8")
+        source = workflow.split("          script: |\n", 1)[1]
+        script = "\n".join(line[12:] if line.startswith(" " * 12) else line for line in source.splitlines())
+        result = subprocess.run([bash_path(), "-n"], input=script, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def run_failure(self, dependencies=False, startup_fails=False, mail_restore_fails=False):
         with tempfile.TemporaryDirectory(prefix="boya-release-") as directory:
             root = Path(directory)

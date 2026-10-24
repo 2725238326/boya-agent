@@ -84,6 +84,10 @@ jobs:
             for prefix in ('SMTP', 'SMTP_VERIFY', 'SMTP_NOTIFY'):
                 print(prefix + '_configured:', all(bool(config.get(prefix + '_' + field))
                                                    for field in ('SERVER', 'USERNAME', 'PASSWORD')))
+            print('FEISHU_credentials_present:', bool(config.get('FEISHU_WEBHOOK_URL') and config.get('FEISHU_WEBHOOK_SECRET')))
+            for key in ('FEISHU_ALERTS_ENABLED', 'FEISHU_COURSES_ENABLED'):
+                value = (config.get(key) or '').strip().lower()
+                print(key + ':', value if value in {'true', 'false'} else ('unset' if not value else 'invalid'))
             PY
 
             echo "== memory and load =="
@@ -100,7 +104,7 @@ jobs:
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
             sudo journalctl -u "$SERVICE_NAME" --since "${LOG_SINCE:-10 minutes ago}" --no-pager -n 500 \
-              | grep -E '抓取|scrape|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证' \
+              | grep -E '抓取|scrape|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
               | tail -n 180 || true
 
             echo "== database and notification state =="

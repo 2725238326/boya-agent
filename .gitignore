@@ -25,6 +25,7 @@ logs/
 .idea/
 .omx/
 runtime/
+key/
 
 # OS
 .DS_Store

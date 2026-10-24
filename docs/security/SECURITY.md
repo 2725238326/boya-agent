@@ -54,6 +54,8 @@
 
 ## 数据和 secrets
 
+飞书 Webhook 和签名密钥作为凭据保护；本机 key/、服务器 .env/私有备份及 GitHub production Secrets 均不得公开。任务中只保存群指纹和允许公开的课程/故障分类，不写 URL/secret、采集错误原文或个人邮箱。群传输固定 HTTPS 目标、不跟随重定向、不继承系统代理；staging 禁止飞书实发。操作见 [飞书手册](../operations/FEISHU.md)。
+
 2026-10-22 本地预发布新增 runtime/ 下的数据库、日志、上传与 .eml 文件。预览邮件包含测试验证码和一次性链接，只能留在受控本地目录，不进入 Git 或公开展示。staging 不加载 .env，拒绝外部凭据/真实浏览器/Telegram；生产拒绝 dry_run。邮件 auth 范围只开放身份邮件，管理员认证不能绕过课程邮件暂停策略。详细边界见 ADR 0005。
 
 必须保护：
