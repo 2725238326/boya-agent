@@ -164,6 +164,12 @@ jobs:
                     "SELECT COUNT(*) FROM (SELECT 1 FROM courses WHERE expired = 0 "
                     "GROUP BY name,start_time,enroll_start,teacher,location,campus HAVING COUNT(*) > 1)"
                 ).fetchone()[0])
+                print('stale_active_timestamps:', db.execute(
+                    "SELECT last_seen,start_time,end_time,enroll_start,enroll_end FROM courses "
+                    "WHERE expired = 0 AND (enroll_end IS NULL OR enroll_end > ?) "
+                    "AND (end_time IS NULL OR end_time > ?) "
+                    "AND (last_seen IS NULL OR last_seen < datetime(?, '-10 minutes')) LIMIT 5", (now, now, now)
+                ).fetchall())
             finally:
                 db.close()
             PY
@@ -214,6 +220,7 @@ jobs:
                     pw, browser, context, page = await create_browser_context()
                     if not await _open_course_select_page(page) or not await _wait_course_tables_ready(page):
                         raise RuntimeError('Source not ready')
+                    await page.locator('table:visible').first.wait_for(state='visible', timeout=25000)
                     result = await page.evaluate('''() => {
                       const visible = el => !!(el.getBoundingClientRect().width && el.getBoundingClientRect().height);
                       const controls = Array.from(document.querySelectorAll('a,button,li,span')).filter(el =>

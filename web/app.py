@@ -760,8 +760,6 @@ def api_courses():
             query = query.filter(
                 Course.check_in_method.contains("自主")
                 | Course.check_in_method.contains("自选")
-                | Course.sign_method.contains("自主")
-                | Course.sign_method.contains("自选")
             )
         if keyword:
             query = query.filter(Course.name.contains(keyword))

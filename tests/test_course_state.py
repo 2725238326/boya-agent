@@ -31,7 +31,9 @@ class CourseStateTests(unittest.TestCase):
 
     def test_check_in_label_has_one_normalized_rule(self):
         self.assertEqual("自主签到", get_check_in_display_label(self._course(check_in_method="扫码自主签到")))
-        self.assertTrue(is_self_check_in(self._course(sign_method="自选课程")))
+        self.assertFalse(is_self_check_in(self._course(sign_method="自选课程")))
+        self.assertEqual("待确认", get_check_in_display_label(self._course(check_in_method="", sign_method="自主选课")))
+        self.assertEqual("待确认", get_check_in_display_label(self._course(check_in_method="待确认")))
         self.assertEqual("常规签到", get_check_in_display_label(self._course()))
 
     def test_enrollment_window_and_expiry_boundaries(self):

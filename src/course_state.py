@@ -48,11 +48,9 @@ def get_check_in_display_label(course: Any) -> str:
     返回 "待确认"，避免把缺失数据误标为常规签到。
     """
     raw_check_in = str(_read_attr(course, "check_in_method", "") or "").strip()
-    raw_sign_method = str(_read_attr(course, "sign_method", "") or "").strip()
-    combined = f"{raw_check_in} {raw_sign_method}"
-    if "自主" in combined or "自选" in combined:
+    if "自主" in raw_check_in or "自选" in raw_check_in:
         return "自主签到"
-    if not raw_check_in:
+    if raw_check_in in {"", "待确认", "未知", "未提供", "--", "暂无"}:
         return "待确认"
     return "常规签到"
 
