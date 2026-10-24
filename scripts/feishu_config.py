@@ -35,6 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--send-test", action="store_true", help="Send 3 clearly labelled acceptance messages to this group")
+    parser.add_argument("--send-card-test", action="store_true", help="Send 3 clearly labelled course/alert/recovery cards")
     parser.add_argument("--upload-github-secrets", action="store_true", help="Store these two credentials in the repository's production environment")
     args = parser.parse_args()
     try:
@@ -59,6 +60,12 @@ def main():
                 if not _send_sync(text, "alerts", probe=True):
                     raise RuntimeError("Feishu acceptance message was not accepted")
             print("PASS: Feishu accepted all 3 signed acceptance messages; confirm visible in the group.")
+        if args.send_card_test:
+            from scripts.preview_feishu_cards import sample_cards
+            for card in sample_cards():
+                if not _send_sync("", "alerts", probe=True, card=card):
+                    raise RuntimeError("Feishu acceptance card was not accepted")
+            print("PASS: Feishu accepted all 3 signed interactive cards; confirm appearance in the group.")
     except Exception as error:
         # No raw exception text: file parsing and HTTP errors may include secrets.
         print("Feishu check failed:", type(error).__name__)

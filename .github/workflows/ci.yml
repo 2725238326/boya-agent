@@ -62,3 +62,4 @@ jobs:
           .venv/bin/python scripts/verify_portal_browser.py
           .venv/bin/python scripts/verify_home_browser.py
           .venv/bin/python scripts/verify_qrcode_browser.py
+          .venv/bin/python scripts/verify_scraper_browser.py

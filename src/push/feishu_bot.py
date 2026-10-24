@@ -76,7 +76,7 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _send_sync(text: str, kind: str, *, probe=False) -> bool:
+def _send_sync(text: str, kind: str, *, probe=False, card=None) -> bool:
     """One attempt; outbox owns retries. Never follow a secret-bearing redirect."""
     global _last_request_at
     if is_staging() or (not probe and not enabled(kind)):
@@ -91,8 +91,9 @@ def _send_sync(text: str, kind: str, *, probe=False) -> bool:
             if is_staging() or (not probe and not enabled(kind)):
                 return False
             timestamp = str(int(time.time()))
-            body = json.dumps({"timestamp": timestamp, "sign": signature(secret, timestamp),
-                               "msg_type": "text", "content": {"text": text}},
+            message = {"msg_type": "interactive", "card": card} if card is not None else (
+                {"msg_type": "text", "content": {"text": text}})
+            body = json.dumps({"timestamp": timestamp, "sign": signature(secret, timestamp), **message},
                               ensure_ascii=False).encode("utf-8")
             if len(body) > _MAX_BODY_BYTES:
                 logger.warning("Feishu message exceeds configured size bound")
@@ -125,6 +126,57 @@ def _send_sync(text: str, kind: str, *, probe=False) -> bool:
 
 async def send_text(text: str, kind: str) -> bool:
     return await asyncio.to_thread(_send_sync, text, kind)
+
+
+async def send_card(card: dict, kind: str) -> bool:
+    return await asyncio.to_thread(_send_sync, "", kind, card=card)
+
+
+def _plain(value, limit=180) -> dict:
+    # All upstream values remain plain_text, so names cannot inject links,
+    # @mentions or lark_md markup into group notifications.
+    return {"tag": "plain_text", "content": str(value or "待确认")[:limit]}
+
+
+def _card(title: str, color: str, elements: list) -> dict:
+    return {"config": {"wide_screen_mode": True},
+            "header": {"template": color, "title": _plain(title)}, "elements": elements}
+
+
+def _course_card(course, event_type: str, delivery_mode: str) -> dict:
+    labels = {"snipe": "退课补位", "active_watch": "报名动态"}
+    title = "每日课程汇总" if delivery_mode == "digest_daily" else labels.get(event_type, "课程提醒")
+    when = lambda value: value.strftime("%Y-%m-%d %H:%M") if value else "待确认"
+    places = f"{course.remaining} / {course.capacity}" if course.capacity and course.capacity > 0 else "待确认"
+    fields = [("剩余 / 容量", places), ("签到方式", get_check_in_display_label(course)),
+              ("适用校区", course.campus), ("课程类别", course.category)]
+    elements = [
+        {"tag": "div", "text": _plain(course.name)},
+        {"tag": "div", "fields": [{"is_short": True, "text": _plain(f"{label}\n{value or '待确认'}")}
+                                  for label, value in fields]},
+        {"tag": "hr"},
+        {"tag": "div", "text": _plain(f"报名时间\n{when(course.enroll_start)} — {when(course.enroll_end)}", 240)},
+        {"tag": "div", "text": _plain(f"上课时间\n{when(course.start_time)} — {when(course.end_time)}", 240)},
+        {"tag": "div", "text": _plain(f"上课地点\n{course.location or '待确认'}", 240)},
+        {"tag": "action", "actions": [{"tag": "button", "type": "primary",
+            "text": _plain("查看课程列表"), "url": "https://buaaboya.top/#courses"}]},
+        {"tag": "note", "elements": [_plain(f"采集时间：{when(course.last_seen)}（北京时间）\n名额以官方选课系统为准。", 240)]},
+    ]
+    return _card(f"博雅 · {title}", "orange" if event_type == "snipe" else "blue", elements)
+
+
+def _alert_card(job) -> dict:
+    failed = job.event_type == "failure"
+    statuses = {"auth_expired": "登录失效", "upstream_unavailable": "上游不可用", "parse_failed": "页面解析异常",
+                "timeout": "响应超时", "browser_unavailable": "采集浏览器不可用", "task_failed": "采集任务失败",
+                "scrape_failed": "采集失败", "success_empty": "空快照待核对"}
+    title = "博雅系统告警" if failed else "博雅系统恢复通知"
+    text = (f"课程抓取连续失败：{job.payload.get('failures', 0)} 次\n"
+            f"状态：{statuses.get(job.payload.get('status'), '采集失败')}" if failed else "课程抓取已恢复成功。")
+    return _card(title, "red" if failed else "green", [
+        {"tag": "div", "text": _plain(text, 240)},
+        {"tag": "div", "text": _plain(f"{'检测' if failed else '恢复'}时间：{job.created_at:%Y-%m-%d %H:%M:%S}（北京时间）")},
+        {"tag": "note", "elements": [_plain("请由管理员核对采集状态。" if failed else "此前告警已恢复，后续继续观察。")]}])
 
 
 def _course_text(course, event_type: str, delivery_mode: str) -> str:
@@ -194,12 +246,7 @@ async def deliver_job(job) -> NotificationDeliveryResult:
                     return NotificationDeliveryResult(True, message="Incident already recovered")
             finally:
                 session.close()
-            text = (f"博雅系统告警\n课程抓取连续失败：{payload.get('failures', 0)} 次\n"
-                    f"状态：{payload.get('status', 'scrape_failed')}\n"
-                    f"检测时间：{job.created_at:%Y-%m-%d %H:%M:%S}\n"
-                    "请登录管理后台查看采集状态。")
-        else:
-            text = f"博雅系统恢复通知\n课程抓取已恢复成功。\n恢复时间：{job.created_at:%Y-%m-%d %H:%M:%S}"
+        card = _alert_card(job)
     else:
         session = get_session()
         try:
@@ -208,10 +255,10 @@ async def deliver_job(job) -> NotificationDeliveryResult:
                 return NotificationDeliveryResult(True, message="Course expired or filtered; skipped")
             if job.job_type == "daily_summary" and job.payload.get("summary_date") != business_now().strftime("%Y-%m-%d"):
                 return NotificationDeliveryResult(True, message="Old daily summary skipped")
-            text = _course_text(course, job.event_type, job.delivery_mode)
+            card = _course_card(course, job.event_type, job.delivery_mode)
         finally:
             session.close()
-    ok = await send_text(text, kind)
+    ok = await send_card(card, kind)
     if ok and kind == "courses":
         session = get_session()
         try:

@@ -114,6 +114,27 @@ class FeishuTransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await feishu.send_text("fixture", "courses"))
         self.assertNotEqual(threads, [event_thread])
 
+    def test_interactive_card_is_signed_and_untrusted_fields_are_plain_text(self):
+        from types import SimpleNamespace
+        now = business_now()
+        course = SimpleNamespace(name="[点我](https://evil.test) <at id=all>所有人</at>", capacity=20, remaining=3,
+            check_in_method="", sign_method="直接选课", campus="学院路", category="文化", location="教室",
+            enroll_start=now, enroll_end=now, start_time=now, end_time=now, last_seen=now)
+        card = feishu._course_card(course, "snipe", "instant")
+        self.assertEqual(card["header"]["template"], "orange")
+        self.assertEqual(card["elements"][0]["text"], {"tag": "plain_text", "content": course.name})
+        self.assertIn("待确认", json.dumps(card, ensure_ascii=False))
+        opener = Mock()
+        opener.open.return_value = self.response()
+        with patch.object(feishu, "build_opener", return_value=opener):
+            self.assertTrue(feishu._send_sync("", "courses", card=card))
+        payload = json.loads(opener.open.call_args.args[0].data)
+        self.assertEqual(payload["msg_type"], "interactive")
+        self.assertEqual(payload["card"], card)
+        self.assertEqual(payload["sign"], feishu.signature(ENV["FEISHU_WEBHOOK_SECRET"], payload["timestamp"]))
+        with patch.object(feishu, "build_opener", side_effect=AssertionError("network")):
+            self.assertFalse(feishu._send_sync("", "courses", card={"oversize": "大" * 10000}))
+
 
 class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -152,7 +173,7 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
         job = self.enqueue_course()
         same = self.enqueue_course(delivery_mode="priority")
         self.assertEqual(job.id, same.id)
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=False)):
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=False)):
             result = await feishu.drain_jobs()
         self.assertEqual(result["failed"], 1)
         with self.Session() as session:
@@ -161,10 +182,10 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(stored.available_at, business_now())
             stored.available_at = business_now() - timedelta(seconds=1)
             session.commit()
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=True)) as send:
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
             result = await feishu.drain_jobs()
             self.assertEqual(result["delivered_count"], 1)
-            self.assertIn("自主签到", send.call_args.args[0])
+            self.assertIn("自主签到", json.dumps(send.call_args.args[0], ensure_ascii=False))
             self.assertEqual((await feishu.drain_jobs())["claimed"], 0)
         with self.Session() as session:
             self.assertEqual(session.query(PushLog).filter_by(push_type="feishu").count(), 1)
@@ -173,11 +194,11 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
         course = self.enqueue_course()
         feishu.queue_scrape_state(failures=3, status="timeout")
         with patch.dict(os.environ, {"FEISHU_COURSES_ENABLED": "false"}), patch.object(
-            feishu, "send_text", new=AsyncMock(return_value=True)
+            feishu, "send_card", new=AsyncMock(return_value=True)
         ) as send:
             result = await feishu.drain_jobs()
             self.assertEqual(result["claimed"], 1)
-            self.assertIn("系统告警", send.call_args.args[0])
+            self.assertIn("系统告警", json.dumps(send.call_args.args[0], ensure_ascii=False))
         with self.Session() as session:
             self.assertEqual(session.get(NotificationJob, course.id).attempts, 0)
         with patch.dict(os.environ, {"FEISHU_ALERTS_ENABLED": "false", "FEISHU_COURSES_ENABLED": "false"}):
@@ -193,7 +214,7 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
                     course.check_in_method = "常规签到" if change == "filter" else "自主签到"
                     session.commit()
                 override = {"FEISHU_WEBHOOK_URL": ENV["FEISHU_WEBHOOK_URL"] + "-rotated"} if change == "rotation" else {}
-                with patch.dict(os.environ, override), patch.object(feishu, "send_text", new=AsyncMock()) as send:
+                with patch.dict(os.environ, override), patch.object(feishu, "send_card", new=AsyncMock()) as send:
                     result = await feishu.drain_jobs()
                     send.assert_not_awaited()
                     self.assertEqual(result["succeeded"], 1)
@@ -206,39 +227,39 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(jobs), 1)
             self.assertNotIn("password", jobs[0].payload_json)
             self.assertNotIn(ENV["FEISHU_WEBHOOK_SECRET"], jobs[0].payload_json)
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=True)):
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)):
             self.assertEqual((await feishu.drain_jobs())["succeeded"], 1)
         feishu.queue_scrape_state(recovered=True)
         feishu.queue_scrape_state(recovered=True)
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=True)) as send:
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
             self.assertEqual((await feishu.drain_jobs())["succeeded"], 1)
-            self.assertIn("恢复通知", send.call_args.args[0])
+            self.assertIn("恢复通知", json.dumps(send.call_args.args[0], ensure_ascii=False))
         with self.Session() as session:
             self.assertEqual(session.query(NotificationJob).count(), 2)
 
     async def test_recovery_prevents_sending_obsolete_failure(self):
         feishu.queue_scrape_state(failures=3, status="timeout")
         feishu.queue_scrape_state(recovered=True)
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=True)) as send:
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
             result = await feishu.drain_jobs()
             self.assertEqual(result["claimed"], 2)
             send.assert_awaited_once()
-            self.assertIn("恢复通知", send.call_args.args[0])
+            self.assertIn("恢复通知", json.dumps(send.call_args.args[0], ensure_ascii=False))
 
     async def test_daily_summary_date_is_separate_and_old_tasks_are_skipped(self):
         day = business_now().strftime("%Y-%m-%d")
         self.enqueue_course(delivery_mode="digest_daily", summary_date=day)
         self.enqueue_course(delivery_mode="digest_daily", summary_date=day)
         self.enqueue_course(delivery_mode="digest_daily", summary_date="2000-01-01")
-        with patch.object(feishu, "send_text", new=AsyncMock(return_value=True)) as send:
+        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
             result = await feishu.drain_jobs()
             self.assertEqual(result["claimed"], 2)
             send.assert_awaited_once()
-            self.assertIn("每日课程汇总", send.call_args.args[0])
+            self.assertIn("每日课程汇总", json.dumps(send.call_args.args[0], ensure_ascii=False))
 
     async def test_scraping_queues_feishu_without_using_network_or_enabling_other_channels(self):
         from src import scheduler
-        with self.Session() as session, patch.object(feishu, "send_text", new=AsyncMock()) as send:
+        with self.Session() as session, patch.object(feishu, "send_card", new=AsyncMock()) as send:
             config = session.get(FilterConfig, 1)
             config.email_enabled = False
             config.telegram_enabled = False
@@ -251,7 +272,7 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
         from src import scheduler
         self.enqueue_course()
         with patch.object(scheduler, "load_filter_config") as config, patch.object(
-            feishu, "send_text", new=AsyncMock(return_value=True)
+            feishu, "send_card", new=AsyncMock(return_value=True)
         ) as send:
             config.return_value.email_enabled = False
             config.return_value.telegram_enabled = False

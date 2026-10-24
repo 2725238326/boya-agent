@@ -1021,7 +1021,7 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["campus"], "全部校区")
         self.assertEqual(payload["enroll_start"], "2026-03-23 18:00")
 
-    async def test_collect_current_view_courses_stops_after_empty_page_retry(self):
+    async def test_collect_current_view_courses_rejects_unconfirmed_empty_page(self):
         page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
 
         with (
@@ -1029,10 +1029,12 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
             patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[[], []])),
             patch("src.scraper._enrich_with_details", new=AsyncMock()),
             patch("src.scraper._go_to_next_page", new=AsyncMock(return_value=True)) as next_page_mock,
+            patch("src.scraper._confirm_course_page_empty_state", new=AsyncMock(return_value=False)),
         ):
-            courses = await _collect_current_view_courses(page, include_details=False, view_name="default")
+            from src.scrape_outcome import ScrapePageNotReadyError
+            with self.assertRaises(ScrapePageNotReadyError):
+                await _collect_current_view_courses(page, include_details=False, view_name="default")
 
-        self.assertEqual(courses, [])
         self.assertEqual(next_page_mock.await_count, 0)
 
     async def test_course_select_empty_page_is_a_valid_ready_state(self):

@@ -7,6 +7,10 @@ on:
         description: 'Read-only journal start time (server local time or relative time)'
         required: false
         default: '10 minutes ago'
+      source_audit:
+        description: 'One bounded read-only campus browser audit (no database writes or notifications)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -104,7 +108,7 @@ jobs:
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
             sudo journalctl -u "$SERVICE_NAME" --since "${LOG_SINCE:-10 minutes ago}" --no-pager -n 500 \
-              | grep -E '抓取|scrape|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
+              | grep -E '抓取|scrape|Course coverage|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
               | tail -n 180 || true
 
             echo "== database and notification state =="
@@ -114,6 +118,7 @@ jobs:
             python3 - "$DATABASE_PATH" <<'PY'
             import sqlite3
             import sys
+            from datetime import datetime, timezone, timedelta
 
             from pathlib import Path
             db = sqlite3.connect(Path(sys.argv[1]).resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
@@ -141,6 +146,24 @@ jobs:
                     "SELECT COUNT(*), MAX(last_seen) FROM courses"
                 ).fetchone())
                 print("integrity:", db.execute("PRAGMA integrity_check").fetchone()[0])
+                now = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+                quality = db.execute(
+                    "SELECT COUNT(*), SUM(start_time IS NULL), SUM(enroll_start IS NULL), "
+                    "SUM(enroll_end IS NULL), SUM(COALESCE(capacity,0) <= 0), "
+                    "SUM(TRIM(COALESCE(check_in_method,'')) = ''), "
+                    "SUM(end_time < start_time OR enroll_end < enroll_start), "
+                    "SUM(capacity < 0 OR enrolled < 0), "
+                    "SUM(last_seen IS NULL OR last_seen < datetime(?, '-10 minutes')) "
+                    "FROM courses WHERE expired = 0 AND (enroll_end IS NULL OR enroll_end > ?) "
+                    "AND (end_time IS NULL OR end_time > ?)", (now, now, now)
+                ).fetchone()
+                print('active_course_quality:', dict(zip(
+                    ('rows', 'missing_start', 'missing_enroll_start', 'missing_enroll_end', 'unknown_capacity',
+                     'unknown_check_in', 'invalid_time_order', 'negative_counts', 'not_seen_10m'), quality)))
+                print('exact_identity_duplicate_groups:', db.execute(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM courses WHERE expired = 0 "
+                    "GROUP BY name,start_time,enroll_start,teacher,location,campus HAVING COUNT(*) > 1)"
+                ).fetchone()[0])
             finally:
                 db.close()
             PY
@@ -160,4 +183,67 @@ jobs:
                     info = files[0].stat()
                     print('newest:', files[0].name, 'bytes=', info.st_size,
                           'modified_utc=', datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat())
+            PY
+
+      - name: Audit upstream table and pager without business writes
+        if: inputs.source_audit
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 3m
+          envs: APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR:-/home/boya-agent}"
+            PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright ./venv/bin/python - <<'PY'
+            import asyncio
+            import json
+            from dotenv import load_dotenv
+            from loguru import logger
+            load_dotenv('.env')
+            logger.remove()
+            from src.scraper import create_browser_context, _open_course_select_page, _wait_course_tables_ready
+
+            async def inspect():
+                pw = browser = None
+                try:
+                    pw, browser, context, page = await create_browser_context()
+                    if not await _open_course_select_page(page) or not await _wait_course_tables_ready(page):
+                        raise RuntimeError('Source not ready')
+                    result = await page.evaluate('''() => {
+                      const visible = el => !!(el.getBoundingClientRect().width && el.getBoundingClientRect().height);
+                      const controls = Array.from(document.querySelectorAll('a,button,li,span')).filter(el =>
+                        visible(el) && /^(上一页|下一页|上页|下页)$/.test((el.textContent || '').trim()));
+                      return {
+                        tables: Array.from(document.querySelectorAll('table')).filter(visible).map(el => ({
+                          rows: el.querySelectorAll('tbody tr').length,
+                          headers: Array.from(el.querySelectorAll('th')).map(th => (th.textContent || '').trim().slice(0,30))
+                        })),
+                        pager: controls.slice(0,12).map(el => ({
+                          label: el.textContent.trim(),
+                          ancestors: [el, el.parentElement, el.parentElement?.parentElement].filter(Boolean).map(node => ({
+                            tag: node.tagName, classes: String(node.className || '').slice(0,120),
+                            disabled: node.hasAttribute('disabled'), aria_disabled: node.getAttribute('aria-disabled'),
+                            pointer_events: getComputedStyle(node).pointerEvents
+                          }))
+                        })),
+                        totals: Array.from(document.querySelectorAll('.pagination,.el-pagination,.ant-pagination,.pagination-info')).filter(visible)
+                          .map(el => (el.textContent || '').match(/共\\s*\\d+\\s*[条门页]/g) || []).flat()
+                      };
+                    }''')
+                    print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
+                finally:
+                    if browser:
+                        await browser.close()
+                    if pw:
+                        await pw.stop()
+            try:
+                asyncio.run(asyncio.wait_for(inspect(), timeout=130))
+            except Exception as error:
+                print('source_dom_audit_failed:', type(error).__name__)
+                raise SystemExit(1)
             PY
