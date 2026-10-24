@@ -2,7 +2,7 @@
 
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
-文档状态：当前部署方案；更新时间：2026-10-24。
+文档状态：当前部署方案；更新时间：2026-10-25。
 当前实例域名 `buaaboya.top`，已完成 HTTPS、Nginx、systemd、公开/管理边界和升级验收。应用版本及观察窗口见 [项目状态](../project/PROJECT_STATUS.md) 和 [最近应用验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。飞书学生课程已启用；Telegram 运维待联网，邮件暂停，自动选课冻结。
 
 ## 部署拓扑

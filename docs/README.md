@@ -2,7 +2,7 @@
 
 文档用途：帮助读者在几分钟内找到当前状态、用户行为、技术实现、部署和历史资料。
 面向读者：第一次接触项目的开发者、运维人员、管理员和业务读者。
-文档状态：当前文档导航；更新时间：2026-10-24。
+文档状态：当前文档导航；更新时间：2026-10-25。
 
 这组文档以当前代码、当前配置和当前部署样例为依据。若文档与代码冲突，以代码和配置为准，并在下一次改动中修正文档。
 
@@ -11,6 +11,7 @@
 | 主题 | 权威位置 |
 | --- | --- |
 | 当前项目状态、已实现能力和风险 | [docs/project/PROJECT_STATUS.md](project/PROJECT_STATUS.md) |
+| 架构、文档与服务器目录维护验收 | [MAINTENANCE_2026_10_25.md](project/MAINTENANCE_2026_10_25.md) |
 | 飞书群推送配置与回退 | [FEISHU.md](operations/FEISHU.md) |
 | 找课、退选补位和运维的实际需求 | [NOTIFICATION_REQUIREMENTS.md](product/NOTIFICATION_REQUIREMENTS.md) |
 | Telegram 独立运维检测 | [TELEGRAM_OPS.md](operations/TELEGRAM_OPS.md) |

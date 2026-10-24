@@ -68,14 +68,15 @@ gh workflow run server-layout-maintenance.yml --ref main -f archive_captures=fal
 
 ## 恢复与后续清理
 
-根据工作流输出的真实 manifest 路径，在服务器执行同版本维护工具：
+根据工作流输出的真实 manifest 路径，在服务器执行同版本维护工具。当前生产工作树没有维护脚本，直接从本次已审阅的 `a10debb` Git 对象读取即可；以下 manifest 路径对应本次配置整理，只在需要恢复时执行：
 
 ```bash
-python3 scripts/maintain_server_layout.py \
+set -euo pipefail
+git -C /home/boya-agent show a10debb:scripts/maintain_server_layout.py | python3 - \
   --app-root /home/boya-agent --state-root /var/lib/boya-agent \
-  --restore-manifest /var/lib/boya-agent/archive/captures-实际批次/manifest.json
+  --restore-manifest /var/lib/boya-agent/backups/configuration/configuration-20261024T161259Z-92010ff2/manifest.json
 ```
 
-若生产工作树尚未包含工具，按工作流从对应已审阅 Git 对象提取到私有临时文件后执行，不能为恢复随意改动业务代码。恢复校验摘要并排他创建目标，拒绝覆盖已有文件；保留归档副本，重复执行会跳过已恢复文件。中断时保留 archive 和 manifest，先据此恢复或复核。
+后续批次替换为该次维护工作流的已审阅 SHA 与真实 manifest，不为恢复随意改动业务代码。恢复校验摘要并排他创建目标，拒绝覆盖已有文件；保留归档副本，重复执行会跳过已恢复文件。中断时保留归档和 manifest，先据此恢复或复核。
 
 永久删除、压缩归档、搬迁正在使用的日志/上传、清理浏览器或旧环境不属于此命令。需要释放磁盘时先依据盘点识别实际大项，再写明保留版本、验证备份和恢复步骤。不要运行整个应用目录的递归删除命令。
