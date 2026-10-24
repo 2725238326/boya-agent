@@ -260,6 +260,11 @@ jobs:
                             tag: el.tagName, value: /^\\d+$/.test(el.value || '') ? el.value : 'non-numeric',
                             options: el.options ? Array.from(el.options).map(o => o.textContent.trim()).filter(t => /^\\d+$/.test(t)).slice(0,50) : []
                           }))
+                        })),
+                        page_status_lines: (document.body.innerText || '').split('\\n').map(s => s.trim()).filter(s => s.length < 140 && /页|共\\s*\\d+|总.*条|第\\s*\\d+/.test(s)).slice(-25),
+                        numeric_controls: Array.from(document.querySelectorAll('select,input')).filter(el => /^\\d+$/.test(el.value || '')).map(el => ({
+                          tag:el.tagName, value:el.value, id:el.id, name:el.name,
+                          options:el.options ? Array.from(el.options).map(o => o.textContent.trim()).slice(0,25) : []
                         }))
                       };
                     }''')
