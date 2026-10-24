@@ -26,6 +26,7 @@ class StagingRuntimeTests(unittest.TestCase):
         for key, value in (("DATABASE_PATH", str(self.root.parent / "production.db")),
                            ("BUAA_PASSWORD", "inherited"), ("SMTP_SERVER", "smtp.example.test"),
                            ("FEISHU_WEBHOOK_URL", "fixture-secret"),
+                           ("TELEGRAM_OPS_BOT_TOKEN", "fixture-secret"),
                            ("WEB_HOST", "0.0.0.0"), ("WEB_PORT", "5000"),
                            ("NOTIFICATION_MODE", "smtp"), ("SCRAPE_SOURCE", "live")):
             with self.subTest(key=key), patch.dict(os.environ, {key: value}):
@@ -48,10 +49,11 @@ class StagingRuntimeTests(unittest.TestCase):
                 self.assertEqual(len(outcome.courses), 4 if scenario == "healthy" else 0)
 
     def test_launcher_removes_inherited_credentials(self):
-        with patch.dict(os.environ, {"BUAA_PASSWORD": "must-not-be-used", "SMTP_PASSWORD": "secret"}):
+        with patch.dict(os.environ, {"BUAA_PASSWORD": "must-not-be-used", "SMTP_PASSWORD": "secret", "TELEGRAM_OPS_BOT_TOKEN": "secret"}):
             configure_staging(self.root)
             self.assertNotIn("BUAA_PASSWORD", os.environ)
             self.assertNotIn("SMTP_PASSWORD", os.environ)
+            self.assertNotIn("TELEGRAM_OPS_BOT_TOKEN", os.environ)
 
     def test_real_main_once_exit_code_tracks_fixture_result(self):
         script = Path(__file__).resolve().parents[1] / "scripts/run_staging.py"

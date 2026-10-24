@@ -1021,7 +1021,7 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["campus"], "全部校区")
         self.assertEqual(payload["enroll_start"], "2026-03-23 18:00")
 
-    async def test_collect_current_view_courses_stops_after_empty_page_retry(self):
+    async def test_collect_current_view_courses_rejects_unconfirmed_empty_page(self):
         page = types.SimpleNamespace(wait_for_timeout=AsyncMock())
 
         with (
@@ -1029,10 +1029,12 @@ class ScraperAsyncRegressionTests(unittest.IsolatedAsyncioTestCase):
             patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[[], []])),
             patch("src.scraper._enrich_with_details", new=AsyncMock()),
             patch("src.scraper._go_to_next_page", new=AsyncMock(return_value=True)) as next_page_mock,
+            patch("src.scraper._confirm_course_page_empty_state", new=AsyncMock(return_value=False)),
         ):
-            courses = await _collect_current_view_courses(page, include_details=False, view_name="default")
+            from src.scrape_outcome import ScrapePageNotReadyError
+            with self.assertRaises(ScrapePageNotReadyError):
+                await _collect_current_view_courses(page, include_details=False, view_name="default")
 
-        self.assertEqual(courses, [])
         self.assertEqual(next_page_mock.await_count, 0)
 
     async def test_course_select_empty_page_is_a_valid_ready_state(self):
@@ -1580,21 +1582,20 @@ class FailureAlertTests(unittest.IsolatedAsyncioTestCase):
         scheduler.run_status["last_error"] = "boom"
         scheduler.run_status["last_success"] = None
 
-    def _telegram_on(self):
-        return types.SimpleNamespace(telegram_enabled=True)
-
     async def test_alert_fires_once_within_cooldown_and_keeps_count(self):
         scheduler._consecutive_failures = scheduler._MAX_FAILURES_BEFORE_ALERT
         with (
-            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
-            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+            patch.object(scheduler.ops_bot, "queue_state") as queue,
+            patch.object(scheduler.feishu_bot, "send_card") as student_alert,
         ):
             await scheduler._check_and_alert_failures()
             await scheduler._check_and_alert_failures()
             scheduler._consecutive_failures += 2
             await scheduler._check_and_alert_failures()
 
-        send_mock.assert_awaited_once()
+        self.assertEqual(queue.call_count, 3)  # persistent channel owns dedupe/cooldown
+        self.assertEqual(queue.call_args.kwargs["failures"], 5)
+        student_alert.assert_not_called()
         self.assertTrue(scheduler._alert_sent)
         self.assertEqual(
             scheduler._consecutive_failures,
@@ -1607,13 +1608,12 @@ class FailureAlertTests(unittest.IsolatedAsyncioTestCase):
             minutes=scheduler.ALERT_COOLDOWN_MINUTES + 1
         )
         with (
-            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
-            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+            patch.object(scheduler.ops_bot, "queue_state") as queue,
         ):
             await scheduler._check_and_alert_failures()
 
-        send_mock.assert_awaited_once()
-        self.assertIn("7", send_mock.await_args.args[0])
+        queue.assert_called_once()
+        self.assertEqual(queue.call_args.kwargs["failures"], 7)
         self.assertEqual(scheduler._consecutive_failures, 7)
 
     async def test_success_sends_recovery_once_after_alert(self):
@@ -1621,14 +1621,15 @@ class FailureAlertTests(unittest.IsolatedAsyncioTestCase):
         scheduler._last_alert_at = business_now()
         scheduler._consecutive_failures = 9
         with (
-            patch.object(scheduler, "load_filter_config", return_value=self._telegram_on()),
-            patch.object(scheduler, "send_status_message", new=AsyncMock()) as send_mock,
+            patch.object(scheduler.ops_bot, "queue_state") as queue,
+            patch.object(scheduler.feishu_bot, "send_card") as student_alert,
         ):
             await scheduler._note_scrape_success()
             await scheduler._note_scrape_success()
 
-        send_mock.assert_awaited_once()
-        self.assertIn("恢复", send_mock.await_args.args[0])
+        self.assertEqual(queue.call_count, 2)  # safe across process restarts
+        queue.assert_called_with(recovered=True)
+        student_alert.assert_not_called()
         self.assertEqual(scheduler._consecutive_failures, 0)
         self.assertFalse(scheduler._alert_sent)
 

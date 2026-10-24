@@ -1,0 +1,11 @@
+[Unit]
+Description=Check BOYA service and data health every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+AccuracySec=10s
+Unit=boya-agent-ops.service
+
+[Install]
+WantedBy=timers.target

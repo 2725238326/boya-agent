@@ -85,6 +85,11 @@ jobs:
                 print(prefix + '_configured:', all(bool(config.get(prefix + '_' + field))
                                                    for field in ('SERVER', 'USERNAME', 'PASSWORD')))
             print('FEISHU_credentials_present:', bool(config.get('FEISHU_WEBHOOK_URL') and config.get('FEISHU_WEBHOOK_SECRET')))
+            print('TELEGRAM_credentials_present:', bool(config.get('TELEGRAM_BOT_TOKEN') and config.get('TELEGRAM_CHAT_ID')))
+            print('TELEGRAM_OPS_credentials_present:', bool(
+                (config.get('TELEGRAM_OPS_BOT_TOKEN') or config.get('TELEGRAM_BOT_TOKEN')) and
+                (config.get('TELEGRAM_OPS_CHAT_ID') or config.get('TELEGRAM_CHAT_ID'))))
+            print('TELEGRAM_OPS_enabled:', (config.get('TELEGRAM_OPS_ENABLED') or '').lower() == 'true')
             for key in ('FEISHU_ALERTS_ENABLED', 'FEISHU_COURSES_ENABLED'):
                 value = (config.get(key) or '').strip().lower()
                 print(key + ':', value if value in {'true', 'false'} else ('unset' if not value else 'invalid'))
@@ -104,7 +109,7 @@ jobs:
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
             sudo journalctl -u "$SERVICE_NAME" --since "${LOG_SINCE:-10 minutes ago}" --no-pager -n 500 \
-              | grep -E '抓取|scrape|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
+              | grep -E '抓取|scrape|Course coverage|Course pagination|Telegram ops|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
               | tail -n 180 || true
 
             echo "== database and notification state =="
@@ -114,6 +119,7 @@ jobs:
             python3 - "$DATABASE_PATH" <<'PY'
             import sqlite3
             import sys
+            from datetime import datetime, timezone, timedelta
 
             from pathlib import Path
             db = sqlite3.connect(Path(sys.argv[1]).resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
@@ -141,6 +147,30 @@ jobs:
                     "SELECT COUNT(*), MAX(last_seen) FROM courses"
                 ).fetchone())
                 print("integrity:", db.execute("PRAGMA integrity_check").fetchone()[0])
+                now = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+                quality = db.execute(
+                    "SELECT COUNT(*), SUM(start_time IS NULL), SUM(enroll_start IS NULL), "
+                    "SUM(enroll_end IS NULL), SUM(COALESCE(capacity,0) <= 0), "
+                    "SUM(TRIM(COALESCE(check_in_method,'')) = ''), "
+                    "SUM(end_time < start_time OR enroll_end < enroll_start), "
+                    "SUM(capacity < 0 OR enrolled < 0), "
+                    "SUM(last_seen IS NULL OR last_seen < datetime(?, '-10 minutes')) "
+                    "FROM courses WHERE expired = 0 AND (enroll_end IS NULL OR enroll_end > ?) "
+                    "AND (end_time IS NULL OR end_time > ?)", (now, now, now)
+                ).fetchone()
+                print('active_course_quality:', dict(zip(
+                    ('rows', 'missing_start', 'missing_enroll_start', 'missing_enroll_end', 'unknown_capacity',
+                     'unknown_check_in', 'invalid_time_order', 'negative_counts', 'not_seen_10m'), quality)))
+                print('exact_identity_duplicate_groups:', db.execute(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM courses WHERE expired = 0 "
+                    "GROUP BY name,start_time,enroll_start,teacher,location,campus HAVING COUNT(*) > 1)"
+                ).fetchone()[0])
+                print('stale_active_timestamps:', db.execute(
+                    "SELECT last_seen,start_time,end_time,enroll_start,enroll_end FROM courses "
+                    "WHERE expired = 0 AND (enroll_end IS NULL OR enroll_end > ?) "
+                    "AND (end_time IS NULL OR end_time > ?) "
+                    "AND (last_seen IS NULL OR last_seen < datetime(?, '-10 minutes')) LIMIT 5", (now, now, now)
+                ).fetchall())
             finally:
                 db.close()
             PY

@@ -13,6 +13,9 @@
 | 当前项目状态、已实现能力和风险 | [docs/project/PROJECT_STATUS.md](project/PROJECT_STATUS.md) |
 | 10 月升级实现、验证和上线安排 | [UPGRADE_EXECUTION_2026_10_22.md](project/UPGRADE_EXECUTION_2026_10_22.md) |
 | 飞书群推送配置与回退 | [FEISHU.md](operations/FEISHU.md) |
+| 找课、退选补位和运维的实际需求 | [NOTIFICATION_REQUIREMENTS.md](product/NOTIFICATION_REQUIREMENTS.md) |
+| Telegram 独立运维检测 | [TELEGRAM_OPS.md](operations/TELEGRAM_OPS.md) |
+| 采集准确性、课程卡片和通道分工验收 | [SCRAPE_CARDS_RELEASE_2026_10_24.md](project/SCRAPE_CARDS_RELEASE_2026_10_24.md) |
 | 飞书接入和实际验收 | [FEISHU_RELEASE_2026_10_24.md](project/FEISHU_RELEASE_2026_10_24.md) |
 | 系统组件和数据流 | [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | 用户可见行为 | [docs/product/PRODUCT_BEHAVIOR.md](product/PRODUCT_BEHAVIOR.md) |

@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--alerts", choices=("true", "false"), required=True)
     parser.add_argument("--courses", choices=("true", "false"), required=True)
+    parser.add_argument("--ops", choices=("true", "false"))
     args = parser.parse_args()
     try:
         from dotenv import dotenv_values
@@ -32,6 +33,11 @@ def main():
         if (args.alerts == "true" or args.courses == "true") and not result.get("configured"):
             raise RuntimeError("Feishu configuration missing in running process")
         print("PASS actual process Feishu policy:", json.dumps(result))
+        if args.ops is not None:
+            ops = data["telegram_ops"]
+            if ops.get("enabled") != (args.ops == "true"):
+                raise RuntimeError("Operations runtime policy differs from requested policy")
+            print("PASS actual process Telegram operations policy:", json.dumps(ops))
         print("Feishu outbox:", json.dumps([row for row in data["notification_jobs"] if row["channel"] == "feishu"]))
     except Exception as error:
         print("Runtime verification failed:", type(error).__name__)

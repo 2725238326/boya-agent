@@ -760,8 +760,6 @@ def api_courses():
             query = query.filter(
                 Course.check_in_method.contains("自主")
                 | Course.check_in_method.contains("自选")
-                | Course.sign_method.contains("自主")
-                | Course.sign_method.contains("自选")
             )
         if keyword:
             query = query.filter(Course.name.contains(keyword))
@@ -1043,6 +1041,8 @@ def api_status():
     status["mail"] = email_readiness()
     from src.push.feishu_bot import readiness as feishu_readiness
     status["feishu"] = feishu_readiness()
+    from src.push.ops_bot import readiness as ops_readiness
+    status["telegram_ops"] = ops_readiness()
     now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
