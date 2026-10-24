@@ -89,6 +89,11 @@ jobs:
                 print(prefix + '_configured:', all(bool(config.get(prefix + '_' + field))
                                                    for field in ('SERVER', 'USERNAME', 'PASSWORD')))
             print('FEISHU_credentials_present:', bool(config.get('FEISHU_WEBHOOK_URL') and config.get('FEISHU_WEBHOOK_SECRET')))
+            print('TELEGRAM_credentials_present:', bool(config.get('TELEGRAM_BOT_TOKEN') and config.get('TELEGRAM_CHAT_ID')))
+            print('TELEGRAM_OPS_credentials_present:', bool(
+                (config.get('TELEGRAM_OPS_BOT_TOKEN') or config.get('TELEGRAM_BOT_TOKEN')) and
+                (config.get('TELEGRAM_OPS_CHAT_ID') or config.get('TELEGRAM_CHAT_ID'))))
+            print('TELEGRAM_OPS_enabled:', (config.get('TELEGRAM_OPS_ENABLED') or '').lower() == 'true')
             for key in ('FEISHU_ALERTS_ENABLED', 'FEISHU_COURSES_ENABLED'):
                 value = (config.get(key) or '').strip().lower()
                 print(key + ':', value if value in {'true', 'false'} else ('unset' if not value else 'invalid'))
@@ -243,7 +248,11 @@ jobs:
                         page_numbers: Array.from(document.querySelectorAll('.pagination li, .el-pager li, .ant-pagination-item'))
                           .map(el => ({label:(el.textContent || '').trim().slice(0,40), classes:String(el.className || '').slice(0,100),
                             current:el.getAttribute('aria-current')})),
-                        pager_text: Array.from(document.querySelectorAll('.pagination')).map(el => (el.innerText || '').slice(0,300))
+                        pager_text: Array.from(document.querySelectorAll('.pagination')).map(el => (el.innerText || '').slice(0,300)),
+                        pager_structure: Array.from(document.querySelectorAll('.pagination')).map(root => Array.from(root.querySelectorAll('*')).map(el => ({
+                          tag: el.tagName, text: (el.children.length ? '' : (el.textContent || '').trim()).slice(0,50),
+                          attributes: Object.fromEntries(Array.from(el.attributes).filter(a => ['class','id','name','type','value','aria-current','aria-label','data-page'].includes(a.name)).map(a => [a.name,a.value.slice(0,100)]))
+                        })))
                       };
                     }''')
                     print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
