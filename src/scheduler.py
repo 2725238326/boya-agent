@@ -1175,10 +1175,12 @@ async def run_daily_summary_task():
             return
 
         pushed_count = 0
+        feishu_queued = 0
 
         if feishu_bot.enabled("courses"):
-            feishu_bot.enqueue_courses(session, passed_courses, delivery_mode="digest_daily",
-                                       summary_date=business_now().strftime("%Y-%m-%d"))
+            feishu_queued = len(feishu_bot.enqueue_courses(
+                session, passed_courses, delivery_mode="digest_daily",
+                summary_date=business_now().strftime("%Y-%m-%d")))
             session.commit()
 
         if config.email_enabled:
@@ -1223,6 +1225,8 @@ async def run_daily_summary_task():
             run_status["total_pushed"] += pushed_count
             run_status["last_daily_summary"] = business_now()
             logger.info(f"每日汇总推送完成：{len(passed_courses)} 门课程")
+        elif feishu_queued:
+            logger.info("每日汇总已加入飞书队列：{} 条，等待独立投递", feishu_queued)
         else:
             logger.warning("每日汇总推送失败：未通过任何推送通道成功发送")
     except Exception as e:
