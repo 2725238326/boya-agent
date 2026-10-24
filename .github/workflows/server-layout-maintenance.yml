@@ -65,7 +65,9 @@ jobs:
             backups = sorted(Path('/var/lib/boya-agent/backups').glob('boya_agent-*.db'), key=lambda p: p.stat().st_mtime, reverse=True)
             if not backups:
                 raise SystemExit('Archive refused: no database backup is available')
-            with sqlite3.connect(backups[0].resolve().as_uri() + '?mode=ro', uri=True, timeout=30) as db:
+            # Completed backup files are immutable during this serialized action;
+            # avoid creating WAL/SHM sidecars just to inspect their integrity.
+            with sqlite3.connect(backups[0].resolve().as_uri() + '?mode=ro&immutable=1', uri=True, timeout=30) as db:
                 if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                     raise SystemExit('Archive refused: newest backup integrity check failed')
             print('Newest database backup integrity: ok')
