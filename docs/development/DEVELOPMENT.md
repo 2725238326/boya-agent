@@ -12,7 +12,7 @@
 
 文档用途：说明本地开发、验证和扩展项目的最短路径。
 面向读者：贡献代码的开发者。
-文档状态：当前开发说明；更新时间：2026-09-07。
+文档状态：当前开发说明；更新时间：2026-10-24。
 相关事实：[项目状态](../project/PROJECT_STATUS.md)、[配置](CONFIGURATION.md)、[API 清单](API_INVENTORY.md)。
 
 ## 目录职责
@@ -21,7 +21,7 @@
 src/                    抓取、领域规则、模型、调度和推送实现
 src/course_state.py     课程状态、报名窗口、热门和签到标签的唯一规则来源
 src/time_utils.py       业务时区和 UTC 转换
-src/push/               SMTP、Telegram、RSS/Atom
+src/push/               飞书课程、Telegram 运维/旧课程、SMTP、RSS/Atom
 web/app.py              Flask 页面、API、会话和应用层安全边界
 web/security.py         管理员认证、同源检查、安全响应头
 web/qrcode_feature.py   二维码页面、公开接口和审核接口
@@ -35,6 +35,8 @@ docs/                   当前文档、ADR 和历史资料索引
 ```
 
 当前没有前端打包系统，也没有为了目录美观引入新的框架。修改大文件前，先确认是否能在现有边界内新增 service/helper 和测试。
+
+先运行 `python scripts/check_repository.py` 检查当前文档链接、模块依赖方向和已跟踪运行文件，统一 `verify_release.py` 与 CI 也会调用。目录和脚本用途见 [PROJECT_LAYOUT.md](../project/PROJECT_LAYOUT.md) 与 [scripts/README.md](../../scripts/README.md)。预发布用 [隔离启动器](LOCAL_STAGING.md)，产物写入 `runtime/staging/`。
 
 ## 项目改进与汇报
 

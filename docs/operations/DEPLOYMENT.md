@@ -2,8 +2,8 @@
 
 文档用途：说明从仓库部署一台 BOYA Agent 实例所需的系统、TLS、systemd 和配置步骤。
 面向读者：维护服务器的开发者或运维人员。
-文档状态：当前部署方案；更新时间：2026-09-24。
-事实范围：部署样例和启动代码已核对；当前生产实例使用 `49.233.248.86`、域名 `buaaboya.top`，并已完成 HTTPS、Nginx、systemd、公开/管理边界和新版本发布验收。2026-09-24 最新只读服务、数据库、资源和接口结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。2026-09-04 的真实课程抓取和邮件 outbox 投递属于历史观察；当前邮件自动课程通知和每日摘要、Telegram、自动选课均保持关闭。
+文档状态：当前部署方案；更新时间：2026-10-24。
+当前实例域名 `buaaboya.top`，已完成 HTTPS、Nginx、systemd、公开/管理边界和升级验收。应用版本及观察窗口见 [项目状态](../project/PROJECT_STATUS.md) 和 [最近应用验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。飞书学生课程已启用；Telegram 运维待联网，邮件暂停，自动选课冻结。
 
 ## 部署拓扑
 
@@ -18,7 +18,8 @@ BOYA Agent（Flask + APScheduler，专用 boya-agent 用户）
         ├─ SQLite 数据库
         ├─ Playwright Chromium → 北航课程系统
         ├─ SMTP → 邮件
-        └─ Telegram Bot API（可选）
+        ├─ 飞书 webhook → 学生课程卡片
+        └─ Telegram Bot API → 独立运维（待联网）
 ```
 
 当前方案由 Nginx 在本机终止 TLS，再通过 `X-Forwarded-Proto` 传给 Flask。Flask 使用 `ProxyFix` 识别该协议，并只在 HTTPS 请求上设置 `portal_token` 的 `Secure` 属性。邮件链接使用 `APP_PUBLIC_BASE_URL`，不能依赖应用监听地址。
@@ -120,11 +121,11 @@ curl -i https://你的域名/api/courses
 
 应确认：HTTP 跳转到 HTTPS；`/healthz` 返回 `200` 和 `status=ok`；未认证的后台状态返回 401；认证后的后台状态返回 JSON；课程页和订阅页可访问；响应包含 `HttpOnly`/`Secure` 会话 Cookie（由 HTTPS 下的验证或登录接口产生）；Nginx 日志中没有把 `.env`、上传目录或数据库暴露为静态文件。
 
-历史生产核对（2026-09-02）：已用 `https://buaaboya.top` 实测：首页、订阅页、门户、RSS/Atom、二维码页和课程 API 返回 200；HTTP 正确跳转到 HTTPS；未认证 `/api/status` 返回 401；认证后管理页和状态接口可用；`boya-agent` 与 Nginx 均为 active。最新一次只读核对见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。
+实际检查结果必须记录时间窗口；已有证据见 [最近应用验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。不要把历史成功请求当作当前健康证明。
 
 ## 更新原则
 
-更新前先备份 `DATABASE_PATH` 对应 SQLite 文件和 `config/uploads/qrcode/`。当前生产数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。停止服务或确保备份时 SQLite 没有正在写入，再替换代码、重装依赖、执行 `nginx -t`，最后重启服务。应用启动时会执行兼容性增量迁移；本轮新增认证挑战、验证码字段、二维码哈希字段、查询索引和 `notification_jobs` 表，不会删除旧字段。
+更新前用 SQLite 在线备份 API 保存 `DATABASE_PATH` 对应数据库，并备份现场二维码目录；不要直接复制活跃 `.db` 忽略 WAL。当前数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。变更代码和依赖后按受控工作流启动验收。应用启动执行兼容性增量迁移，保留旧数据和字段。
 
 自动化部署（`.github/workflows/deploy.yml`）在每次发布时执行同样的检查顺序：备份数据库并只保留最近 30 份、更新代码、离线安装依赖、停服后运行 `playwright install chromium`（经 npmmirror 镜像）同步浏览器二进制、重启服务、健康检查和冒烟检查。Playwright 包升级后必须同步浏览器，否则每次抓取都会启动失败；手动更新服务器时也应执行同一条命令。
 
@@ -138,7 +139,7 @@ curl -i https://你的域名/api/courses
 
 ### 2026-10-22 已发布改进
 
-当前运行 73e04b1，最终工作流和发布后独立诊断成功，具体备份、版本、故障恢复与剩余项目见 [发布验收](../project/RELEASE_VALIDATION_2026_10_22.md)。日志查询使用旧 systemd 兼容的本地日期格式；业务时间比较保留时区。采集验收通过本机实时 source 在有限预算内等待启动后成功，允许正常调度恢复，持续失败仍回退。
+10 月 22 日的 73e04b1 为历史发布批次；当前应用版本见 [项目状态](../project/PROJECT_STATUS.md)。该批次的备份、故障恢复和验证见 [发布验收](../project/RELEASE_VALIDATION_2026_10_22.md)。日志查询使用旧 systemd 兼容的本地日期格式；业务时间比较保留时区。启动验收等待本机 source 出现启动后的真实成功，持续失败仍回退。
 
 新工作流把 `deploy/**` 纳入自动部署触发路径。发布前同时保存 SQLite 一致性备份与二维码 tar 备份；依赖改变时先保存旧 venv，再停服安装。`release_guard.sh` 在安装浏览器、依赖、启动或验收失败时恢复旧提交和必要的 venv，并尝试恢复原活动服务及健康状态；保留数据库和 outbox。Playwright 使用 `PLAYWRIGHT_SKIP_BROWSER_GC=1` 保留旧浏览器以支持回退，需按资源情况另行审阅清理。
 
@@ -156,6 +157,6 @@ curl -i https://你的域名/api/courses
 4. 部署脚本会先生成 SQLite 一致性备份，安装生产依赖并运行 Python 编译检查；重启 `boya-agent` 后检查本机 `/healthz`、`APP_PUBLIC_BASE_URL` 下的关键页面/API、首次抓取完成日志和数据库完整性。启动期间邮件投递暂时抑制，检查完成后恢复原开关。上线后仍要按 [RUNBOOK.md](RUNBOOK.md) 检查关键页面/API，并记录实际提交。
 5. 本项目的 `init_db()` 迁移是增量、幂等和保留旧字段的；本批新增 `notification_jobs` 表及索引。上线后应确认表和索引存在，但不要把“迁移成功”写成“外部邮件/Telegram 已送达”。
 
-统一的候选版本范围、用户场景、上线前检查项和回退依据见 [RELEASE_CANDIDATE.md](../project/RELEASE_CANDIDATE.md)。
+历史候选范围见 [RELEASE_CANDIDATE.md](../project/RELEASE_CANDIDATE.md)，仅用于追溯。当前发布入口是 `scripts/verify_release.py`、功能分支/PR CI 与本页工作流。文档和维护工具变更可先合并，不为整库 SHA 不同重启等效运行代码。服务器目录按 [维护手册](DIRECTORY_MAINTENANCE.md) 盘点和归档，独立记录工具提交、应用提交和前后进程。
 
 回滚优先通过 Git 生成已审阅的 revert 提交，再按同一发布流程上线；紧急情况下只使用已确认的旧提交临时恢复代码，并保留数据库和 outbox 记录，恢复后补齐正式 Git 记录。每次发布都应在项目状态文档中区分“已完成、已验证、已部署、待验证”。

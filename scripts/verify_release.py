@@ -68,6 +68,7 @@ def main() -> None:
         "Python compile check",
         [sys.executable, "-m", "compileall", "-q", "src", "web", "tests", "scripts"],
     )
+    _run("Documentation, architecture and tracked paths", [sys.executable, "scripts/check_repository.py"])
     _run("Python tests", [sys.executable, "-m", "pytest", "-q"])
     _run("Isolated staging and mail recovery", [sys.executable, "scripts/verify_staging.py"])
     _run("Frontend syntax and TypeScript check", [_npm_command(), "run", "check"])

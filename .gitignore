@@ -4,6 +4,7 @@ venv/
 .venv/
 node_modules/
 .tsbuildinfo
+.pytest_cache/
 __pycache__/
 *.pyc
 *.pyo
@@ -12,6 +13,8 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
 
 # Playwright
 browser_data/

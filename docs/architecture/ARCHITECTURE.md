@@ -1,122 +1,91 @@
 # 系统架构
 
-文档用途：解释当前组件、数据流、数据库和外部依赖。
-面向读者：开发者、测试人员和运维人员。
-文档状态：当前实现说明；更新时间：2026-09-24。
-相关代码：`src/`、`web/`、`deploy/`。
+更新时间：2026-10-24。本文说明当前组件和维护边界；生产版本、通道开关和观察窗口以 [项目状态](../project/PROJECT_STATUS.md) 为准。
 
-## 总体拓扑
+## 业务目标与拓扑
 
-```text
-浏览器 / 邮件链接
-        │ HTTPS
-        ▼
-Nginx（TLS、请求大小、Basic Auth、反向代理）
-        │ 127.0.0.1:5000
-        ▼
-Flask web.app ───── SQLite boya_agent.db
-        │                    │
-        │                    └─ 课程、订阅、提醒、通知、二维码、日志
-        ▼
-asyncio + APScheduler
-        │
-        ├─ Playwright → 北航 WebVPN / 博雅课程系统
-        ├─ SMTP → 邮箱验证、课程推送和提醒
-        └─ Telegram → 可选课程通知、提醒和故障告警
+帮助同学查课、筛选，并在发现新课、开选或真实退选释放名额时收到课程提醒。报名由同学在官方系统完成，运维异常单独发送给管理员。
+
+```mermaid
+flowchart TD
+    Browser[同学 / 管理员浏览器] -->|HTTPS| Nginx[Nginx：TLS / 管理入口认证]
+    Nginx -->|127.0.0.1:5000| Web[Waitress / Flask]
+    Web --> DB[(SQLite WAL)]
+    Main[唯一入口 src/main.py] --> Web
+    Main --> Scheduler[asyncio / APScheduler]
+    Scheduler --> Scraper[Playwright 采集与快照校验]
+    Scraper --> Campus[北航 WebVPN / 课程系统]
+    Scraper --> DB
+    Scheduler --> Outbox[SQLite 通知任务 / 租约 / 重试]
+    Outbox --> Feishu[飞书：学生课程卡片]
+    Outbox --> Telegram[Telegram：独立运维，当前关闭]
+    Outbox --> Mail[SMTP：身份与课程邮件，当前暂停]
+    Watchdog[独立 systemd watchdog，待启用] -->|本机探活 / 数据时效 / 磁盘| Web
+    Watchdog --> Telegram
+    Web --> RSS[RSS / Atom]
 ```
 
-`src/main.py` 是唯一进程入口。它加载环境文件、检查安全配置、初始化数据库，在线程中运行 Flask，在 asyncio 事件循环中运行调度器，并先执行一次完整抓取。
+`src/main.py` 是唯一应用进程入口，加载配置、安全检查和数据库后，在线程中运行 Waitress，在事件循环中启动调度器并先做一次完整采集。SQLite、调度器、浏览器与全局缓冲仍属于单实例模型，不能直接增加 WSGI 多进程或复制 systemd 服务扩容。
 
-## 模块职责
+## 模块职责与依赖方向
 
-| 模块 | 职责 | 不应承担的职责 |
+| 层次 | 模块 | 职责与边界 |
 | --- | --- | --- |
-| `src/main.py` | 启动、环境检查、日志初始化 | 业务路由和数据库查询 |
-| `src/auth.py` | WebVPN/SSO 登录和页面登录状态 | 邮箱用户认证 |
-| `src/scraper.py` | DOM/网络解析、字段归一化、去重、健康检查、入库 | 推送策略 |
-| `src/course_state.py` | 签到标签、报名窗口、过期、热门和剩余名额 | HTTP 响应和数据库提交 |
-| `src/filters.py` | 全局筛选和自动选课候选 | 邮件 HTML |
-| `src/scheduler.py` | 周期任务、浏览器生命周期、缓冲区、推送触发、课程生命周期 | 页面渲染 |
-| `src/models.py` | SQLAlchemy 模型、SQLite 初始化和增量迁移 | 请求权限判断 |
-| `src/notification_jobs.py` | 持久化通知任务、幂等键、租约、退避和结果记录 | 渠道模板和课程状态判断 |
-| `src/push/email_push.py` | SMTP、邮件模板、用户筛选、通知事件和邮件去重 | Flask 路由 |
-| `src/push/telegram_bot.py` | Telegram 通知、提醒和告警 | 用户门户会话 |
-| `src/push/rss_feed.py` | RSS/Atom XML | 数据库查询 |
-| `src/qrcode_service.py` | 二维码文件验证、存储、重复和公开数据整形 | 管理员认证 |
-| `web/security.py` | 管理认证、同源检查、响应头、邮箱脱敏 | 业务数据读写 |
-| `web/app.py` | 路由、输入验证、会话 Cookie、服务编排 | 复杂文件校验和推送模板 |
-| `web/qrcode_feature.py` | 二维码页面和路由适配 | 具体图片存储规则 |
+| 领域规则 | `course_state.py`、`time_utils.py`、`scrape_outcome.py` | 课程状态、签到、时钟和采集结果；不依赖数据库、Web、浏览器和渠道 |
+| 数据 | `models.py`、`notification_jobs.py` | 模型、兼容迁移、短事务、幂等键、领取/租约/退避；不反向调用调度器、抓取器或 Web |
+| 采集 | `auth.py`、`scraper.py`、`staging_fixtures.py` | 登录、DOM/网络解析、分页完整性、字段合并和入库；通过结果契约交给调度器 |
+| 筛选与文件服务 | `filters.py`、`qrcode_service.py` | 全局筛选、二维码验证/存储与公开数据整形 |
+| 渠道 | `push/feishu_bot.py`、`push/ops_bot.py`、`push/email_push.py`、`push/telegram_bot.py`、`push/rss_feed.py` | 模板、固定端点传输和投递结果；不反向调用调度器/抓取器或 Web |
+| 编排 | `scheduler.py` | 单次采集互斥、浏览器生命周期、缓存、事件识别、任务投递与生命周期同步 |
+| 接口 | `web/app.py`、`web/security.py`、`web/qrcode_feature.py` | 请求验证、会话、管理员边界、序列化、页面和服务适配 |
+| 进程与隔离 | `main.py`、`runtime.py` | 启动、日志、安全配置；预发布在导入资源前验证隔离 |
+| 维护 | `scripts/`、`.github/workflows/`、`deploy/` | 验证、部署、主机检查与目录维护；维护工具不导入应用来做盘点 |
 
-## 抓取流
+`web/app.py` 仍调用调度器公开入口，这是当前编排边界。模型/outbox 和推送实现还持有查询、模板与传输细节；`ops_bot.py` 暂复用飞书模块的禁止重定向类，是后续可提取的共享传输职责。大文件拆分按一个职责一批推进，保留 URL、响应字段、事务与事件语义。
 
-1. 调度器根据普通间隔、活跃报名窗口和热门课程监控触发 `full` 或 `quick` 任务。
-2. Playwright 复用当前进程浏览器；登录失效时执行 WebVPN/SSO 登录，失败会重建浏览器并重试。
-3. 抓取器遍历课程视图，优先解析可见 DOM，必要时使用 Locator 回退和网络响应补充。
-4. 课程按名称、时间、教师、地点、校区等字段生成稳定 ID，并处理视图合并和近重复。
-5. 健康检查发现快照过稀或异常时拒绝覆盖数据库。
-6. 正常数据写入 SQLite；已结束或报名已截止的记录进入生命周期同步，长期过期记录由清理任务处理。
-7. 新课、退课补位和已开选监控分别进入即时推送或摘要缓冲区；课程邮件/Telegram 投递再进入 SQLite outbox，由独立扫描任务领取。
+`scripts/check_repository.py` 用 AST 检查上述核心依赖方向，也检查函数内导入。发布验证及 CI 均调用它；它不是完整架构证明，不覆盖动态导入或所有循环依赖。
 
-## 课程状态单一来源
+## 采集与课程状态
 
-`src/course_state.py` 提供以下公共语义：
+1. 调度器按普通周期、活跃报名窗口和热门监控触发 full/quick；同一采集流程互斥。
+2. Playwright 复用进程内上下文，失效时重新登录；创建失败清理 driver，持续失败退避。
+3. DOM 与网络结果补充解析。分页用全部可见表的完整摘要、首页/末页核对和有界等待，拒绝循环、跳页失败、异常空页、失去登录、页数上限和已声明总数不符。
+4. 原始记录稳定去重；最新完整容量/已选人数替代旧名额，空详情不擦掉已有字段。签到只按 `check_in_method` 识别，不能由“自主选课”推断签到。
+5. 结构化结果区分有课、无课、认证失败、上游失败、解析失败和超时；可疑稀疏快照及失败不覆盖可靠数据库。
+6. 新课、开选和真实满额到有名额事件按全局筛选进入飞书任务；页面展示各课观测时间，陈旧名额标记待核对，发送前再次校验时效。
 
-- `get_check_in_display_label`：文本含“自主”或“自选”时显示“自主签到”；详情明确为常规模式时显示“常规签到”；详情字段为空（尚未抓取详情页）时显示“待确认”。
-- `is_enrollment_open`：报名尚未开始、已截止、课程结束或数据库标记过期时均为 false。
-- `is_course_expired`：数据库 `expired`、课程结束时间、报名截止时间任一满足即视为不再可报名/公开展示。
-- `is_hot_course`：先要求报名窗口有效，再按剩余名额阈值或填充率判断。
+`course_state.py` 是报名窗口、过期、热门、剩余名额和签到标签的共同规则来源。Web、筛选、邮件、调度、RSS 与二维码复用它；列表 SQL 为效率下推的条件需要与之保持一致并由回归保护。
 
-网页、筛选器、邮件、调度器、RSS 和二维码模块都应复用这些函数，不自行复制边界条件。
+已核对的生产分页证据见 [学生卡片与采集覆盖验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。上游未提供独立总数时，只能报告已遍历页数、唯一记录数与端点校验，不能宣称已数学证明绝无遗漏。
 
-## 时间处理
+## 通知策略与任务
 
-`src/time_utils.py` 读取 `APP_TIMEZONE`，默认 `Asia/Shanghai`。数据库字段继续保存业务时区的 naive datetime 以兼容旧 SQLite 数据；外部 RSS/Atom 时间转换为带时区的 UTC。新增代码不得直接调用 `datetime.now()`。
+| 通道 | 服务谁 | 当前策略 |
+| --- | --- | --- |
+| 飞书 `feishu` | 同学 | 新课、预告/开选、真实退选补位；只用课程卡片，不承接运维 |
+| Telegram `telegram_ops` | 管理员 | 独立开关、异常/恢复、冷却和目标隔离；待服务器联网启用 |
+| SMTP `email` | 邮箱用户 | 身份邮件与业务邮件分别授权；当前总开关关闭 |
+| 旧 Telegram 课程通道 | 历史课程功能 | 数据库开关关闭，不因运维启用而改变 |
+| RSS/Atom | 公开订阅读者 | 由 `rss_enabled` 控制，无外部主动投递 |
 
-## 用户认证请求流
+通知任务经过 `pending → processing → succeeded/failed`，带幂等键、租约和有限指数退避；成功记录不重置。预告与开选区分身份，补位包含实际观测事件，升级兼容旧成功记录以减少重推。陈旧或已恢复的运维任务按渠道规则跳过。
 
-```text
-提交邮箱
-  ├─ 新用户/未验证 → verify code + 一次性 verify challenge
-  └─ 已验证用户   → login code + 一次性 login challenge
-                    │
-                    ├─ 邮件链接：GET 确认页，用户点击后 POST 消费 challenge
-                    └─ 页面验证码：校验摘要、过期和尝试次数
-                              │
-                              ▼
-                    签发 HttpOnly、SameSite=Lax Cookie
-                              │
-                              ▼
-                    后续门户 API 只信任 Cookie 对应的 verified/active 用户
-```
+任务处理由调度器按 job_type 分派。SMTP/HTTP 阻塞调用移出事件循环，处理期间续租。外部服务已接受、数据库尚未记成功时崩溃仍可能重投，因此只能承诺至少一次语义。接口 code=0 或 Telegram ok=true 也不能替代群内人工可见确认。
 
-邮箱验证和登录页面的 GET 只展示确认页，不消费链接；用户点击确认按钮后才 POST 消费，以减少邮箱安全扫描器误用一次性链接的影响。数据库只保存 challenge 摘要，验证码只保存应用密钥 HMAC 摘要。
+独立 `check_ops_health.py` 及 systemd timer 能在主进程异常时检查本机健康、采集时效和磁盘；整机/网络失联仍需外部监控，当前没有由此获得跨主机保障。
 
-## 推送流
+## 身份、二维码和数据库
 
-- 邮件：`email_enabled` 为 true 时，按订阅者校区、类别、自主签到、暂停状态和去重事件发送。
-- Telegram：`telegram_enabled` 为 true 时，发送全局课程通知、每日摘要、临近选课提醒和连续失败告警；故障告警按 `SCRAPE_ALERT_COOLDOWN_MINUTES` 冷却并在恢复时补发恢复通知。
-- 每日摘要：由 `daily_summary_enabled` 控制，且每个通道仍受对应开关控制。
-- RSS/Atom：由 `rss_enabled` 控制公开源，不依赖邮件或 Telegram 开关。
-- 所有用户通知时间和去重记录写入 `notification_events`；传统课程推送记录写入 `push_logs`。
-- 课程邮件、课程 Telegram、选课提醒和 Telegram 每日汇总都生成幂等任务：课程推送按订阅者/课程，提醒按提醒记录/渠道，每日汇总按日期/课程集合。任务经过 `pending → processing → succeeded/failed` 状态流转，处理中的任务带租约，临时失败按指数退避，服务重启后由 `NOTIFICATION_DRAIN_SECONDS` 定时任务继续处理；调度器按 `job_type` 把任务分派到对应处理器。
-- 选课提醒的每次投递尝试也写入 `notification_events`（事件类型 `enroll_reminder`），门户通知中心据此展示提醒的渠道和结果；`course_reminders.sent` 只是任一渠道成功或提醒失效后的兼容聚合标记。
-- 自动选课结果和站点调整邮件已迁移到 outbox；Telegram 自动选课结果也由 `job_type` 处理器投递。外部通道仍是至少一次语义，不能宣称绝对 exactly-once。
+邮箱链接 GET 只展示确认页，POST 才消费一次性 challenge；验证码和 challenge 保存摘要，限次且过期。门户只信任已验证/活跃用户的 HttpOnly、SameSite Cookie。邮件恢复前需真实指定邮箱验收，详见 [运行手册](../operations/RUNBOOK.md)。管理员接口同时受应用层和 Nginx 边界保护。
 
-## 二维码流
+二维码上传从门户会话解析身份，校验大小、真实图片类型、尺寸和 SHA-256，随机命名后进入待审核。公开列表和文件只提供审核通过、仍 active 且课程有效的记录；不公开邮箱、原名或服务器路径。
 
-上传请求必须带 verified/active 门户 Cookie；贡献者邮箱从会话解析，忽略表单中的身份字段。服务层读取文件上限 +1 字节、验证 Pillow 图片内容、尺寸、真实格式和 SHA-256，生成随机相对路径，记录 pending。公开列表、公开文件路由和排行榜只处理 approved + active 且课程未过期的数据。
+SQLite 使用 WAL、busy_timeout 和有限重试，各请求/任务创建短生命周期 Session。`init_db()` 先建表再增量补字段/索引；保留旧数据和字段。业务时区默认 Asia/Shanghai，数据库兼容 naive datetime，外部 RSS/Atom 转 UTC。业务代码通过统一时钟取时间。
 
-## 数据库边界
+## 运行与维护
 
-SQLite 使用 WAL、`busy_timeout` 和有限重试，单进程部署时由各请求/任务创建短生命周期 Session。`init_db()` 先 `create_all()`，再为旧库增加缺失字段和索引；本次新增 `email_auth_challenges`、`notification_jobs` 表、邮箱代码字段和二维码内容哈希字段，以及对应索引，不删除旧字段。outbox 对外部渠道保持至少一次语义，不能宣称绝对 exactly-once。
+生产目录、配置优先级和回退操作分别见 [目录约定](../project/PROJECT_LAYOUT.md)、[配置](../development/CONFIGURATION.md)、[部署](../operations/DEPLOYMENT.md)。维护工具、文档与控制工作流可以先进入仓库；生产应用提交和实际进程需要单独记录。
 
-## 性能与一致性边界
+公开端点使用短时缓存，静态资源使用版本参数；数据库查询下推筛选并使用组合索引。容量判断需要实际资源与查询数据，不以健康检查推断长期性能。
 
-- Playwright 以课程行、明确空状态和登录结果作为主要等待条件；网络空闲只作有上限的辅助等待。正常轮次不保存大体积截图，失败时才保留受控诊断资料。
-- 公开课程、类别、洞察和 RSS/Atom 使用短时缓存；静态资源使用带版本参数的长期缓存。门户请求有超时、取消和旧结果保护，避免慢请求覆盖新结果。
-- 抓取落库按批次预取已有课程，提醒查询使用 JOIN，高频筛选依赖组合索引；通知通过 SQLite outbox 与抓取流程分开，外部渠道暂时失败不会直接丢失任务。
-- 生产采用单实例 SQLite。调度器、Playwright 和 Waitress 在同一应用进程内运行，不能未经重新设计就增加多个调度进程或多个写入实例。
-
-## 当前运行边界
-
-生产入口为 `https://buaaboya.top`，Nginx 在 443 端口终止 TLS，并将请求转发到本机 `127.0.0.1:5000`。2026-09-24 只读核对确认服务器运行提交为 `d9f3fda52b8e`；本地仓库后续的文档提交不会改变运行代码，也不会触发应用重启。实际生产状态和最近验收以 [PROJECT_STATUS.md](../project/PROJECT_STATUS.md)、[RELEASE_NOTES.md](../project/RELEASE_NOTES.md) 与 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md) 为准。
+目录维护默认只盘点，按清单归档只处理七天前的独立诊断捕获，保留摘要和恢复记录，复核应用提交与 PID。数据库、配置、上传、依赖和浏览器按各自生命周期管理；详见 [目录维护手册](../operations/DIRECTORY_MAINTENANCE.md)。

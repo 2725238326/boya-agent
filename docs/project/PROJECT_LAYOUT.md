@@ -1,57 +1,69 @@
 # 项目目录与环境边界
 
-文档状态：当前目录约定；更新时间：2026-09-24。
+更新时间：2026-10-24。本文描述目录职责；当前业务与运行版本见 [项目状态](PROJECT_STATUS.md)，操作步骤见 [目录维护](../operations/DIRECTORY_MAINTENANCE.md)。
 
-本文只描述仓库中应如何组织代码、文档和运行产物，以及本地、预发布和腾讯云生产之间的边界。它不记录任何账号、密码、Cookie、SMTP 密码、Bot token 或生产数据库内容。
+## 仓库目录
 
-## 目录总览
-
-| 路径 | 内容 | 管理规则 |
+| 路径 | 内容 | 管理方式 |
 | --- | --- | --- |
-| `src/` | 抓取、课程状态、调度、数据库、通知和业务服务 | 运行代码；行为变更需配套测试或验证说明 |
-| `web/` | Flask 路由、模板、静态资源和页面行为 | 用户界面与接口；不要把生产数据写入仓库 |
-| `tests/` | Python 回归和安全测试 | 使用固定样例或 mock，不连接真实北航、SMTP、Telegram 或飞书 |
-| `config/` | 配置样例和初始参考配置 | 只提交占位值；真实 `.env` 只存在于受控环境；该目录命中生产工作流触发路径 |
-| `deploy/` | systemd、Nginx、部署和主机诊断脚本 | 生产变更先审阅脚本，再由受控工作流执行 |
-| `scripts/` | 发布校验、静态检查和辅助脚本 | 产出写入临时/运行目录，不写入仓库 |
-| `docs/` | 当前事实、设计、运维、计划和历史记录 | 当前文档链接回事实来源；历史文档保留原始日期并标明历史 |
-| `.github/` | CI、部署和只读诊断工作流 | 工作流改动不会自动等同于应用已部署 |
-| `requirements*.txt`、`constraints.txt` | 运行/开发依赖及锁定版本 | 用 `uv` 创建隔离环境；变更需记录验证结果 |
+| `src/` | 领域规则、采集、模型、outbox、调度、渠道 | 按 [架构依赖方向](../architecture/ARCHITECTURE.md) 维护；一次提取一个职责 |
+| `web/` | Flask 接口、页面、静态资源与安全适配 | 保持公开 URL/字段兼容；不放数据库和上传原件 |
+| `tests/` | 回归、安全、迁移、隔离和维护测试 | 固定样例与 mock，不连接真实校园、SMTP、Telegram、飞书 |
+| `config/` | 环境示例与默认参考配置 | 只提交占位配置；现有生产上传目录为忽略产物 |
+| `deploy/` | systemd、Nginx、初始化和发布恢复 | 变更命中生产自动部署路径；服务样例不会自动替换现场单元 |
+| `scripts/` | 检查、预发布、预览和维护入口 | 用途见 [脚本目录](../../scripts/README.md)；保留 CLI 路径兼容 |
+| `.github/workflows/` | CI、部署、通知配置、独立诊断和目录维护 | 区分只读检查与生产变更；生产变更共享互斥组 |
+| `docs/architecture`、`product`、`development`、`operations`、`security` | 当前实现与操作 | 各主题只保留一份当前主文档 |
+| `docs/project/` | 当前状态、清单、发布与验收记录 | 当前状态保持简洁；带日期证据保留观察窗口 |
+| `docs/decisions/` | 重要决策及替代关系 | 保留历史决定，明确何时被替代 |
+| `docs/archive/` | 旧状态、旧清单、旧讨论和邮件预览 | 非当前指令来源；从归档索引查替代位置 |
+| 根目录配置 | README、依赖/锁定、前端检查、许可证和表达标准 | 不放本轮临时报告与真实业务导出 |
 
-## 不应提交的运行产物
+## 本机运行产物
 
-以下内容属于本机或服务器运行状态，不进入 Git：
+以下内容不进入 Git：
 
-- `.env`、`.venv/`、`node_modules/`、`__pycache__/` 和 Playwright 浏览器缓存；
-- `*.db`、`*.db-wal`、`*.db-shm`、日志、截图、HTML、trace 和上传文件；
-- 生产数据库、备份、二维码原文件、认证凭据和任何包含用户邮箱的导出文件。
+| 路径 | 用途 |
+| --- | --- |
+| `.venv/`、`node_modules/`、`__pycache__/`、`.pytest_cache/` | 依赖与开发缓存 |
+| `runtime/staging/` | 隔离预发布数据库、日志、上传和文件邮件 |
+| `runtime/` 其他子目录 | 临时审阅正文和受控维护报告，避免散落根目录 |
+| `logs/` | 离线浏览器截图、卡片预览及本地诊断 |
+| `key/`、真实 `.env` | 本机私有配置；不要输出或同步到仓库 |
+| 根目录 `boya_agent.db` | 未指定 DATABASE_PATH 时的兼容默认路径，可能由旧测试/导入产生 |
 
-仓库根目录的 `boya_agent.db`、`logs/`、`.venv/` 和 `node_modules/` 若因本地验证出现，只按忽略规则视为运行产物，不复制到预发布或服务器，也不在没有清单和备份的情况下删除。
+使用 `scripts/run_staging.py`，由启动器把状态放到 `runtime/staging/`。本次不迁移兼容默认数据库路径，以免改变已有启动行为；未知数据库、备份和上传不得按“看起来旧”直接删除。脚本检查会拒绝把运行目录或真实配置加入 Git。
 
-## 三套环境
+## 环境隔离
 
-| 环境 | 位置 | 数据与账号边界 | 当前用途 |
-| --- | --- | --- | --- |
-| 本地开发 | `E:\Demo\boya-agent` | 不填写生产北航账号；使用本地 `.venv` 和固定样例 | 编码、单元测试、静态检查 |
-| 本地预发布 | `E:\Demo\boya-agent-staging` | 独立 `.venv`、端口 `5001`、数据库和日志；不访问真实北航；通知 dry-run | 配置、迁移、页面和 outbox 验收 |
-| 腾讯云生产 | `/home/boya-agent` | 服务器保留北航凭据；数据库 `/var/lib/boya-agent/data/boya_agent.db`；外部通道按现场开关 | 运行 `buaaboya.top` |
+| 环境 | 位置 | 数据边界 |
+| --- | --- | --- |
+| 本地开发 | `E:\Demo\boya-agent` | `.venv` 和固定样例；生产凭据不复制到本地 |
+| 本地预发布 | 当前 checkout 的 `runtime/staging/`，或独立 `E:\Demo\boya-agent-staging` | 独立端口 ≥5001、DB/日志/上传/邮件；fixture + dry_run，不访问真实校园或通知 |
+| 生产 | `/home/boya-agent`，服务 `boya-agent` | 真实采集；持久状态主要在 `/var/lib/boya-agent`；按现场开关启用外部通道 |
 
-本地预发布的 fixture/dry-run 入口仍属于待实现能力；实现前不要启动会访问北航系统的本地调度器。生产凭据不从服务器复制到任何本地环境。
+预发布已实现并有本地/CI 隔离演练；旧 checkout 须先同步实现，不能只拷贝变量。具体启动和安全边界见 [LOCAL_STAGING.md](../development/LOCAL_STAGING.md)。
 
-## 生产运行目录
+## 生产目录
 
-当前已核对的生产路径如下：
+```text
+/home/boya-agent/                 应用工作树
+  .env                           私有运行配置，root:boya-agent 0640
+  venv/                          当前生产依赖，发布时保护回退
+  logs/                          当前日志和少量诊断捕获
+  config/uploads/qrcode/         现有上传路径，需独立备份
+/var/lib/boya-agent/              systemd 状态根目录
+  data/boya_agent.db             生产数据库，WAL/SHM 与之一起管理
+  backups/                       部署/每周数据库、二维码和配置备份
+  playwright/                    当前和回退需要的浏览器二进制
+  cache/                         受控缓存
+  release-recovery.*/            发布恢复证据，可能含旧 venv
+  maintenance/                   私有目录盘点清单
+  archive/captures-*/             旧诊断捕获归档和恢复 manifest
+  ops-watchdog.json              独立运维状态（启用后）
+  .deps-sha256                   最近成功依赖安装标记
+```
 
-- 应用工作树：`/home/boya-agent`；服务：`boya-agent`；Nginx 将 HTTPS 请求转发到 `127.0.0.1:5000`。
-- 数据库：`/var/lib/boya-agent/data/boya_agent.db`。
-- 备份：`/var/lib/boya-agent/backups/`，包括部署前备份和每周 SQLite 在线快照。
-- 应用日志和上传目录以生产 `.env`、systemd 单元和部署脚本的实际值为准，不能从本地路径推断。
+`maintenance/` 和 `archive/` 由实际维护动作按需创建。生产日志和上传保留现有路径；迁移这些活跃路径需要同时调整配置、systemd 写权限、备份和恢复，另作独立发布。目录归档不会启动 Telegram，也不会改变邮件或自动选课策略。
 
-服务器目录整理必须遵循：先只读列出文件及归属，再确认备份可读和回滚路径，最后才允许删除明确的过期运行产物。2026-09-24 核对未发现需要立即清理或重启的证据，因此本次不修改生产文件。
-
-## 文档阅读顺序
-
-1. 当前事实：[PROJECT_STATUS.md](PROJECT_STATUS.md) 和 [生产运行快照](PRODUCTION_RUNTIME_2026_09_24.md)。
-2. 目录和环境：[LOCAL_STAGING.md](../development/LOCAL_STAGING.md) 与本文。
-3. 配置和操作：[CONFIGURATION.md](../development/CONFIGURATION.md)、[DEPLOYMENT.md](../operations/DEPLOYMENT.md)、[RUNBOOK.md](../operations/RUNBOOK.md)。
-4. 历史发布或候选记录：只在需要追溯时阅读，并以文档中的日期和“历史”标记为准。
+维护顺序为盘点、核对备份、按明确清单归档、复核健康和进程。该工具只搬动符合年龄和文件类型条件的独立诊断捕获，其他目录只记录用途与容量；永久删除和释放空间另行按实际大项评估。
