@@ -1,0 +1,82 @@
+name: Server Layout Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive_captures:
+        description: 'Reversibly archive standalone debug captures older than seven days (default: inventory only)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Serialize all production mutations with deployment and notification configuration.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    steps:
+      - name: Inventory or archive production debug captures
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+          EXPECTED_SHA: ${{ github.sha }}
+          ARCHIVE_CAPTURES: ${{ inputs.archive_captures }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          envs: APP_DIR,SERVICE_NAME,EXPECTED_SHA,ARCHIVE_CAPTURES
+          script: |
+            set -euo pipefail
+            APP_DIR="${APP_DIR:-/home/boya-agent}"
+            SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
+            STATE_DIR=/var/lib/boya-agent
+            cd "$APP_DIR"
+            test -z "$(git status --porcelain)"
+            BEFORE_SHA="$(git rev-parse HEAD)"
+            BEFORE_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+            curl --fail --silent --max-time 10 http://127.0.0.1:5000/healthz >/dev/null
+            if ! git cat-file -e "$EXPECTED_SHA^{commit}" 2>/dev/null; then git fetch origin "$EXPECTED_SHA"; fi
+            # Execute the reviewed tool without checking out or restarting the app.
+            TOOL="$(mktemp /tmp/boya-layout-tool.XXXXXX.py)"
+            trap 'rm -f "$TOOL"' EXIT
+            git show "$EXPECTED_SHA:scripts/maintain_server_layout.py" > "$TOOL"
+            chmod 600 "$TOOL"
+            if [ "$ARCHIVE_CAPTURES" = "true" ]; then
+              ./venv/bin/python - <<'PY'
+            from pathlib import Path
+            import sqlite3
+            backups = sorted(Path('/var/lib/boya-agent/backups').glob('boya_agent-*.db'), key=lambda p: p.stat().st_mtime, reverse=True)
+            if not backups:
+                raise SystemExit('Archive refused: no database backup is available')
+            with sqlite3.connect(backups[0].resolve().as_uri() + '?mode=ro', uri=True, timeout=30) as db:
+                if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise SystemExit('Archive refused: newest backup integrity check failed')
+            print('Newest database backup integrity: ok')
+            PY
+              mkdir -p "$STATE_DIR/maintenance"
+              chmod 700 "$STATE_DIR/maintenance"
+              PLAN="$STATE_DIR/maintenance/layout-${GITHUB_RUN_ID:-$(date +%Y%m%dT%H%M%S)}-$(date +%s).json"
+              python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --output "$PLAN"
+              python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --service "$SERVICE_NAME" --archive-plan "$PLAN"
+              echo "Private inventory: $PLAN"
+            else
+              python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR"
+            fi
+            test "$(git rev-parse HEAD)" = "$BEFORE_SHA"
+            test -z "$(git status --porcelain)"
+            test "$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")" = "$BEFORE_PID"
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+            curl --fail --silent --max-time 10 http://127.0.0.1:5000/healthz >/dev/null
+            printf 'Application commit preserved: %s\nApplication PID preserved: %s\n' "$BEFORE_SHA" "$BEFORE_PID"

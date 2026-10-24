@@ -46,7 +46,7 @@ sudo htpasswd -c /etc/nginx/.htpasswd_boya admin
 
 ## 3. 应用新的 Nginx 配置
 
-将仓库中的 [deploy/nginx_boya.conf](/E:/Demo/boya-agent/deploy/nginx_boya.conf) 同步到服务器站点配置后，执行：
+将仓库中的 [deploy/nginx_boya.conf](nginx_boya.conf) 同步到服务器站点配置后，执行：
 
 ```bash
 sudo nginx -t

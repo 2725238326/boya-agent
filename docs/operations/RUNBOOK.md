@@ -2,8 +2,8 @@
 
 文档用途：提供可复制的启动、检查、备份和故障处理步骤。
 面向读者：值班维护者。
-文档状态：当前运行手册；更新时间：2026-09-24。
-当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。2026-09-24 的只读服务、数据库、资源和公开接口结果见 [生产运行快照](../project/PRODUCTION_RUNTIME_2026_09_24.md)。其他环境执行命令前仍需核对域名、路径和凭据。
+文档状态：当前运行手册；更新时间：2026-10-24。
+当前生产实例：`https://buaaboya.top`，应用目录 `/home/boya-agent`，运行数据库 `/var/lib/boya-agent/data/boya_agent.db`。运行版本和通道状态见 [项目状态](../project/PROJECT_STATUS.md)，最近应用验收见 [采集与学生卡片](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。其他环境执行命令前核对域名、路径和凭据。
 
 ## 服务控制
 
@@ -18,9 +18,9 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## 当前测试期的外部通知策略
 
-2026-09-08 起，生产数据库中的 `email_enabled` 和 `daily_summary_enabled` 均为 `0`，Telegram 和自动选课也为关闭状态；2026-09-24 只读快照再次确认这些值。自动课程通知、每日摘要、选课提醒和自动选课结果邮件不会由调度器发送。代码另有 `EMAIL_DELIVERY_ENABLED` 进程级总开关，只有值为 `true` 才允许 SMTP；其生产环境值必须单独受控核对。测试期间不要调用邮箱验证/登录、管理员测试邮件、手动推送或站点调整通知接口。
+飞书学生课程卡片已启用，运维消息不进入飞书。Telegram 独立运维按用户决定待网络打通后启用；旧 Telegram 课程开关、邮件、每日摘要和自动选课仍关闭。邮件还受 `EMAIL_DELIVERY_ENABLED` 进程总开关保护，目前暂停；测试期不要把邮箱验证/登录、管理员测试邮件、手动推送或站点群发当作只读检查。配置与真实验收分别按 [飞书](FEISHU.md)、[Telegram 运维](TELEGRAM_OPS.md) 执行。
 
-暂停配置前已生成数据库备份：`/var/lib/boya-agent/backups/boya_agent-email-paused-20260908-024504.db`。恢复邮件前先得到明确授权，记录旧值和启用范围，再按 [FINAL_RELEASE_PLAN.md](../project/FINAL_RELEASE_PLAN.md) 做检查。
+恢复邮件前记录授权收件范围、旧值和回退方式，按本手册的邮件检查先验证真实指定邮箱，再分阶段开放 auth/all。历史暂停备份只用于追溯，恢复操作使用已核对的近期备份。
 
 ## 常规更新后的最低检查集
 
@@ -129,15 +129,13 @@ sudo sqlite3 /var/lib/boya-agent/data/boya_agent.db \
 
 ## 数据库备份与恢复
 
-实际位置由 `DATABASE_PATH` 决定；当前生产数据库是 `/var/lib/boya-agent/data/boya_agent.db`。先查看 `.env` 和运行目录，确认目标是单个明确的数据库文件，再备份：
+实际位置由 `DATABASE_PATH` 决定；当前生产数据库是 `/var/lib/boya-agent/data/boya_agent.db`。日常使用 SQLite 在线备份以包含 WAL 中已提交数据，不直接复制活跃数据库文件。先确认实际路径和已存在的私有备份目录：
 
 ```bash
-sudo systemctl stop boya-agent
-sudo cp -p /var/lib/boya-agent/data/boya_agent.db /safe/backup/path/boya_agent-$(date +%F-%H%M).db
-sudo systemctl start boya-agent
+sudo sqlite3 /var/lib/boya-agent/data/boya_agent.db ".backup '/var/lib/boya-agent/backups/boya_agent-manual-$(date +%Y%m%d-%H%M%S).db'"
 ```
 
-恢复前停止服务，把已验证的备份复制回实际 `DATABASE_PATH`，再启动并查看日志。不要把示例路径 `/safe/backup/path` 原样执行，也不要对工作区根目录使用递归删除或覆盖命令。
+备份后对刚生成的文件执行 `PRAGMA integrity_check` 并核对权限。没有 sqlite3 CLI 时使用发布工作流同样的 Python sqlite3.backup，不为检查复制原 DB。恢复应另建明确清单：停止服务、保存当前 DB/WAL/SHM、恢复已验证的备份、处理旧 sidecar、修正权限，再启动核对迁移、outbox 与真实采集。不要仅替换 `.db` 留下旧 WAL/SHM。
 
 除部署时备份外，生产机还有每周日凌晨 4 点的 cron 快照：`sqlite3 .backup` 写入 `/var/lib/boya-agent/backups/boya_agent-weekly-YYYYMMDD.db`，只保留最近 4 份。该快照在服务运行中用 SQLite 在线备份完成，不需要停服。
 
@@ -180,20 +178,25 @@ curl -su 管理员用户名:管理员密码 \
 
 ### 抓取失败
 
-确认北航账号仍可用、主机可访问 WebVPN/课程系统、Chromium 可启动；检查 `last_scrape_health`、截图和日志。连续失败达到阈值时向管理员发 Telegram 告警；告警带冷却期（`SCRAPE_ALERT_COOLDOWN_MINUTES`，默认 60 分钟），持续故障期间不会每几轮重复推送，冷却期内的失败会以 INFO 日志记录"告警冷却中"，抓取恢复成功后会补发一条恢复通知。Telegram 告警还必须满足 Telegram 通道已开启并配置凭据。自动选课当天失败达到 `AUTO_ENROLL_FAILURE_LIMIT` 后会熔断本轮后续尝试；恢复前先确认账号、选课页面和错误原因。
+确认北航账号、WebVPN/课程系统与 Chromium 状态，检查 `last_scrape_health`、分页覆盖、错误截图和日志。失败/恢复交给独立 `telegram_ops` 通道，带阈值和冷却；不受旧 Telegram 课程开关控制，也不发送飞书运维告警。当前网络未打通，运维通道和 timer 保持关闭，因此不能依赖 Telegram 已通知。启用条件和主进程外检测见 [TELEGRAM_OPS.md](TELEGRAM_OPS.md)。
 
 ## 变更后监测清单
 
-2026-09-17 批次上线后需要观察的项，确认正常后从清单划掉：
+每次发布后记录观察窗口，以下项目不能用一次 healthz 代替：
 
 | 观察项 | 正常表现 | 检查方式 |
 | --- | --- | --- |
 | 空状态误报 | 浏览器回收（日志 `browser recycled after 48 runs`）后的首轮不再出现 `blocked as suspicious` | `journalctl -u boya-agent --since today \| grep "blocked as suspicious"` |
 | full 轮定向详情 | full 轮日志 `开始抓取 N 门课程的详情` 中 N 明显小于课程总数；无缺口时不出现该行 | `journalctl -u boya-agent \| grep "开始抓取"` |
-| 陈旧行过期 | 正念沙龙 09-24/09-25 两场（`last_seen` 停在 09-11）在管道健康满 3 天后自动消失于公开列表（不等报名截止） | `/api/courses` 中不再出现；日志 `已标记 N 门…长期未命中` |
-| 告警冷却 | 持续故障时 Telegram 告警间隔 ≥60 分钟，恢复后收到一条"已恢复正常" | 告警群消息间隔；日志"告警冷却中" |
+| 陈旧行 | 列表名额标记待核对、群推跳过陈旧数据；长期未命中且管道健康时软过期 | 各课 `last_seen`、页面名额标签、生命周期日志 |
+| 分页覆盖 | 页数/唯一记录数有日志；循环、异常空页和翻页失败不会作为完整快照保存 | 日志 `Course coverage`、`Course pagination`；独立上游审计按需运行 |
+| 通道分工 | 飞书只有课程；Telegram 运维需联网后单独启用，告警/恢复与冷却有记录 | 实际配置、outbox 状态、群内验收；当前不期待 TG 消息 |
 | 周更备份 | 每周日 04:00 后 `/var/lib/boya-agent/backups/` 出现 `boya_agent-weekly-*.db`，总数不超过 4 份 | `ls -1t /var/lib/boya-agent/backups/` |
 | 资源水位 | run-driver 进程稳定为 1 个；`available` 内存长期不低于 ~300Mi | `pgrep -fc run-driver`、`free -m` |
+
+## 目录和诊断产物维护
+
+按 [DIRECTORY_MAINTENANCE.md](DIRECTORY_MAINTENANCE.md) 先盘点，再归档已确认的旧捕获。维护工作流检查原进程和应用提交保持不变；归档保留摘要和恢复清单。日志/上传的活跃路径、数据库、配置、venv 和 Chromium 不纳入通用搬迁。
 
 ### SQLite 锁竞争
 

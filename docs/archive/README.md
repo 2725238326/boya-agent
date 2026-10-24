@@ -2,12 +2,14 @@
 
 文档用途：说明旧文档的历史背景和当前替代位置。
 面向读者：需要追溯决策或旧部署信息的读者。
-文档状态：当前归档索引；更新时间：2026-09-07。
+文档状态：当前归档索引；更新时间：2026-10-24。
 
 历史讨论和邮件预览已从根目录移入本目录，便于追溯，也避免新成员把旧方案误当成当前配置。归档内容不再作为当前行为依据：
 
 | 历史文件 | 当前替代 |
 | --- | --- |
+| [历史项目状态（截至 2026-10-24）](PROJECT_STATUS_THROUGH_2026_10_24.md) | [当前项目状态](../project/PROJECT_STATUS.md)；历次发布/故障原文保留 |
+| [历史改进清单（截至 2026-10-24）](IMPROVEMENT_BACKLOG_THROUGH_2026_10_24.md) | [当前改进清单](../project/IMPROVEMENT_BACKLOG.md)；旧状态与优先级不再作为当前计划 |
 | [`legacy/CONTEXT.md`](legacy/CONTEXT.md) | [项目状态](../project/PROJECT_STATUS.md)、[架构](../architecture/ARCHITECTURE.md) |
 | [`legacy/now.md`](legacy/now.md) | [项目状态](../project/PROJECT_STATUS.md) |
 | [`legacy/BUSINESS_ROADMAP.md`](legacy/BUSINESS_ROADMAP.md) | [项目状态](../project/PROJECT_STATUS.md)；未来事项仍需逐项确认 |
