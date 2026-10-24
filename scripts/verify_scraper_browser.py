@@ -106,7 +106,7 @@ async def main():
                 legacy = scraper._dedupe_scraped_courses(await scraper._collect_current_view_courses(page, False, 'legacy'))
                 assert len(legacy) == 3
                 await scraper._go_to_first_page(page)
-                await page.evaluate("document.querySelector('#next a').onclick = e => e.preventDefault()")
+                await page.evaluate("() => { document.querySelector('#next a').onclick = e => e.preventDefault(); }")
                 try:
                     await scraper._go_to_next_page(page)
                 except ScrapePageNotReadyError:
