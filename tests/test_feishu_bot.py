@@ -52,8 +52,8 @@ class FeishuTransportTests(unittest.IsolatedAsyncioTestCase):
         opener = Mock()
         opener.open.return_value = self.response()
         with patch.object(feishu, "build_opener", return_value=opener):
-            self.assertTrue(feishu._send_sync("博雅测试", "alerts"))
-            self.assertTrue(feishu._send_sync("博雅测试2", "alerts"))
+            self.assertTrue(feishu._send_sync("博雅测试", "courses"))
+            self.assertTrue(feishu._send_sync("博雅测试2", "courses"))
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["msg_type"], "text")
@@ -66,16 +66,16 @@ class FeishuTransportTests(unittest.IsolatedAsyncioTestCase):
                      b'{}', b'not json', b'x' * 65537):
             with self.subTest(body=body[:20]), patch.object(feishu, "build_opener") as factory:
                 factory.return_value.open.return_value = self.response(body)
-                self.assertFalse(feishu._send_sync("博雅测试", "alerts"))
+                self.assertFalse(feishu._send_sync("博雅测试", "courses"))
 
     def test_invalid_url_disabled_scope_staging_and_oversize_never_connect(self):
         with patch.object(feishu, "build_opener", side_effect=AssertionError("network")):
             for key, value in (("FEISHU_WEBHOOK_URL", "https://evil.test/hook/fixture"),
                                ("FEISHU_WEBHOOK_URL", ENV["FEISHU_WEBHOOK_URL"] + "?secret=x"),
-                               ("FEISHU_WEBHOOK_SECRET", ""), ("FEISHU_ALERTS_ENABLED", "false"),
-                               ("FEISHU_ALERTS_ENABLED", "yes"), ("APP_ENV", "staging")):
+                               ("FEISHU_WEBHOOK_SECRET", ""), ("FEISHU_COURSES_ENABLED", "false"),
+                               ("FEISHU_COURSES_ENABLED", "yes"), ("APP_ENV", "staging")):
                 with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}):
-                    self.assertFalse(feishu._send_sync("博雅测试", "alerts"))
+                    self.assertFalse(feishu._send_sync("博雅测试", "courses"))
             self.assertFalse(feishu._send_sync("博雅" * 10000, "courses"))
         self.assertNotIn("fixture-only", json.dumps(feishu.readiness()))
         self.assertIsNone(feishu._NoRedirect().redirect_request(None, None, 302, "", {}, "https://evil.test"))
@@ -93,17 +93,17 @@ class FeishuTransportTests(unittest.IsolatedAsyncioTestCase):
             env_file = root / ".env"
             original = 'EMAIL_DELIVERY_ENABLED=false\nBUAA_PASSWORD="fixture-only"\n# Keep comment\n'
             env_file.write_text(original, encoding="utf-8")
-            backup = configure(env_file, root / "backups", True, False)
+            backup = configure(env_file, root / "backups", False, True)
             self.assertEqual(backup.read_text(encoding="utf-8"), original)
             after = dotenv_values(env_file)
             self.assertEqual(after["EMAIL_DELIVERY_ENABLED"], "false")
             self.assertEqual(after["BUAA_PASSWORD"], "fixture-only")
-            self.assertEqual(after["FEISHU_ALERTS_ENABLED"], "true")
-            self.assertEqual(after["FEISHU_COURSES_ENABLED"], "false")
+            self.assertEqual(after["FEISHU_ALERTS_ENABLED"], "false")
+            self.assertEqual(after["FEISHU_COURSES_ENABLED"], "true")
             self.assertIn("# Keep comment", env_file.read_text())
             with patch.object(feishu, "_send_sync", return_value=False):
                 with self.assertRaises(RuntimeError):
-                    configure(env_file, root / "backups", True, True, probe=True)
+                    configure(env_file, root / "backups", False, True, probe=True)
             self.assertEqual(dotenv_values(env_file), after)
 
     async def test_blocking_transport_runs_off_the_event_loop(self):
@@ -117,12 +117,13 @@ class FeishuTransportTests(unittest.IsolatedAsyncioTestCase):
     def test_interactive_card_is_signed_and_untrusted_fields_are_plain_text(self):
         from types import SimpleNamespace
         now = business_now()
-        course = SimpleNamespace(name="[点我](https://evil.test) <at id=all>所有人</at>", capacity=20, remaining=3,
+        course = SimpleNamespace(id="safe-id", name="[点我](https://evil.test) <at id=all>所有人</at>", capacity=20, remaining=3,
             check_in_method="", sign_method="直接选课", campus="学院路", category="文化", location="教室",
             enroll_start=now, enroll_end=now, start_time=now, end_time=now, last_seen=now)
         card = feishu._course_card(course, "snipe", "instant")
         self.assertEqual(card["header"]["template"], "orange")
-        self.assertEqual(card["elements"][0]["text"], {"tag": "plain_text", "content": course.name})
+        self.assertEqual(card["header"]["title"]["tag"], "plain_text")
+        self.assertIn(course.name, card["header"]["title"]["content"])
         self.assertIn("待确认", json.dumps(card, ensure_ascii=False))
         opener = Mock()
         opener.open.return_value = self.response()
@@ -192,17 +193,26 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_independent_switches_do_not_claim_disabled_jobs(self):
         course = self.enqueue_course()
-        feishu.queue_scrape_state(failures=3, status="timeout")
         with patch.dict(os.environ, {"FEISHU_COURSES_ENABLED": "false"}), patch.object(
             feishu, "send_card", new=AsyncMock(return_value=True)
         ) as send:
             result = await feishu.drain_jobs()
-            self.assertEqual(result["claimed"], 1)
-            self.assertIn("系统告警", json.dumps(send.call_args.args[0], ensure_ascii=False))
+            self.assertEqual(result["claimed"], 0)
+            send.assert_not_awaited()
         with self.Session() as session:
             self.assertEqual(session.get(NotificationJob, course.id).attempts, 0)
         with patch.dict(os.environ, {"FEISHU_ALERTS_ENABLED": "false", "FEISHU_COURSES_ENABLED": "false"}):
             self.assertEqual((await feishu.drain_jobs())["claimed"], 0)
+
+    async def test_legacy_operational_jobs_never_reach_student_group(self):
+        from src.notification_jobs import enqueue_notification_job
+        with self.Session() as session:
+            enqueue_notification_job(session, channel="feishu", course_ids=["system:scrape"], job_type="system_alert")
+            session.commit()
+        with patch.object(feishu, "send_card", new=AsyncMock()) as send:
+            self.assertEqual((await feishu.drain_jobs())["claimed"], 0)
+            send.assert_not_awaited()
+        self.assertFalse(feishu.readiness()["alerts_enabled"])
 
     async def test_filter_changes_expiry_and_webhook_rotation_skip_before_send(self):
         for change in ("filter", "expired", "rotation"):
@@ -219,33 +229,6 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
                     send.assert_not_awaited()
                     self.assertEqual(result["succeeded"], 1)
 
-    async def test_alert_cooldown_and_restart_recovery_are_durable_and_private(self):
-        for _ in range(3):
-            feishu.queue_scrape_state(failures=3, status="password=private url token")
-        with self.Session() as session:
-            jobs = session.query(NotificationJob).all()
-            self.assertEqual(len(jobs), 1)
-            self.assertNotIn("password", jobs[0].payload_json)
-            self.assertNotIn(ENV["FEISHU_WEBHOOK_SECRET"], jobs[0].payload_json)
-        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)):
-            self.assertEqual((await feishu.drain_jobs())["succeeded"], 1)
-        feishu.queue_scrape_state(recovered=True)
-        feishu.queue_scrape_state(recovered=True)
-        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
-            self.assertEqual((await feishu.drain_jobs())["succeeded"], 1)
-            self.assertIn("恢复通知", json.dumps(send.call_args.args[0], ensure_ascii=False))
-        with self.Session() as session:
-            self.assertEqual(session.query(NotificationJob).count(), 2)
-
-    async def test_recovery_prevents_sending_obsolete_failure(self):
-        feishu.queue_scrape_state(failures=3, status="timeout")
-        feishu.queue_scrape_state(recovered=True)
-        with patch.object(feishu, "send_card", new=AsyncMock(return_value=True)) as send:
-            result = await feishu.drain_jobs()
-            self.assertEqual(result["claimed"], 2)
-            send.assert_awaited_once()
-            self.assertIn("恢复通知", json.dumps(send.call_args.args[0], ensure_ascii=False))
-
     async def test_daily_summary_date_is_separate_and_old_tasks_are_skipped(self):
         day = business_now().strftime("%Y-%m-%d")
         self.enqueue_course(delivery_mode="digest_daily", summary_date=day)
@@ -255,7 +238,28 @@ class FeishuOutboxTests(unittest.IsolatedAsyncioTestCase):
             result = await feishu.drain_jobs()
             self.assertEqual(result["claimed"], 2)
             send.assert_awaited_once()
-            self.assertIn("每日课程汇总", json.dumps(send.call_args.args[0], ensure_ascii=False))
+            self.assertIn("今日课程", json.dumps(send.call_args.args[0], ensure_ascii=False))
+
+    async def test_each_true_reopening_can_notify_again_with_same_seat_count(self):
+        first = self.enqueue_course(event_type="snipe")
+        self.assertEqual(first.id, self.enqueue_course(event_type="snipe").id)
+        with self.Session() as session:
+            course = session.get(Course, "fixture-course")
+            course.last_seen += timedelta(seconds=30)
+            session.commit()
+        second = self.enqueue_course(event_type="snipe")
+        self.assertNotEqual(first.id, second.id)
+
+    async def test_stale_course_never_claims_current_availability(self):
+        job = self.enqueue_course()
+        with self.Session() as session:
+            session.get(Course, "fixture-course").last_seen = business_now() - timedelta(minutes=11)
+            session.commit()
+        with patch.object(feishu, "send_card", new=AsyncMock()) as send:
+            self.assertEqual((await feishu.drain_jobs())["delivered_count"], 0)
+            send.assert_not_awaited()
+        with self.Session() as session:
+            self.assertEqual(feishu.enqueue_courses(session, [session.get(Course, "fixture-course")]), [])
 
     async def test_scraping_queues_feishu_without_using_network_or_enabling_other_channels(self):
         from src import scheduler

@@ -1461,12 +1461,36 @@ async def _reset_course_filters(page: Page) -> bool:
 
 async def _go_to_first_page(page: Page) -> bool:
     """Best-effort pagination reset before scraping a view."""
-    # Avoid the site's global 首页 link; use the previous-page controls and
-    # verify every transition instead of silently stopping after eight pages.
+    # The real campus pager exposes 首页/末页 without disabled/page-number
+    # markers. Scope 首页 strictly to the pager, avoiding the site's home link.
+    if await _click_pager_endpoint(page, first=True):
+        return True
     for _ in range(MAX_PAGES_PER_VIEW):
         if not await _move_course_page(page, forward=False):
             return True
     raise ScrapePageNotReadyError("无法确认已回到第一页，拒绝不完整快照")
+
+
+async def _click_pager_endpoint(page: Page, *, first: bool) -> bool:
+    label = "首页|第一页" if first else "末页|最后一页"
+    buttons = page.locator('.pagination a, .pagination button, .el-pagination a, .ant-pagination a').filter(
+        has_text=re.compile(f"^\\s*(?:{label})\\s*$"))
+    for index in range(await buttons.count()):
+        candidate = buttons.nth(index)
+        if not await candidate.is_visible():
+            continue
+        if not await _pagination_control_disabled(candidate):
+            await candidate.click(timeout=4000)
+            if not await _wait_for_network_idle(page):
+                raise ScrapePageNotReadyError("分页端点请求未稳定，拒绝不完整快照")
+            if not await _wait_course_tables_ready(page):
+                raise ScrapePageNotReadyError("分页端点未出现课程表，拒绝不完整快照")
+            # A legacy endpoint is idempotent at the edge, so there is no page
+            # marker to wait on. Allow its deferred DOM render to settle before
+            # comparing the complete table (normal arrows use change polling).
+            await page.wait_for_timeout(500)
+        return True
+    return False
 
 
 async def _capture_visible_course_table_signature(page: Page) -> str:
@@ -2291,6 +2315,28 @@ async def _pagination_control_disabled(candidate: Locator) -> bool:
     }""")
 
 
+async def _numeric_pager_boundary(candidate: Locator, *, forward: bool) -> bool:
+    # The campus pager leaves both arrows enabled even on a single page. Read
+    # its active numeric page instead; never infer a boundary from an unchanging
+    # table alone. Ellipsis/jump controls prevent a last-page inference.
+    return await candidate.evaluate("""(el, forward) => {
+      const root = el.closest('.pagination, .el-pagination, .ant-pagination');
+      if (!root) return false;
+      const items = Array.from(root.querySelectorAll('li'));
+      const numeric = items.map(node => ({
+        value: /^\\d+$/.test(node.textContent.trim()) ? Number(node.textContent.trim()) : null,
+        active: /(^|\\s)(active|current|selected|is-active)(\\s|$)/.test(String(node.className || '')) ||
+          node.getAttribute('aria-current') === 'page' || !!node.querySelector('[aria-current="page"]')
+      })).filter(item => item.value !== null);
+      const active = numeric.filter(item => item.active);
+      if (active.length !== 1) return false;
+      if (!forward) return active[0].value === 1;
+      if (/[.…]/.test(root.textContent) || root.querySelector('.ant-pagination-jump-next')) return false;
+      const pages = [...new Set(numeric.map(item => item.value))].sort((a,b) => a-b);
+      return pages.length > 0 && pages.every((value,index) => value === index+1) && active[0].value === pages.length;
+    }""", forward)
+
+
 async def _move_course_page(page: Page, *, forward: bool) -> bool:
     """Only absent/disabled controls mean an end; failed movement is an error."""
     try:
@@ -2311,7 +2357,7 @@ async def _move_course_page(page: Page, *, forward: bool) -> bool:
             candidate = next_btn.nth(idx)
             if not await candidate.is_visible():
                 continue
-            is_disabled = await _pagination_control_disabled(candidate)
+            is_disabled = await _pagination_control_disabled(candidate) or await _numeric_pager_boundary(candidate, forward=forward)
             if not is_disabled:
                 await candidate.click(timeout=4000)
                 await _wait_for_network_idle(page)
@@ -2323,7 +2369,15 @@ async def _move_course_page(page: Page, *, forward: bool) -> bool:
                         break
                     await page.wait_for_timeout(200)
                 else:
-                    raise ScrapePageNotReadyError(f"{label}可用但表格未更新，拒绝不完整快照")
+                    # Legacy campus pager keeps arrows enabled at both edges.
+                    # Confirm the endpoint using its independent first/last
+                    # control. If that moves, next/prev missed rows: reject.
+                    if await _click_pager_endpoint(page, first=not forward):
+                        endpoint = await _capture_visible_course_table_signature(page)
+                        if endpoint == before_signature:
+                            logger.info("Course pagination boundary: explicit {} control confirmed unchanged table", "last" if forward else "first")
+                            return False
+                    raise ScrapePageNotReadyError(f"{label}未更新且无法确认分页边界，拒绝不完整快照")
                 logger.info("课程分页完成: direction={}", "next" if forward else "previous")
                 return True
     except ScrapePageNotReadyError:

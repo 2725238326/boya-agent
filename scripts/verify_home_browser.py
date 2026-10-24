@@ -44,7 +44,8 @@ def main():
                         if failed:
                             return route.fulfill(status=503, json={'success': False})
                         courses = [] if empty else [dict(id=str(index), name=name, remaining=remaining,
-                            enrollment_open=opened, campus='学院路', category='文化', enroll_start='2026-09-09 12:00',
+                            enrollment_open=opened, campus='学院路', category='文化', last_seen_seconds_ago=900 if index == 3 else 30,
+                            last_seen='2026-09-08 10:00:00', enroll_start='2026-09-09 12:00',
                             enroll_end='2026-09-10 12:00') for index, (name, remaining, opened) in enumerate([
                                 ('可报名样例', 10, True), ('未开选样例', 5, False), ('已满样例', 0, True),
                                 ('<img src=x onerror=alert(1)>', 2, True)])]
@@ -64,6 +65,14 @@ def main():
                 page.evaluate('homeNextEnrollDeadline = Date.now() - 1000; renderHomeCountdown()')
                 expect(page.locator('#nextEnrollHint')).to_contain_text('已到开抢时间')
                 expect(grid.locator('img')).to_have_count(0)
+                expect(grid).to_contain_text('名额待核对')
+                page.goto('http://fixture.test/?course=2#courses')
+                expect(grid.locator('article')).to_have_count(1)
+                expect(grid).to_contain_text('已满样例')
+                expect(grid.locator('details')).to_have_attribute('open', '')
+                page.get_by_role('button', name='清除筛选').click()
+                expect(grid.locator('article')).to_have_count(4)
+                assert 'course=' not in page.url
                 expect(page.locator('#courseSource')).to_contain_text('最近采集异常')
                 page.locator('#courseState').select_option('upcoming')
                 expect(grid).to_contain_text('未开选样例')
@@ -72,7 +81,7 @@ def main():
                 expect(page.locator('#courseSummary')).to_contain_text('没有匹配')
                 page.get_by_role('button', name='清除筛选').click()
                 expect(grid.locator('article')).to_have_count(4)
-                assert len(course_requests) == 1, 'local filters should not repeat API requests'
+                assert len(course_requests) == 2, 'one request per navigation; local filters should not repeat API requests'
                 grid.locator('summary').first.focus()
                 page.keyboard.press('Enter')
                 expect(grid.locator('details').first).to_have_attribute('open', '')

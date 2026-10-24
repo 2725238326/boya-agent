@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--send-test", action="store_true", help="Send 3 clearly labelled acceptance messages to this group")
-    parser.add_argument("--send-card-test", action="store_true", help="Send 3 clearly labelled course/alert/recovery cards")
+    parser.add_argument("--send-card-test", action="store_true", help="Send 3 clearly labelled reopening/open/preview course cards")
     parser.add_argument("--upload-github-secrets", action="store_true", help="Store these two credentials in the repository's production environment")
     args = parser.parse_args()
     try:
@@ -53,8 +53,8 @@ def main():
             print("Both Feishu credentials stored in GitHub production environment; values hidden.")
         if args.send_test:
             for text in (
-                "博雅接入验收【故障告警演练，非真实故障】\n课程抓取连续失败：3 次\n状态：timeout\n此消息用于验证告警签名、中文和换行。",
-                "博雅接入验收【恢复通知演练】\n课程抓取已恢复成功。此消息是测试数据。",
+                "博雅课程群接入验收【新课样例，非真实课程】\n本群服务同学找课、报名，名额以官方系统为准。",
+                "博雅课程群接入验收【退选补位样例，非真实课程】\n课程由已满变为有名额后通知；运维告警使用 Telegram。",
                 "博雅接入验收【课程样例，非真实课程】\n课程：飞书推送配置验收\n校区：学院路｜签到：自主签到\n剩余名额：5/20\n查看课程：https://buaaboya.top/#courses",
             ):
                 if not _send_sync(text, "alerts", probe=True):

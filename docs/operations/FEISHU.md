@@ -1,84 +1,60 @@
-# 飞书群推送配置与运维
+# 飞书课程群推送
 
-更新时间：2026-10-24。代码已实现，本次发布和真实运行结果见 [飞书接入记录](../project/FEISHU_RELEASE_2026_10_24.md)。
+更新时间：2026-10-24。需求见 [找课与通知](../product/NOTIFICATION_REQUIREMENTS.md)，本轮上线状态见 [采集与卡片验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。早期接入过程与混合告警测试是 [历史验收](../project/FEISHU_RELEASE_2026_10_24.md)，后续用户明确要求运维改用 Telegram。
 
-## 能力和开关
+## 群用途与消息
 
-使用群自定义机器人，签名消息只发送到该 Webhook 绑定的群。支持课程提醒、报名动态、退课补位、每日汇总以及连续抓取失败/恢复通知。课程沿用数据库全局筛选；不发送个人邮箱、个人提醒或登录票据，不提供群内命令/按钮回调或个人私聊。
+飞书服务同学发现符合全局筛选的课程及退选补位，使用签名自定义机器人，无需新增应用权限。业务消息采用 interactive 卡片：普通课程蓝色、补位橙色，标题为课程名及通知原因。正文突出名额、截止/开选时间、签到、上课时间、地点及已知开放对象；采集时间明确标示。主按钮进入官方选课，次按钮定位本系统该课并展开详情。
 
-| 环境变量 | 默认 | 作用 |
+外部课程字段按纯文本呈现；加粗名额仅由整数生成，不把外部文字直接作为 Markdown。未知字段显示待确认。消息是发出时快照，名额和报名资格以官方系统为准，点击不会自动报名。个人邮箱、提醒、登录票据和运维错误不发到同学群。
+
+## 配置与启用
+
+| 配置 | 默认 | 作用 |
 | --- | --- | --- |
-| FEISHU_WEBHOOK_URL | 空 | 群机器人 HTTPS Webhook，属于凭据 |
-| FEISHU_WEBHOOK_SECRET | 空 | 签名校验密钥，必须配置 |
-| FEISHU_ALERTS_ENABLED | false | 连续失败告警及恢复通知 |
-| FEISHU_COURSES_ENABLED | false | 课程和每日汇总的群消息 |
+| FEISHU_WEBHOOK_URL | 空 | 群机器人固定 HTTPS 地址，凭据 |
+| FEISHU_WEBHOOK_SECRET | 空 | 必需的签名密钥，凭据 |
+| FEISHU_COURSES_ENABLED | false | 独立课程用途开关 |
+| FEISHU_ALERTS_ENABLED | false | 保留兼容配置；学生群不处理系统告警，生产工作流要求 false |
 
-只有显式 true 开启对应用途。两项互相独立，不依赖 email_enabled 或 telegram_enabled。每日汇总仍受原 daily_summary_enabled 和执行时间控制；启用飞书不会开启每日摘要或邮件。配置修改重启生效。配置缺失/错误时飞书不启用，管理员 /api/status 的 feishu 字段仅显示是否配置及用途开关，不输出凭据。
+不依赖邮件或课程 Telegram 开关；每日摘要继续受原全局每日任务开关控制，不因飞书启用而打开。管理员 `/api/status` 的 feishu 提供 configured/courses_enabled/role，alerts_enabled 固定为 false，不输出凭据。
 
-课程发送前重新校验最新筛选及有效期。每门课程单独一个任务，避免批次部分失败导致全部重发；同群同新课程跨 priority/active_watch/缓冲模式只创建一份任务。每日汇总按日期、每门课程分别幂等，前一天未投递的汇总不会补发。更换群 Webhook 后旧群任务被跳过，避免历史任务投到新群。
+飞书侧：对话模式群 → 群机器人 → 自定义机器人，启用签名校验；如使用关键词，所有模板包含“博雅”。IP 限制应包含实际服务器出口及本机验收出口。支持国内 open.feishu.cn，拒绝重定向，不使用任意代理。
 
-故障告警采用现有连续失败阈值 3，冷却期沿用 SCRAPE_ALERT_COOLDOWN_MINUTES（默认 60）。告警和恢复均先持久化；冷却及故障编号从任务表恢复，重启后不靠内存判断。恢复记录创建后，未发送的故障告警跳过；超过 2 小时的告警跳过。任务中的 system:scrape 是系统事件标记，不是真实课程。
-
-## 飞书侧设置
-
-1. 在对话模式测试群中打开群设置 → 群机器人 → 添加自定义机器人。
-2. 开启签名校验，分别保存 Webhook 和签名密钥。初次不叠加关键词/IP 限制，连通后再按需要配置。
-3. 如果使用关键词，“博雅”包含在所有模板中。IP 白名单应允许生产服务器实际出口 IP；本机验收也需允许本机出口。
-4. Webhook 使用 open.feishu.cn 国内版地址；当前不接海外 Lark 域名、带认证代理或任意重定向。
-
-## 本机验收与凭据保存
-
-可在排除 Git 的 key/webhook.txt 保存两行，第一行为 Webhook，第二行为签名密钥；也接受对应 FEISHU_WEBHOOK_URL/FEISHU_WEBHOOK_SECRET 键值格式。不要把真实内容粘贴进文档、终端命令或提交。
+凭据保存在排除 Git 的 key/webhook.txt：第一行 Webhook，第二行签名密钥，也支持对应环境变量格式；不要粘贴到聊天或命令参数。
 
 ```powershell
-# 只读解析，不发送消息，不输出值
+# 解析及导入 GitHub production Secrets；均不输出值
 .venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt
-
-# 向文件所指群发送 3 条明确标注的告警/恢复/课程样例
-.venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt --send-test
-
-# 保存到 GitHub production 环境的两个 Secret，不在命令参数中传值
 .venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt --upload-github-secrets
+
+# 本地结构预览与三张明确标注的课程卡片演练
+.venv\Scripts\python.exe scripts/preview_feishu_cards.py
+.venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt --send-card-test
+
+# 代码已部署且服务器与 main 精确一致时启用：飞书课程 + Telegram 运维
+# Telegram 使用服务器现有/独立凭据，先探测成功再激活
+ gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=true -f ops_enabled=true
 ```
 
-返回成功表示飞书接口 code=0，群内实际可见还需人工确认。该工具不会注册北航/邮箱用户或写业务数据库；测试课程有明确标注，不代表真实课程。
+接口 code=0 表示飞书接受，不替代群内人工确认。本地结构预览使用相同 JSON，不能冒充客户端截图。纯文档后续提交不改变服务器 HEAD；配置工作流要求目标提交与服务器一致，必要时先受控同步代码。
 
-## 生产激活
+## 触发、去重和时效
 
-先将通过 CI 的代码部署并确认服务器运行工作流目标提交；生产环境需拥有两个同名 GitHub Secrets。然后运行独立配置工作流：
+课程沿用后台全局筛选，入队与投递前均校验。新课按预告/正式开选阶段分别幂等；旧版成功记录参与迁移去重。退选补位按一次真实重新放额观测去重，同为“剩余 1 个”在后续满员再开放时仍可通知。普通刷新与人数变化不重复发送首次课程卡片。
+
+超过 10 分钟未被采集确认的课程不新建群任务，已有过期快照在发送前跳过。个人页面对陈旧在报名课程提示“名额待核对”，并显示本课采集时间。全局最近采集成功不等于每门课程都被重新命中。
+
+每门课一个任务，跨即时/缓冲/active_watch 去重；每日摘要按日期和课程区分，前一日未投递摘要跳过。旧群任务根据不可逆目标指纹跳过，避免历史任务投到新群。历史系统告警任务保留作审计，不领取、不投到学生群。
+
+抓取仅入队，不等待 HTTPS；后台默认约 30 秒扫描，每次串行间隔至少 1.1 秒，HTTP 单步超时 10 秒，正文上限 19000 字节、响应 64 KiB。仅 HTTP 200 且整数 code=0 算接受。失败有界退避，终态任务不因普通巡检无限重置。过期/筛选/陈旧/旧群任务可成功跳过但 delivered_count=0，真实课程成功另记 PushLog，不能只凭 succeeded 总数推断送达。响应不明确时不立即换文本重发；接受与落库之间仍有至少一次投递窗口。
+
+## 关闭与回退
 
 ```powershell
-# 只开放告警
-gh workflow run configure-feishu.yml --ref main -f alerts_enabled=true -f courses_enabled=false
-
-# 在已授权测试群内同时开放课程和告警
-gh workflow run configure-feishu.yml --ref main -f alerts_enabled=true -f courses_enabled=true
+gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=false -f ops_enabled=true
 ```
 
-工作流与常规 main 部署串行，检查服务器提交/clean；先发送服务器验收消息，再备份 .env 并只修改四个 FEISHU_* 值。保留其余配置、原属主和权限，原子替换环境文件，重启并检查真实抓取成功及实际进程中的飞书开关。失败恢复原环境文件并尝试恢复服务。备份含凭据，权限 0600，仅输出路径；不要上传备份到 Git 或公开工单。
+可独立保留 Telegram 运维。工作流私有备份环境、只更新用途配置并保留其他值，串行重启、验证真实采集和实际进程；失败恢复旧环境及定时器启用状态。备份含凭据，权限 0600，只记录路径，不上传 Git 或公开工单。Telegram 检测细节见 [运维手册](TELEGRAM_OPS.md)。
 
-启用课程可能立即对当前可报名且符合筛选的课程建立任务；这是已有 active_watch 规则。并非只通知启用后的新入库课程。旧 email/Telegram 任务不受影响。个人提醒不转发到群。
-
-## 队列、重试和回退
-
-飞书复用 SQLite notification_jobs；创建与投递分离，抓取不等待 HTTPS。独立扫描默认约 30 秒；单进程串行间隔至少 1.1 秒，单次 HTTP 操作超时 10 秒，正文上限 19000 字节，响应上限 64 KiB。不依赖系统代理、不追随重定向；只接受 HTTP 200 且 JSON 整数 code=0。
-
-临时网络错误、飞书限频和拒绝进入现有最多 3 次尝试、30/60 秒指数退避。终态失败不因巡检重复出现无限重置。关闭的用途不领取任务、不消耗重试。已失效/被筛选/旧群/已恢复的任务可能标记成功跳过，delivered_count=0；真实群发送成功另写 PushLog，不能只凭 succeeded 总数推断送达。
-
-所有外部通知仍为至少一次语义，进程在外部接受消息后、数据库落库前崩溃仍有重复窗口；不承诺绝对不重复。
-
-管理员 /api/status 可查看 feishu 及各渠道任务数量；只读诊断工作流只显示配置是否存在、开关和状态计数，不输出 Webhook、secret 或 payload。日志只显示异常类型/HTTP 状态/数字业务码，不保存第三方异常原文。
-
-关闭飞书：
-
-```powershell
-gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=false
-```
-
-关闭操作不发送探测消息，保留凭据和任务，后续恢复时重新检查有效期。若 GitHub main 已有纯文档后续提交而服务器版本不同，先按受控发布同步代码再操作；不要绕过精确提交检查。
-
-## 验证范围
-
-自动化检查覆盖 HMAC、TLS Webhook 路径约束、响应业务码、限频、重定向拒绝、超长内容、后台线程、独立开关、持久队列去重/重试、变更筛选/过期/群切换、告警冷却与跨重启恢复、配置备份及非飞书值保留。
-
-staging 显式清除并拒绝 FEISHU_* 配置，飞书传输入口亦阻断 staging；飞书验证使用 mock 传输，真实群验收单独运行。不在课程抓取 fixture 演练期间真实发群消息。
+staging 清除并拒绝 FEISHU_* 与 TELEGRAM_OPS_* 配置，传输入口也阻断 staging；离线回归不连接真实群。

@@ -1,0 +1,23 @@
+[Unit]
+Description=BOYA independent operations watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=boya-agent
+Group=boya-agent
+WorkingDirectory=/home/boya-agent
+EnvironmentFile=/home/boya-agent/.env
+ExecStart=/home/boya-agent/venv/bin/python scripts/check_ops_health.py
+TimeoutStartSec=55
+MemoryMax=192M
+TasksMax=24
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/boya-agent
+
+[Install]
+WantedBy=multi-user.target

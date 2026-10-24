@@ -7,10 +7,6 @@ on:
         description: 'Read-only journal start time (server local time or relative time)'
         required: false
         default: '10 minutes ago'
-      source_audit:
-        description: 'One bounded read-only campus browser audit (no database writes or notifications)'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -113,7 +109,7 @@ jobs:
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
             sudo journalctl -u "$SERVICE_NAME" --since "${LOG_SINCE:-10 minutes ago}" --no-pager -n 500 \
-              | grep -E '抓取|scrape|Course coverage|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
+              | grep -E '抓取|scrape|Course coverage|Course pagination|Telegram ops|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
               | tail -n 180 || true
 
             echo "== database and notification state =="
@@ -194,91 +190,4 @@ jobs:
                     info = files[0].stat()
                     print('newest:', files[0].name, 'bytes=', info.st_size,
                           'modified_utc=', datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat())
-            PY
-
-      - name: Audit upstream table and pager without business writes
-        if: inputs.source_audit
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          command_timeout: 3m
-          envs: APP_DIR
-          script: |
-            set -euo pipefail
-            cd "${APP_DIR:-/home/boya-agent}"
-            PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright ./venv/bin/python - <<'PY'
-            import asyncio
-            import json
-            from dotenv import load_dotenv
-            from loguru import logger
-            load_dotenv('.env')
-            logger.remove()
-            from src.scraper import create_browser_context, _open_course_select_page, _wait_course_tables_ready
-
-            async def inspect():
-                pw = browser = None
-                try:
-                    pw, browser, context, page = await create_browser_context()
-                    if not await _open_course_select_page(page) or not await _wait_course_tables_ready(page):
-                        raise RuntimeError('Source not ready')
-                    await page.locator('table:visible').first.wait_for(state='visible', timeout=25000)
-                    result = await page.evaluate('''() => {
-                      const visible = el => !!(el.getBoundingClientRect().width && el.getBoundingClientRect().height);
-                      const controls = Array.from(document.querySelectorAll('a,button,li,span')).filter(el =>
-                        visible(el) && /^(上一页|下一页|上页|下页)$/.test((el.textContent || '').trim()));
-                      return {
-                        tables: Array.from(document.querySelectorAll('table')).filter(visible).map(el => ({
-                          rows: el.querySelectorAll('tbody tr').length,
-                          headers: Array.from(el.querySelectorAll('th')).map(th => (th.textContent || '').trim().slice(0,30))
-                        })),
-                        pager: controls.slice(0,12).map(el => ({
-                          label: el.textContent.trim(),
-                          ancestors: [el, el.parentElement, el.parentElement?.parentElement].filter(Boolean).map(node => ({
-                            tag: node.tagName, classes: String(node.className || '').slice(0,120),
-                            disabled: node.hasAttribute('disabled'), aria_disabled: node.getAttribute('aria-disabled'),
-                            pointer_events: getComputedStyle(node).pointerEvents
-                          }))
-                        })),
-                        totals: Array.from(document.querySelectorAll('.pagination,.el-pagination,.ant-pagination,.pagination-info')).filter(visible)
-                          .map(el => (el.textContent || '').match(/共\\s*\\d+\\s*[条门页]/g) || []).flat(),
-                        page_numbers: Array.from(document.querySelectorAll('.pagination li, .el-pager li, .ant-pagination-item'))
-                          .map(el => ({label:(el.textContent || '').trim().slice(0,40), classes:String(el.className || '').slice(0,100),
-                            current:el.getAttribute('aria-current')})),
-                        pager_text: Array.from(document.querySelectorAll('.pagination')).map(el => (el.innerText || '').slice(0,300)),
-                        pager_structure: Array.from(document.querySelectorAll('.pagination')).map(root => Array.from(root.querySelectorAll('*')).map(el => ({
-                          tag: el.tagName, text: (el.children.length ? '' : (el.textContent || '').trim()).slice(0,50),
-                          attribute_names: Array.from(el.attributes).map(a => a.name),
-                          attributes: Object.fromEntries(Array.from(el.attributes).filter(a => ['class','id','name','type','value','aria-current','aria-label','data-page','data-bind','ng-click','ng-disabled','@click',':class'].includes(a.name)).map(a => [a.name,a.value.slice(0,160)]))
-                        }))),
-                        pager_parent: Array.from(document.querySelectorAll('.pagination')).map(root => ({
-                          tag: root.parentElement.tagName,
-                          text: (root.parentElement.innerText || '').slice(-700),
-                          numeric_inputs: Array.from(root.parentElement.querySelectorAll('input,select')).map(el => ({
-                            tag: el.tagName, value: /^\\d+$/.test(el.value || '') ? el.value : 'non-numeric',
-                            options: el.options ? Array.from(el.options).map(o => o.textContent.trim()).filter(t => /^\\d+$/.test(t)).slice(0,50) : []
-                          }))
-                        })),
-                        page_status_lines: (document.body.innerText || '').split('\\n').map(s => s.trim()).filter(s => s.length < 140 && /页|共\\s*\\d+|总.*条|第\\s*\\d+/.test(s)).slice(-25),
-                        numeric_controls: Array.from(document.querySelectorAll('select,input')).filter(el => /^\\d+$/.test(el.value || '')).map(el => ({
-                          tag:el.tagName, value:el.value, id:el.id, name:el.name,
-                          options:el.options ? Array.from(el.options).map(o => o.textContent.trim()).slice(0,25) : []
-                        })),
-                        scripts: Array.from(document.scripts).filter(el => el.src).map(el => new URL(el.src).pathname)
-                      };
-                    }''')
-                    print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
-                finally:
-                    if browser:
-                        await browser.close()
-                    if pw:
-                        await pw.stop()
-            try:
-                asyncio.run(asyncio.wait_for(inspect(), timeout=130))
-            except Exception as error:
-                print('source_dom_audit_failed:', type(error).__name__)
-                raise SystemExit(1)
             PY

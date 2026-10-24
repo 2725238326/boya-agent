@@ -15,9 +15,8 @@ import re
 import threading
 import time
 from urllib.error import HTTPError
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote
 from urllib.request import build_opener, HTTPRedirectHandler, ProxyHandler, Request
-import uuid
 
 from loguru import logger
 
@@ -29,7 +28,7 @@ from src.time_utils import now as business_now
 _transport_lock = threading.Lock()
 _last_request_at = 0.0
 _MAX_BODY_BYTES = 19000
-_KINDS = {"alerts": {"system_alert"}, "courses": {"course_push", "daily_summary"}}
+_KINDS = {"courses": {"course_push", "daily_summary"}}
 
 
 def _credential_config():
@@ -61,7 +60,7 @@ def readiness() -> dict:
         configured = True
     except ValueError:
         configured = False
-    return {"configured": configured, "alerts_enabled": enabled("alerts"),
+    return {"configured": configured, "alerts_enabled": False, "role": "student_courses",
             "courses_enabled": enabled("courses"), "staging_blocked": is_staging()}
 
 
@@ -144,54 +143,44 @@ def _card(title: str, color: str, elements: list) -> dict:
 
 
 def _course_card(course, event_type: str, delivery_mode: str) -> dict:
-    labels = {"snipe": "退课补位", "active_watch": "报名动态"}
-    title = "每日课程汇总" if delivery_mode == "digest_daily" else labels.get(event_type, "课程提醒")
-    when = lambda value: value.strftime("%Y-%m-%d %H:%M") if value else "待确认"
-    places = f"{course.remaining} / {course.capacity}" if course.capacity and course.capacity > 0 else "待确认"
-    fields = [("剩余 / 容量", places), ("签到方式", get_check_in_display_label(course)),
-              ("适用校区", course.campus), ("课程类别", course.category)]
+    now = business_now()
+    preview = bool(course.enroll_start and course.enroll_start > now)
+    window_known = bool(course.enroll_start and course.enroll_end)
+    title = "退选补位" if event_type == "snipe" else ("开选预告" if preview else "课程可报名")
+    if not window_known:
+        title = "课程信息 · 报名时间待确认"
+    if delivery_mode == "digest_daily":
+        title = "今日课程"
+    reason = "此前已满，本轮采集发现重新有名额。" if event_type == "snipe" else (
+        "尚未开选，请留意下面的开选时间。" if preview else "符合本群筛选，发出时仍在报名窗口内。")
+    if not window_known:
+        reason = "报名时间未完整取得，请先到官方系统核对。"
+    def when(value):
+        if not value:
+            return "待确认"
+        prefix = "%m-%d" if value.year == now.year else "%Y-%m-%d"
+        return value.strftime(prefix) + f"（周{'一二三四五六日'[value.weekday()]}）" + value.strftime("%H:%M")
+    def period(start, end):
+        return f"{when(start)} — {end:%H:%M}" if start and end and start.date() == end.date() else f"{when(start)} — {when(end)}"
+    places = f"剩余 {course.remaining} 个名额 / 容量 {course.capacity}" if course.capacity and course.capacity > 0 else "名额待确认"
     elements = [
-        {"tag": "div", "text": _plain(course.name)},
-        {"tag": "div", "fields": [{"is_short": True, "text": _plain(f"{label}\n{value or '待确认'}")}
-                                  for label, value in fields]},
+        {"tag": "div", "text": _plain(reason)},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**{places}**"}},
+        {"tag": "div", "text": _plain(f"{get_check_in_display_label(course)} · {course.campus or '校区待确认'}\n{course.category or '类别待确认'}")},
         {"tag": "hr"},
-        {"tag": "div", "text": _plain(f"报名时间\n{when(course.enroll_start)} — {when(course.enroll_end)}", 240)},
-        {"tag": "div", "text": _plain(f"上课时间\n{when(course.start_time)} — {when(course.end_time)}", 240)},
-        {"tag": "div", "text": _plain(f"上课地点\n{course.location or '待确认'}", 240)},
-        {"tag": "action", "actions": [{"tag": "button", "type": "primary",
-            "text": _plain("查看课程列表"), "url": "https://buaaboya.top/#courses"}]},
-        {"tag": "note", "elements": [_plain(f"采集时间：{when(course.last_seen)}（北京时间）\n名额以官方选课系统为准。", 240)]},
+        {"tag": "div", "text": _plain(f"{'开选时间' if preview else '报名截止'}：{when(course.enroll_start if preview else course.enroll_end)}", 240)},
+        {"tag": "div", "text": _plain(f"上课：{period(course.start_time, course.end_time)}\n地点：{course.location or '待确认'}", 300)},
+        {"tag": "action", "actions": [
+            {"tag": "button", "type": "primary", "text": _plain("前往官方选课"), "url": "https://bykc.buaa.edu.cn/"},
+            {"tag": "button", "type": "default", "text": _plain("查看这门课"),
+             "url": "https://buaaboya.top/?course=" + quote(str(course.id), safe="") + "#courses"}]},
+        {"tag": "note", "elements": [_plain(f"采集于 {when(course.last_seen)}（北京时间）。名额会变化，以官方系统为准。", 240)]},
     ]
-    return _card(f"博雅 · {title}", "orange" if event_type == "snipe" else "blue", elements)
-
-
-def _alert_card(job) -> dict:
-    failed = job.event_type == "failure"
-    statuses = {"auth_expired": "登录失效", "upstream_unavailable": "上游不可用", "parse_failed": "页面解析异常",
-                "timeout": "响应超时", "browser_unavailable": "采集浏览器不可用", "task_failed": "采集任务失败",
-                "scrape_failed": "采集失败", "success_empty": "空快照待核对"}
-    title = "博雅系统告警" if failed else "博雅系统恢复通知"
-    text = (f"课程抓取连续失败：{job.payload.get('failures', 0)} 次\n"
-            f"状态：{statuses.get(job.payload.get('status'), '采集失败')}" if failed else "课程抓取已恢复成功。")
-    return _card(title, "red" if failed else "green", [
-        {"tag": "div", "text": _plain(text, 240)},
-        {"tag": "div", "text": _plain(f"{'检测' if failed else '恢复'}时间：{job.created_at:%Y-%m-%d %H:%M:%S}（北京时间）")},
-        {"tag": "note", "elements": [_plain("请由管理员核对采集状态。" if failed else "此前告警已恢复，后续继续观察。")]}])
-
-
-def _course_text(course, event_type: str, delivery_mode: str) -> str:
-    labels = {"snipe": "退课补位", "active_watch": "报名动态"}
-    title = "每日课程汇总" if delivery_mode == "digest_daily" else labels.get(event_type, "课程提醒")
-    when = lambda value: value.strftime("%m-%d %H:%M") if value else "待确认"
-    # Plain text content avoids markdown injection and includes the optional
-    # Feishu keyword requirement through the fixed 博雅 prefix.
-    return (f"博雅{title}\n{str(course.name)[:180]}\n"
-            f"校区：{str(course.campus or '待确认')[:60]}｜类别：{str(course.category or '待确认')[:60]}\n"
-            f"签到：{get_check_in_display_label(course)}｜剩余：{course.remaining}/{course.capacity}\n"
-            f"报名：{when(course.enroll_start)} — {when(course.enroll_end)}\n"
-            f"上课：{when(course.start_time)}\n地点：{str(course.location or '待确认')[:180]}\n"
-            f"查看课程：https://buaaboya.top/#courses\n"
-            "名额以官方选课系统为准。")
+    restrictions = [str(getattr(course, key, "") or "") for key in ("open_college", "open_grade", "open_group")]
+    restrictions = [value for value in restrictions if value and "全部" not in value and "不限" not in value]
+    if restrictions:
+        elements.insert(-2, {"tag": "div", "text": _plain("开放范围：" + "｜".join(restrictions), 300)})
+    return _card(f"博雅 · {title}｜{course.name}", "orange" if event_type == "snipe" else "blue", elements)
 
 
 def enqueue_courses(session, courses, *, event_type="new", delivery_mode="instant", summary_date=""):
@@ -199,14 +188,26 @@ def enqueue_courses(session, courses, *, event_type="new", delivery_mode="instan
         return []
     jobs = []
     for course in courses:
+        if not course.last_seen or business_now() - course.last_seen > timedelta(minutes=10):
+            continue
         daily = delivery_mode == "digest_daily"
         # One course per task avoids duplicate successful recipients when one
         # part of a batch fails. Recipient is a hash of the configured group URL.
         url, _ = _credential_config()
         target = hashlib.sha256(url.encode()).hexdigest()[:16]
         material = f"day:{summary_date}" if daily else (
-            "new" if event_type == "new" else f"remaining:{course.remaining}"
+            ("preview" if course.enroll_start and course.enroll_start > business_now() else "open") if event_type == "new"
+            else f"reopen:{course.last_seen.isoformat()}"
         )
+        # Preserve dedupe for messages sent by the previous production version.
+        if event_type == "new" and not daily:
+            from src.models import NotificationJob
+            legacy_hash = hashlib.sha256(f"{target}:{course.id}:new:new".encode()).hexdigest()
+            legacy = session.query(NotificationJob).filter_by(idempotency_key=f"feishu:course:{legacy_hash}", status="succeeded").first()
+            if legacy:
+                prior_phase = "preview" if course.enroll_start and legacy.created_at < course.enroll_start else "open"
+                if prior_phase == material:
+                    continue
         key = hashlib.sha256(f"{target}:{course.id}:{event_type}:{material}".encode()).hexdigest()
         jobs.append(enqueue_notification_job(
             session, channel="feishu", course_ids=[course.id], event_type=event_type,
@@ -224,40 +225,29 @@ def _target_matches(job) -> bool:
 
 async def deliver_job(job) -> NotificationDeliveryResult:
     """Recheck current scope, group identity, lifecycle and global preferences."""
-    from src.models import Course, NotificationJob, get_session, PushLog
+    from src.models import Course, get_session, PushLog
     from src.filters import filter_courses, load_filter_config
-    kind = "alerts" if job.job_type == "system_alert" else "courses"
+    if job.job_type == "system_alert":
+        return NotificationDeliveryResult(True, message="Legacy operations event excluded from student group")
+    kind = "courses"
     if not enabled(kind):
         return NotificationDeliveryResult(False, message="Feishu scope disabled")
     if not _target_matches(job):
         return NotificationDeliveryResult(True, message="Webhook group changed; old task skipped")
-    if job.job_type == "system_alert":
-        if business_now() - job.created_at > timedelta(hours=2):
-            return NotificationDeliveryResult(True, message="Expired system alert skipped")
-        payload = job.payload
-        if job.event_type == "failure":
-            # An incident recovered before delivery should not emit stale alarms.
-            session = get_session()
-            try:
-                recovered = session.query(NotificationJob).filter_by(
-                    idempotency_key=f"feishu:recovery:{payload['incident']}"
-                ).first()
-                if recovered:
-                    return NotificationDeliveryResult(True, message="Incident already recovered")
-            finally:
-                session.close()
-        card = _alert_card(job)
-    else:
-        session = get_session()
-        try:
-            course = session.query(Course).filter_by(id=(job.course_ids or [None])[0]).first()
-            if not course or is_course_expired(course) or not filter_courses([course], load_filter_config()):
-                return NotificationDeliveryResult(True, message="Course expired or filtered; skipped")
-            if job.job_type == "daily_summary" and job.payload.get("summary_date") != business_now().strftime("%Y-%m-%d"):
-                return NotificationDeliveryResult(True, message="Old daily summary skipped")
-            card = _course_card(course, job.event_type, job.delivery_mode)
-        finally:
-            session.close()
+    session = get_session()
+    try:
+        course = session.query(Course).filter_by(id=(job.course_ids or [None])[0]).first()
+        if not course or is_course_expired(course) or not filter_courses([course], load_filter_config()):
+            return NotificationDeliveryResult(True, message="Course expired or filtered; skipped")
+        if not course.last_seen or business_now() - course.last_seen > timedelta(minutes=10):
+            return NotificationDeliveryResult(True, message="Course snapshot stale; skipped")
+        if job.event_type == "snipe" and (not course.enroll_start or not course.enroll_end or course.enroll_start > business_now()):
+            return NotificationDeliveryResult(True, message="Reopened course is not open; skipped")
+        if job.job_type == "daily_summary" and job.payload.get("summary_date") != business_now().strftime("%Y-%m-%d"):
+            return NotificationDeliveryResult(True, message="Old daily summary skipped")
+        card = _course_card(course, job.event_type, job.delivery_mode)
+    finally:
+        session.close()
     ok = await send_card(card, kind)
     if ok and kind == "courses":
         session = get_session()
@@ -278,45 +268,3 @@ async def drain_jobs(*, limit=20):
     if not types:
         return {"claimed": 0, "succeeded": 0, "failed": 0, "delivered_count": 0}
     return await drain_notification_jobs({"feishu": deliver_job}, limit=limit, job_types=types)
-
-
-def queue_scrape_state(*, recovered=False, failures=0, status="scrape_failed", cooldown_minutes=60):
-    """Persist alert/recovery and cooldown across restarts without raw errors."""
-    from src.models import NotificationJob, get_session
-    if not enabled("alerts"):
-        return
-    session = get_session()
-    try:
-        url, _ = _credential_config()
-        target = hashlib.sha256(url.encode()).hexdigest()[:16]
-        latest = session.query(NotificationJob).filter_by(
-            channel="feishu", job_type="system_alert", event_type="failure"
-        ).order_by(NotificationJob.id.desc()).first()
-        if latest and latest.payload.get("target") != target:
-            latest = None
-        incident = latest.payload.get("incident") if latest else None
-        recovery = session.query(NotificationJob).filter_by(
-            idempotency_key=f"feishu:recovery:{incident}"
-        ).first() if incident else None
-        if recovered and (not latest or recovery):
-            return
-        now = business_now()
-        if not recovered and latest and not recovery and now - latest.created_at < timedelta(minutes=cooldown_minutes):
-            return
-        if not incident or (recovery and not recovered):
-            incident = uuid.uuid4().hex
-        safe_status = status if status in {
-            "auth_expired", "upstream_unavailable", "parse_failed", "timeout",
-            "browser_unavailable", "task_failed", "scrape_failed", "success_empty",
-        } else "scrape_failed"
-        enqueue_notification_job(
-            session, channel="feishu", course_ids=["system:scrape"], job_type="system_alert",
-            event_type="recovery" if recovered else "failure", delivery_mode="status", priority=100,
-            idempotency_key=(f"feishu:recovery:{incident}" if recovered
-                             else f"feishu:failure:{incident}:{now.isoformat()}"),
-            payload={"incident": incident, "target": target, "failures": int(failures), "status": safe_status},
-            reset_terminal_failure=False,
-        )
-        session.commit()
-    finally:
-        session.close()

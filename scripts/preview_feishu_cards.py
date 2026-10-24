@@ -3,26 +3,31 @@
 from datetime import timedelta
 from html import escape
 import json
+import re
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.push.feishu_bot import _course_card, _alert_card
+from src.push.feishu_bot import _course_card
 from src.time_utils import now as business_now
 
 
 def sample_cards():
     now = business_now()
-    course = SimpleNamespace(name="课程卡片样例（非真实课程）", capacity=40, remaining=3,
+    course = SimpleNamespace(id="card-demo", name="课程卡片样例（非真实课程）", capacity=40, remaining=3,
         check_in_method="自主签到", sign_method="直接选课", campus="学院路", category="文化素质",
         location="示例教学楼 201", enroll_start=now - timedelta(hours=1), enroll_end=now + timedelta(hours=2),
         start_time=now + timedelta(days=1), end_time=now + timedelta(days=1, hours=2), last_seen=now)
-    cards = [_course_card(course, "snipe", "instant")]
-    for event in ("failure", "recovery"):
-        cards.append(_alert_card(SimpleNamespace(event_type=event, created_at=now,
-            payload={"failures": 3, "status": "timeout"})))
+    opened = SimpleNamespace(**vars(course))
+    opened.name = "新课可报名样例（非真实课程）"
+    opened.remaining = 18
+    preview = SimpleNamespace(**vars(course))
+    preview.name = "即将开选样例（非真实课程）"
+    preview.enroll_start = now + timedelta(hours=1)
+    preview.enroll_end = now + timedelta(days=1)
+    cards = [_course_card(course, "snipe", "instant"), _course_card(opened, "new", "instant"), _course_card(preview, "new", "instant")]
     for card in cards:
         card["header"]["title"]["content"] = "【卡片验收演练】" + card["header"]["title"]["content"]
     return cards
@@ -43,7 +48,10 @@ def render(card):
             content.append('<div class="fields">' + ''.join('<p>' + escape(field["text"]["content"]) + '</p>'
                 for field in element["fields"]) + '</div>')
         else:
-            content.append('<p>' + escape(element["text"]["content"]) + '</p>')
+            text = escape(element["text"]["content"])
+            if element["text"]["tag"] == 'lark_md':
+                text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+            content.append('<p>' + text + '</p>')
     return f'<article><header class="{card["header"]["template"]}">{escape(card["header"]["title"]["content"])}</header><div class="body">' + ''.join(content) + '</div></article>'
 
 

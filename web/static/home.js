@@ -105,7 +105,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPublicCourses();
     document.getElementById('courseFilters')?.addEventListener('submit', event => event.preventDefault());
     document.getElementById('courseFilters')?.addEventListener('input', renderPublicCourses);
-    document.getElementById('courseFilters')?.addEventListener('reset', () => setTimeout(renderPublicCourses, 0));
+    document.getElementById('courseFilters')?.addEventListener('reset', () => {
+        sharedCourseId = '';
+        const url = new URL(window.location.href);
+        url.searchParams.delete('course');
+        window.history.replaceState(null, '', url);
+        setTimeout(renderPublicCourses, 0);
+    });
     document.getElementById('reloadCourses')?.addEventListener('click', () => {
         loadPublicCourses();
         loadHomeInsights();
@@ -116,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
 let publicCourses = [];
 let publicCoursesLoading = false;
 let publicCoursesLoaded = false;
+let sharedCourseId = new URLSearchParams(window.location.search).get('course') || '';
 
 function homeNode(tag, text, className = '') {
     const element = document.createElement(tag);
@@ -131,6 +138,8 @@ function homeFilterValue(id) {
 
 function courseLabel(course) {
     if (course.expired) return '已结束';
+    if (course.enrollment_open && 'last_seen_seconds_ago' in course
+        && (course.last_seen_seconds_ago === null || course.last_seen_seconds_ago > 600)) return '名额待核对';
     if (course.remaining <= 0) return '已满';
     return course.enrollment_open ? '可报名' : '未开选';
 }
@@ -178,11 +187,15 @@ function renderPublicCourses() {
     const state = homeFilterValue('courseState');
     const labels = { open: '可报名', upcoming: '未开选', full: '已满' };
     const courses = publicCourses.filter(course =>
-        String(course.name || '').toLowerCase().includes(keyword)
+        (!sharedCourseId || String(course.id) === sharedCourseId)
+        && String(course.name || '').toLowerCase().includes(keyword)
         && String(course.campus || '').includes(campus)
         && (!state || courseLabel(course) === labels[state]));
     summary.textContent = courses.length ? `显示 ${courses.length} 门课程（在最近 ${publicCourses.length} 条记录中筛选，最多读取 200 条）。`
         : publicCourses.length ? '没有匹配的课程，可清除筛选。' : '当前列表暂无课程，可稍后重新加载或查看官方选课页。';
+    if (sharedCourseId) summary.textContent = courses.length
+        ? '这是群消息中的课程，下面显示最新取得的记录；报名以官方系统为准。清除筛选可查看全部课程。'
+        : '这门课可能已截止或不在当前有效列表中。清除筛选可查看其他课程，或到官方系统核对。';
     const statusStates = { '可报名': 'open', '未开选': 'upcoming', '已满': 'full', '已结束': 'expired' };
     const checkinStates = { '自主签到': 'self', '常规签到': 'normal' };
     const fragment = document.createDocumentFragment();
@@ -193,8 +206,9 @@ function renderPublicCourses() {
         card.append(status);
         card.append(homeNode('h3', course.name));
         const remaining = Math.max(0, Number(course.remaining) || 0);
-        const seats = homeNode('p', `剩余 ${remaining} 个名额`, 'home-course-seats');
-        if (remaining > 0 && remaining <= 3 && course.enrollment_open) seats.classList.add('is-low');
+        const stale = courseLabel(course) === '名额待核对';
+        const seats = homeNode('p', stale ? `上次采集剩余 ${remaining} 个名额，当前待核对` : `剩余 ${remaining} 个名额`, 'home-course-seats');
+        if (!stale && remaining > 0 && remaining <= 3 && course.enrollment_open) seats.classList.add('is-low');
         card.append(seats);
         card.append(homeNode('p', `报名：${course.enroll_start || '时间待确认'} — ${course.enroll_end || '时间待确认'}`));
         card.append(homeNode('p', `${course.campus || '校区待确认'} · ${course.category || '类别待确认'}`));
@@ -203,9 +217,11 @@ function renderPublicCourses() {
         checkin.dataset.state = checkinStates[checkinLabel] || 'pending';
         card.append(checkin);
         const details = document.createElement('details');
+        if (sharedCourseId) details.open = true;
         details.append(homeNode('summary', '课程详情'));
         details.append(homeNode('p', `上课：${course.start_time || '待确认'} — ${course.end_time || '待确认'}`));
         details.append(homeNode('p', `教师：${course.teacher || '待确认'}；地点：${course.location || '待确认'}`));
+        details.append(homeNode('p', `本课采集时间：${course.last_seen || '待确认'}（北京时间）`));
         card.append(details);
         const official = document.createElement('a');
         official.href = 'https://bykc.buaa.edu.cn/';

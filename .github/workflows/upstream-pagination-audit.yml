@@ -1,0 +1,64 @@
+name: Upstream Pagination Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect authenticated upstream DOM without business writes
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 3m
+          envs: APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR:-/home/boya-agent}"
+            PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright ./venv/bin/python - <<'PY'
+            import asyncio
+            import json
+            from dotenv import load_dotenv
+            from loguru import logger
+            load_dotenv('.env')
+            logger.remove()
+            from src.scraper import create_browser_context, _open_course_select_page
+
+            async def audit():
+                pw = browser = None
+                try:
+                    pw, browser, context, page = await create_browser_context()
+                    if not await _open_course_select_page(page):
+                        raise RuntimeError('Source not ready')
+                    await page.locator('table:visible').first.wait_for(state='visible', timeout=25000)
+                    result = await page.evaluate('''() => ({
+                      tables: Array.from(document.querySelectorAll('table')).filter(el => el.getBoundingClientRect().width)
+                        .map(el => ({rows:el.querySelectorAll('tbody tr').length})),
+                      pagers: Array.from(document.querySelectorAll('.pagination')).map(root => ({
+                        text:root.innerText,
+                        controls:Array.from(root.querySelectorAll('a,button')).map(el => ({
+                          label:el.textContent.trim(), attribute_names:Array.from(el.attributes).map(a=>a.name),
+                          bindings:Object.fromEntries(Array.from(el.attributes).filter(a=>['data-bind','ng-click','ng-disabled','@click',':class'].includes(a.name)).map(a=>[a.name,a.value.slice(0,200)]))
+                        }))
+                      }))
+                    })''')
+                    print('upstream_pagination_audit:', json.dumps(result, ensure_ascii=False))
+                finally:
+                    if browser: await browser.close()
+                    if pw: await pw.stop()
+            try:
+                asyncio.run(asyncio.wait_for(audit(), timeout=130))
+            except Exception as error:
+                print('Upstream audit incomplete:', type(error).__name__)
+                raise SystemExit(1)
+            PY

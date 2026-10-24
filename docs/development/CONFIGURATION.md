@@ -19,7 +19,7 @@ SMTP 每次发送尝试主通道，通知类可回退到不同配置的验证通
 
 ## 两类配置
 
-2026-10-24 新增飞书环境配置：FEISHU_WEBHOOK_URL、FEISHU_WEBHOOK_SECRET（均敏感），FEISHU_ALERTS_ENABLED/FEISHU_COURSES_ENABLED（默认 false，仅 true 开启，重启生效）。缺少合法签名凭据不启用。飞书独立于邮件/Telegram，课程遵循数据库全局筛选，每日汇总仍受原摘要开关控制。详见 [飞书手册](../operations/FEISHU.md)。
+2026-10-24 飞书用于学生课程群：FEISHU_WEBHOOK_URL、FEISHU_WEBHOOK_SECRET（均敏感），FEISHU_COURSES_ENABLED 默认 false、显式 true 开启；课程遵循全局筛选，每日汇总仍受原摘要开关控制。FEISHU_ALERTS_ENABLED 保留兼容但必须 false，运行时不处理飞书系统告警。Telegram 运维独立使用 TELEGRAM_OPS_ENABLED（默认 false）；独立凭据对 TELEGRAM_OPS_BOT_TOKEN/TELEGRAM_OPS_CHAT_ID 都空时复用原 Telegram 凭据。可选 TELEGRAM_OPS_PROXY_URL 为敏感代理配置。运维不依赖课程 telegram_enabled，也不恢复邮件。详见 [飞书手册](../operations/FEISHU.md)、[Telegram 运维](../operations/TELEGRAM_OPS.md)。
 
 部署配置来自环境变量，通常在进程启动时读取，修改后重启 `boya-agent`。业务配置保存在 SQLite 的 `filter_config` 表中，可由管理员 API 修改；修改抓取间隔和每日摘要计划会立即更新相应调度，其他开关在下一次任务读取配置时生效。
 

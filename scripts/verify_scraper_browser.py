@@ -72,7 +72,48 @@ async def main():
                     pass
                 else:
                     raise AssertionError("stuck enabled pager must reject snapshot")
-            print("PASS scraper browser: full-table signature, delayed pagination, disabled ancestor, first-page reset, incomplete rejection")
+                # Actual campus shape: arrows have no disabled state even at
+                # the edge; the active numeric page supplies the boundary.
+                await page.goto('about:blank')
+                await page.set_content(fixture())
+                await page.evaluate('''() => {
+                    document.querySelector('#prev').className = '';
+                    document.querySelector('#next').insertAdjacentHTML('beforebegin', '<li class="active"><a>1</a></li>');
+                }''')
+                await scraper._go_to_first_page(page)
+                assert not await scraper._go_to_next_page(page)
+                assert await page.evaluate('clicks') == 0
+                await page.goto('about:blank')
+                await page.set_content(fixture())
+                await page.evaluate('''() => {
+                    document.querySelector('#prev').className = '';
+                    const root = document.querySelector('.pagination');
+                    root.insertAdjacentHTML('afterbegin','<li><a id="first">首页</a></li>');
+                    root.insertAdjacentHTML('beforeend','<li><a id="last">末页</a></li>');
+                    document.querySelector('#first').onclick = () => move(-2);
+                    document.querySelector('#last').onclick = () => move(2);
+                    const update = () => {
+                        if (document.querySelector('#prev').className) document.querySelector('#prev').className = '';
+                        if (document.querySelector('#next').className) document.querySelector('#next').className = '';
+                    };
+                    new MutationObserver(update).observe(root, {attributes:true,subtree:true,attributeFilter:['class']});
+                }''')
+                # Avoid an observer loop while preserving the real unmarked-arrow shape.
+                await page.evaluate('''() => {
+                    document.querySelector('#prev a').onclick = e => {e.preventDefault(); move(-1);};
+                }''')
+                await scraper._go_to_first_page(page)
+                legacy = scraper._dedupe_scraped_courses(await scraper._collect_current_view_courses(page, False, 'legacy'))
+                assert len(legacy) == 3
+                await scraper._go_to_first_page(page)
+                await page.evaluate("document.querySelector('#next a').onclick = e => e.preventDefault()")
+                try:
+                    await scraper._go_to_next_page(page)
+                except ScrapePageNotReadyError:
+                    pass
+                else:
+                    raise AssertionError('a moving last-page control must expose a broken next-page control')
+            print("PASS scraper browser: full-table signature, delayed pagination, disabled ancestor, first-page reset, incomplete rejection, numeric boundary")
         finally:
             await browser.close()
 

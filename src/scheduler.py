@@ -55,7 +55,7 @@ from src.push.telegram_bot import (
     send_status_message,
 )
 from src.time_utils import now as business_now
-from src.push import feishu_bot
+from src.push import feishu_bot, ops_bot
 from src.runtime import is_staging, validate_staging
 
 # 全局调度器实例
@@ -955,6 +955,12 @@ async def drain_pending_notification_jobs():
             logger.info("Feishu queue delivery: {}", delivery)
     except Exception as error:
         logger.warning("Feishu queue drain failed: type={}", type(error).__name__)
+    try:
+        delivery = await ops_bot.drain_jobs()
+        if delivery["claimed"]:
+            logger.info("Telegram ops queue delivery: {}", delivery)
+    except Exception as error:
+        logger.warning("Telegram ops queue drain failed: type={}", type(error).__name__)
     config = load_filter_config()
 
     handlers = {}
@@ -990,28 +996,22 @@ async def _check_and_alert_failures():
     if _consecutive_failures < _MAX_FAILURES_BEFORE_ALERT:
         return
     try:
-        feishu_bot.queue_scrape_state(failures=_consecutive_failures,
+        ops_bot.queue_state(failures=_consecutive_failures,
                                      status=run_status.get("last_scrape_status"),
                                      cooldown_minutes=ALERT_COOLDOWN_MINUTES)
     except Exception as error:
-        logger.warning("Feishu alert enqueue failed: type={}", type(error).__name__)
+        logger.warning("Telegram ops alert enqueue failed: type={}", type(error).__name__)
     now = business_now()
     if _last_alert_at and now - _last_alert_at < timedelta(minutes=ALERT_COOLDOWN_MINUTES):
         logger.info(f"连续失败 {_consecutive_failures} 次，告警冷却中（距上次告警不足 {ALERT_COOLDOWN_MINUTES} 分钟）")
         return
     msg = (
         f"⚠️ 博雅报警：已连续失败 {_consecutive_failures} 次\n"
-        f"最后错误: {run_status.get('last_error', '未知')}\n"
+        f"状态: {run_status.get('last_scrape_status') or 'scrape_failed'}\n"
         f"上次成功: {run_status.get('last_success', '无')}\n"
         f"请检查服务器状态"
     )
     logger.warning(msg)
-    try:
-        config = load_filter_config()
-        if config.telegram_enabled:
-            await send_status_message(msg)
-    except Exception as e:
-        logger.error(f"Telegram 告警发送失败: {e}")
     _alert_sent = True
     _last_alert_at = now
 
@@ -1023,20 +1023,13 @@ async def _note_scrape_success():
     run_status["last_error"] = None
     _consecutive_failures = 0
     try:
-        # Run even if the in-memory Telegram flag was lost on restart.
-        feishu_bot.queue_scrape_state(recovered=True)
+        ops_bot.queue_state(recovered=True)
     except Exception as error:
-        logger.warning("Feishu recovery enqueue failed: type={}", type(error).__name__)
+        logger.warning("Telegram ops recovery enqueue failed: type={}", type(error).__name__)
     if not _alert_sent:
         return
     _alert_sent = False
     _last_alert_at = None
-    try:
-        config = load_filter_config()
-        if config.telegram_enabled:
-            await send_status_message("✅ 博雅监控已恢复正常，课程抓取成功")
-    except Exception as e:
-        logger.error(f"Telegram 恢复通知发送失败: {e}")
 
 
 async def flush_push_buffer(buffer_key: str):

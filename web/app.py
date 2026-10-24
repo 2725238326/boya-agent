@@ -1041,6 +1041,8 @@ def api_status():
     status["mail"] = email_readiness()
     from src.push.feishu_bot import readiness as feishu_readiness
     status["feishu"] = feishu_readiness()
+    from src.push.ops_bot import readiness as ops_readiness
+    status["telegram_ops"] = ops_readiness()
     now = business_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
