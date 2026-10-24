@@ -128,6 +128,15 @@ jobs:
                     "SELECT status, channel, COUNT(*) FROM notification_jobs "
                     "GROUP BY status, channel ORDER BY status, channel"
                 ).fetchall())
+                print("feishu_job_events:", db.execute(
+                    "SELECT job_type, event_type, status, COUNT(*) FROM notification_jobs "
+                    "WHERE channel = 'feishu' GROUP BY job_type, event_type, status "
+                    "ORDER BY job_type, event_type, status"
+                ).fetchall())
+                print("feishu_course_acceptance:", db.execute(
+                    "SELECT COUNT(*), MAX(pushed_at) FROM push_logs "
+                    "WHERE push_type = 'feishu' AND success = 1"
+                ).fetchone())
                 print("latest_courses:", db.execute(
                     "SELECT COUNT(*), MAX(last_seen) FROM courses"
                 ).fetchone())
