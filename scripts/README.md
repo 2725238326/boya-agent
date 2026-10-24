@@ -15,6 +15,6 @@
 | 通知配置 | `configure_feishu.py`、`feishu_config.py`、`notification_policy_restart.py`、`verify_feishu_runtime.py` | 生产工作流管理配置、探测和必要重启；凭据不输出 |
 | 卡片 / 邮件预览 | `preview_feishu_cards.py`、`preview_email.py` | 本地预览；不等同真实客户端或送达证明 |
 | 独立运维探活 | `check_ops_health.py` | 私有 watchdog 状态；Telegram 当前待联网启用 |
-| 服务器盘点与归档 | `maintain_server_layout.py` | 默认只读；清单与归档放仓库外，见 [目录维护](../docs/operations/DIRECTORY_MAINTENANCE.md) |
+| 服务器盘点与归档 | `maintain_server_layout.py` | 默认只读；独立归档旧捕获或指定配置回退副本，清单放仓库外，见 [目录维护](../docs/operations/DIRECTORY_MAINTENANCE.md) |
 
 新增工具按用途补本表；保持现有 CLI 路径兼容，避免仅为分类移动脚本而破坏工作流。真实数据库、凭据、邮件票据、日志、页面捕获和上传不得写入受版本控制的目录。

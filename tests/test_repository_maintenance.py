@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import time
 
 import pytest
@@ -138,19 +140,84 @@ def test_restore_refuses_destination_appearing_after_validation(roots, monkeypat
     old = capture(app)
     result = layout.archive(app, state, plan(app, state), "boya-agent")
     manifest = Path(result["manifest"])
-    original = Path.open
+    original = os.open
 
-    def appeared(path, mode="r", *args, **kwargs):
-        if path == old and mode == "xb":
-            with original(path, "wb") as stream:
-                stream.write(b"newly generated capture")
-        return original(path, mode, *args, **kwargs)
+    def appeared(path, flags, *args, **kwargs):
+        if path == old and flags & os.O_EXCL:
+            old.write_bytes(b"newly generated capture")
+        return original(path, flags, *args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(Path, "open", appeared)
+        patch.setattr(os, "open", appeared)
         with pytest.raises(FileExistsError):
             layout.restore(app, state, manifest)
     assert old.read_bytes() == b"newly generated capture"
+
+
+def test_organize_only_inactive_exact_rollback_names_and_restore_private(roots, monkeypatch):
+    app, state = roots
+    (state / "backups").mkdir()
+    old = state / "feishu-config-rollback.Ab12cD"
+    old.write_bytes(b"offline configuration fixture")
+    os.chmod(old, 0o600)
+    previous = time.time() - 3600
+    os.utime(old, (previous, previous))
+    fresh = state / "feishu-config-rollback.New123"
+    fresh.write_bytes(b"fresh fixture")
+    future = time.time() + 3600
+    os.utime(fresh, (future, future))
+    original_candidates = layout.rollback_candidates
+    monkeypatch.setattr(layout, "rollback_candidates", lambda state, now: original_candidates(state, now=now + 3600))
+    env = state / ".env"
+    env.write_bytes(b"never move")
+    unknown = state / "feishu-config-rollback.unknown-extension"
+    unknown.write_bytes(b"never move")
+    result = layout.archive(app, state, plan(app, state), "boya-agent", kind="configuration")
+    manifest = Path(result["manifest"])
+    assert manifest.parent.parent == state / "backups" / "configuration"
+    assert result["archived_files"] == 1 and not old.exists()
+    assert fresh.exists() and env.exists() and unknown.exists()
+    assert layout.restore(app, state, manifest) == {"restored_files": 1}
+    assert old.read_bytes() == b"offline configuration fixture"
+    if os.name != "nt":
+        assert old.stat().st_mode & 0o777 == 0o600
+
+
+def test_configuration_manifest_cannot_move_actual_environment(roots):
+    app, state = roots
+    env = state / ".env"
+    env.write_bytes(b"never move")
+    path = plan(app, state)
+    data = json.loads(path.read_text())
+    data["rollback_candidates"] = [{"name": ".env", **layout.identity(env)}]
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        layout.archive(app, state, path, "boya-agent", kind="configuration")
+    assert env.exists()
+
+
+def test_new_rollback_copy_with_preserved_old_mtime_is_not_inactive(roots):
+    _app, state = roots
+    path = state / "feishu-config-rollback.Ab12cD"
+    path.write_bytes(b"fresh copy with preserved metadata")
+    old = time.time() - 86400
+    os.utime(path, (old, old))
+    assert layout.rollback_candidates(state, now=time.time()) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="GNU find production retention is exercised on Linux CI")
+def test_deployment_retention_excludes_weekly_manual_and_pause_backups(tmp_path):
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    expression = re.search(r"-regex '([^']+)' -printf", workflow).group(1)
+    names = ["boya_agent-20261024-224121-pre-04fc208.db", "boya_agent-weekly-20261018.db",
+             "boya_agent-manual-20261024-230000.db", "boya_agent-email-paused-20260908-024504.db",
+             "boya_agent-20261024-224121-pre-04fc208.db-wal"]
+    for name in names:
+        (tmp_path / name).write_bytes(b"offline backup fixture")
+    result = subprocess.run(["find", str(tmp_path), "-maxdepth", "1", "-regextype", "posix-extended",
+                             "-type", "f", "-regex", expression, "-printf", "%f\n"],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.splitlines() == [names[0]]
 
 
 def test_write_ahead_manifest_can_recover_interrupted_archive(roots, monkeypatch):
