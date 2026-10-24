@@ -239,7 +239,10 @@ jobs:
                           }))
                         })),
                         totals: Array.from(document.querySelectorAll('.pagination,.el-pagination,.ant-pagination,.pagination-info')).filter(visible)
-                          .map(el => (el.textContent || '').match(/共\\s*\\d+\\s*[条门页]/g) || []).flat()
+                          .map(el => (el.textContent || '').match(/共\\s*\\d+\\s*[条门页]/g) || []).flat(),
+                        page_numbers: Array.from(document.querySelectorAll('.pagination li, .el-pager li, .ant-pagination-item')).filter(visible)
+                          .map(el => ({label:(el.textContent || '').trim().slice(0,40), classes:String(el.className || '').slice(0,100),
+                            current:el.getAttribute('aria-current')}))
                       };
                     }''')
                     print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
