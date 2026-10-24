@@ -127,7 +127,7 @@ curl -i https://你的域名/api/courses
 
 更新前用 SQLite 在线备份 API 保存 `DATABASE_PATH` 对应数据库，并备份现场二维码目录；不要直接复制活跃 `.db` 忽略 WAL。当前数据库位于 `/var/lib/boya-agent/data/boya_agent.db`。变更代码和依赖后按受控工作流启动验收。应用启动执行兼容性增量迁移，保留旧数据和字段。
 
-自动化部署（`.github/workflows/deploy.yml`）在每次发布时执行同样的检查顺序：备份数据库并只保留最近 30 份、更新代码、离线安装依赖、停服后运行 `playwright install chromium`（经 npmmirror 镜像）同步浏览器二进制、重启服务、健康检查和冒烟检查。Playwright 包升级后必须同步浏览器，否则每次抓取都会启动失败；手动更新服务器时也应执行同一条命令。
+自动化部署（`.github/workflows/deploy.yml`）在每次发布时执行同样的检查顺序：备份数据库并仅对明确命名的部署前快照保留最近 30 份（排除每周、手工和暂停快照）、更新代码、离线安装依赖、停服后运行 `playwright install chromium`（经 npmmirror 镜像）同步浏览器二进制、重启服务、健康检查和冒烟检查。Playwright 包升级后必须同步浏览器，否则每次抓取都会启动失败；手动更新服务器时也应执行同一条命令。
 
 依赖包上传优化：部署前先计算 `requirements.txt` 与 `constraints.txt` 的内容哈希，并与服务器 `/var/lib/boya-agent/.deps-sha256` 中的上一次成功部署标记比对。依赖未变化时跳过 wheelhouse 构建、SCP 上传和离线安装（GitHub 云端到生产机实测带宽约 29KB/s，200MB+ 依赖包上传曾是流水线主要耗时）。标记只在部署验收全部通过后写入，且存放在运行时目录而非仓库内（避免 git 工作树脏检查中止部署）；服务器虚拟环境缺失或损坏时仍走完整安装流程。
 

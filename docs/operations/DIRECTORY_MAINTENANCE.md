@@ -1,6 +1,6 @@
 # 本地与服务器目录维护
 
-更新时间：2026-10-24。目录用途见 [PROJECT_LAYOUT.md](../project/PROJECT_LAYOUT.md)，工具实现见 [maintain_server_layout.py](../../scripts/maintain_server_layout.py)。
+更新时间：2026-10-25。目录用途见 [PROJECT_LAYOUT.md](../project/PROJECT_LAYOUT.md)，工具实现见 [maintain_server_layout.py](../../scripts/maintain_server_layout.py)。
 
 ## 日常检查
 
@@ -32,6 +32,7 @@ gh workflow run server-layout-maintenance.yml --ref main -f archive_captures=fal
 | `/home/boya-agent` | 应用代码、生产 venv、现有日志与上传 | 保持工作树 clean；运行路径迁移需另行发布 |
 | `/var/lib/boya-agent/data` | 当前 SQLite 与 WAL/SHM | 在线备份；禁止按文件年龄搬动 |
 | `/var/lib/boya-agent/backups` | 部署、每周、二维码、配置备份 | 按类别核对；配置副本 0600，不发布内容 |
+| `/var/lib/boya-agent/backups/configuration/configuration-*` | 从状态根目录收拢的配置回退副本 | 按批次保留原名、摘要和恢复清单；0700 私有目录 |
 | `/var/lib/boya-agent/playwright`、`cache` | Chromium 与缓存 | 保留当前与回退需要的版本；不能仅按目录日期清理 |
 | `/var/lib/boya-agent/release-recovery.*` | 发布恢复证据和可能的旧 venv | 先核对版本和恢复价值；本工具只盘点 |
 | `/var/lib/boya-agent/maintenance` | 私有盘点清单 | 目录 0700、清单 0600；不上传公开工件 |
@@ -52,6 +53,18 @@ gh workflow run server-layout-maintenance.yml --ref main -f archive_captures=tru
 只处理应用 `logs/` 的**直接子文件**：安全 ASCII 文件名，扩展名为 `.png`、`.html`、`.zip`，修改时间至少七天前，且是单链接普通文件。不递归搬动目录；不处理日志正文、数据库/WAL/SHM、上传、`.env`、key、venv、浏览器或备份。符号链接和硬链接不进入清单。
 
 一小时内生成的清单记录大小、时间、设备和 inode；移动前重新检查。归档与原目录必须同一文件系统，使用原子移动；先写入带 SHA-256 的恢复清单，以支持中断恢复。完成后要求应用提交与 MainPID 均保持原值，再做探活。没有候选文件时成功返回 0 条，不为“整理”制造无用移动。
+
+## 收拢配置回退副本
+
+盘点确认存在散落副本后，可单独执行：
+
+```powershell
+gh workflow run server-layout-maintenance.yml --ref main -f archive_captures=false -f organize_rollbacks=true
+```
+
+仅处理状态根目录下符合 `feishu-config-rollback.` 加六位字母数字后缀的普通单链接文件，mtime 与 ctime 均超过十分钟。与部署/通知配置互斥，排除正在生成的新副本；文件进入 `backups/configuration/configuration-批次/`，保留原名与 SHA-256 清单。不处理应用 `.env`、手工命名副本、真实密钥或任何数据库。先验证近期 DB 备份，完成后复核原提交、PID 与健康。恢复同样使用下方 `--restore-manifest`，传入实际配置归档的 manifest；排他创建原位置，初始权限 0600，保留归档副本。
+
+部署工作流的自动保留规则仅匹配 `boya_agent-YYYYMMDD-HHMMSS-pre-7位SHA.db` 并保留最近 30 份；每周、手工、暂停快照与配置备份各自管理。本次目录维护不永久删除备份。
 
 ## 恢复与后续清理
 

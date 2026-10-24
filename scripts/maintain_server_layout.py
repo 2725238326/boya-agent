@@ -1,4 +1,4 @@
-"""Inventory production directories and reversibly archive old debug captures.
+"""Inventory production directories and organize reviewed inactive artifacts.
 
 Standard library only. Never imports application code, loads .env or opens a DB.
 The inventory is read-only. Archive/restore operate on reviewed manifest entries.
@@ -21,6 +21,7 @@ import uuid
 
 
 CAPTURE = re.compile(r"[A-Za-z0-9_.-]+\.(?:png|html|zip)\Z")
+ROLLBACK = re.compile(r"feishu-config-rollback\.[A-Za-z0-9]{6}\Z")
 APP_PATHS = (".git", "venv", ".venv", "src", "web", "config", "deploy", "scripts", "docs", "tests", "logs", "backups", "runtime", "node_modules")
 STATE_PATHS = ("data", "backups", "archive", "cache", "playwright", "maintenance")
 
@@ -100,6 +101,22 @@ def candidates(app: Path, *, days: int, now: float) -> list[dict]:
     return found
 
 
+def rollback_candidates(state: Path, *, now: float) -> list[dict]:
+    found = []
+    for path in sorted(state.glob("feishu-config-rollback.*")):
+        if not ROLLBACK.fullmatch(path.name):
+            continue
+        try:
+            info = identity(path)
+        except (OSError, ValueError):
+            continue
+        # In addition to the workflow's production mutex, exclude fresh copies
+        # which may belong to a manually running configuration operation.
+        if max(info["mtime_ns"] / 1e9, path.stat().st_ctime) <= now - 600:
+            found.append({"name": path.name, **info})
+    return found
+
+
 def inventory(app: Path, state: Path, days: int) -> dict:
     return {
         "schema": 1, "generated_at": timestamp(), "app_root": str(app), "state_root": str(state),
@@ -110,6 +127,7 @@ def inventory(app: Path, state: Path, days: int) -> dict:
         "loose_config_rollbacks": sum(1 for path in state.glob("feishu-config-rollback.*") if path.is_file()),
         "capture_min_age_days": days,
         "capture_candidates": candidates(app, days=days, now=datetime.now(timezone.utc).timestamp()),
+        "rollback_candidates": rollback_candidates(state, now=datetime.now(timezone.utc).timestamp()),
     }
 
 
@@ -136,7 +154,9 @@ def check_service(service: str) -> str:
     return fields["MainPID"]
 
 
-def archive(app: Path, state: Path, plan_path: Path, service: str) -> dict:
+def archive(app: Path, state: Path, plan_path: Path, service: str, *, kind: str = "captures") -> dict:
+    if kind not in {"captures", "configuration"}:
+        raise ValueError("unknown archive kind")
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if plan.get("schema") != 1 or plan.get("app_root") != str(app) or plan.get("state_root") != str(state):
         raise ValueError("manifest roots/schema do not match")
@@ -147,8 +167,11 @@ def archive(app: Path, state: Path, plan_path: Path, service: str) -> dict:
     days = plan["capture_min_age_days"]
     if type(days) is not int or days < 7:
         raise ValueError("captures must be at least seven days old")
-    available = {item["name"]: item for item in candidates(app, days=days, now=datetime.now(timezone.utc).timestamp())}
-    entries = plan["capture_candidates"]
+    current_time = datetime.now(timezone.utc).timestamp()
+    current = (candidates(app, days=days, now=current_time) if kind == "captures"
+               else rollback_candidates(state, now=current_time))
+    available = {item["name"]: item for item in current}
+    entries = plan["capture_candidates" if kind == "captures" else "rollback_candidates"]
     if len({item["name"] for item in entries}) != len(entries):
         raise ValueError("duplicate manifest entry")
     for item in entries:
@@ -157,18 +180,20 @@ def archive(app: Path, state: Path, plan_path: Path, service: str) -> dict:
     if not entries:
         return {"archived_files": 0, "bytes": 0, "service_restarted": False}
     pid = check_service(service)
-    archive_root = state / "archive"
+    source_directory = app / "logs" if kind == "captures" else state
+    archive_root = state / "archive" if kind == "captures" else state / "backups" / "configuration"
+    plain_directory(archive_root.parent)
     archive_root.mkdir(mode=0o700, exist_ok=True)
     plain_directory(archive_root)
-    if (app / "logs").stat().st_dev != archive_root.stat().st_dev:
+    if source_directory.stat().st_dev != archive_root.stat().st_dev:
         raise ValueError("archive requires the same filesystem for atomic moves")
-    run = archive_root / (datetime.now(timezone.utc).strftime("captures-%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
+    run = archive_root / (datetime.now(timezone.utc).strftime(kind + "-%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
     run.mkdir(mode=0o700)
-    journal = {"schema": 1, "app_root": str(app), "state_root": str(state), "generated_at": timestamp(), "service_pid": pid, "entries": []}
+    journal = {"schema": 1, "kind": kind, "app_root": str(app), "state_root": str(state), "generated_at": timestamp(), "service_pid": pid, "entries": []}
     # Write-ahead records allow recovery even if interrupted after a rename.
-    write_private(run / "manifest.json", {**journal, "entries": [{**item, "sha256": digest(app / "logs" / item["name"])} for item in entries]})
+    write_private(run / "manifest.json", {**journal, "entries": [{**item, "sha256": digest(source_directory / item["name"])} for item in entries]})
     for item in entries:
-        source = app / "logs" / item["name"]
+        source = source_directory / item["name"]
         if identity(source) != {key: item[key] for key in ("size", "mtime_ns", "device", "inode")}:
             raise ValueError("capture changed during archive; use the manifest to restore")
         source.rename(run / item["name"])
@@ -178,22 +203,26 @@ def archive(app: Path, state: Path, plan_path: Path, service: str) -> dict:
 
 
 def restore(app: Path, state: Path, manifest_path: Path) -> dict:
-    archive_root = plain_directory(state / "archive")
-    run = plain_directory(manifest_path.parent)
-    if run.parent != archive_root or manifest_path.name != "manifest.json":
-        raise ValueError("restore manifest must be inside a capture archive")
     if manifest_path.is_symlink():
         raise ValueError("symlinked manifests are not supported")
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    kind = data.get("kind", "captures")
+    if kind not in {"captures", "configuration"}:
+        raise ValueError("unknown archive kind")
+    archive_root = plain_directory(state / "archive" if kind == "captures" else state / "backups" / "configuration")
+    run = plain_directory(manifest_path.parent)
+    if run.parent != archive_root or manifest_path.name != "manifest.json":
+        raise ValueError("restore manifest must be inside a managed archive")
     if data.get("schema") != 1 or data.get("app_root") != str(app) or data.get("state_root") != str(state):
         raise ValueError("manifest roots/schema do not match")
-    logs = plain_directory(app / "logs")
+    destination = plain_directory(app / "logs") if kind == "captures" else state
+    name_pattern = CAPTURE if kind == "captures" else ROLLBACK
     pending = []
     for item in data["entries"]:
         name = item["name"]
-        if not CAPTURE.fullmatch(name):
+        if not name_pattern.fullmatch(name):
             raise ValueError("invalid capture name")
-        source, target = run / name, logs / name
+        source, target = run / name, destination / name
         if target.exists() or target.is_symlink():
             if identity(target)["size"] == item["size"] and digest(target) == item["sha256"]:
                 continue  # Already restored, or interrupted before the move.
@@ -204,7 +233,8 @@ def restore(app: Path, state: Path, manifest_path: Path) -> dict:
     for source, target in pending:
         # Exclusive creation also prevents overwrite if a destination appears
         # between validation and restore. Retain the archive copy for recovery.
-        with source.open("rb") as reader, target.open("xb") as writer:
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with source.open("rb") as reader, os.fdopen(fd, "wb") as writer:
             shutil.copyfileobj(reader, writer)
             writer.flush()
             os.fsync(writer.fileno())
@@ -221,6 +251,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--archive-plan", type=Path)
+    action.add_argument("--organize-plan", type=Path)
     action.add_argument("--restore-manifest", type=Path)
     args = parser.parse_args()
     try:
@@ -231,6 +262,8 @@ def main() -> int:
             raise ValueError("minimum archive age is seven days")
         if args.archive_plan:
             result = archive(app, state, args.archive_plan, args.service)
+        elif args.organize_plan:
+            result = archive(app, state, args.organize_plan, args.service, kind="configuration")
         elif args.restore_manifest:
             result = restore(app, state, args.restore_manifest)
         else:

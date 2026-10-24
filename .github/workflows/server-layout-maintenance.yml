@@ -7,6 +7,10 @@ on:
         description: 'Reversibly archive standalone debug captures older than seven days (default: inventory only)'
         type: boolean
         default: false
+      organize_rollbacks:
+        description: 'Move inactive standalone configuration rollback copies into private backups/configuration'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,19 +27,20 @@ jobs:
     timeout-minutes: 12
     environment: production
     steps:
-      - name: Inventory or archive production debug captures
+      - name: Inventory or organize production artifacts
         uses: appleboy/ssh-action@v1.0.3
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
           EXPECTED_SHA: ${{ github.sha }}
           ARCHIVE_CAPTURES: ${{ inputs.archive_captures }}
+          ORGANIZE_ROLLBACKS: ${{ inputs.organize_rollbacks }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 10m
-          envs: APP_DIR,SERVICE_NAME,EXPECTED_SHA,ARCHIVE_CAPTURES
+          envs: APP_DIR,SERVICE_NAME,EXPECTED_SHA,ARCHIVE_CAPTURES,ORGANIZE_ROLLBACKS
           script: |
             set -euo pipefail
             APP_DIR="${APP_DIR:-/home/boya-agent}"
@@ -53,14 +58,16 @@ jobs:
             trap 'rm -f "$TOOL"' EXIT
             git show "$EXPECTED_SHA:scripts/maintain_server_layout.py" > "$TOOL"
             chmod 600 "$TOOL"
-            if [ "$ARCHIVE_CAPTURES" = "true" ]; then
+            if [ "$ARCHIVE_CAPTURES" = "true" ] || [ "$ORGANIZE_ROLLBACKS" = "true" ]; then
               ./venv/bin/python - <<'PY'
             from pathlib import Path
             import sqlite3
             backups = sorted(Path('/var/lib/boya-agent/backups').glob('boya_agent-*.db'), key=lambda p: p.stat().st_mtime, reverse=True)
             if not backups:
                 raise SystemExit('Archive refused: no database backup is available')
-            with sqlite3.connect(backups[0].resolve().as_uri() + '?mode=ro', uri=True, timeout=30) as db:
+            # Completed backup files are immutable during this serialized action;
+            # avoid creating WAL/SHM sidecars just to inspect their integrity.
+            with sqlite3.connect(backups[0].resolve().as_uri() + '?mode=ro&immutable=1', uri=True, timeout=30) as db:
                 if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                     raise SystemExit('Archive refused: newest backup integrity check failed')
             print('Newest database backup integrity: ok')
@@ -69,7 +76,12 @@ jobs:
               chmod 700 "$STATE_DIR/maintenance"
               PLAN="$STATE_DIR/maintenance/layout-${GITHUB_RUN_ID:-$(date +%Y%m%dT%H%M%S)}-$(date +%s).json"
               python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --output "$PLAN"
-              python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --service "$SERVICE_NAME" --archive-plan "$PLAN"
+              if [ "$ARCHIVE_CAPTURES" = "true" ]; then
+                python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --service "$SERVICE_NAME" --archive-plan "$PLAN"
+              fi
+              if [ "$ORGANIZE_ROLLBACKS" = "true" ]; then
+                python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR" --service "$SERVICE_NAME" --organize-plan "$PLAN"
+              fi
               echo "Private inventory: $PLAN"
             else
               python3 "$TOOL" --app-root "$APP_DIR" --state-root "$STATE_DIR"
