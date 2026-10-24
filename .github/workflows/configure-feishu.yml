@@ -70,7 +70,8 @@ jobs:
             # Require exact app, deployment, dependencies and config-script content.
             if ! git cat-file -e "$EXPECTED_SHA^{commit}" 2>/dev/null; then git fetch origin "$EXPECTED_SHA"; fi
             if ! git diff --quiet HEAD "$EXPECTED_SHA" -- src web config deploy requirements.txt constraints.txt \
-              scripts/configure_feishu.py scripts/verify_feishu_runtime.py scripts/check_startup_source.py; then
+              scripts/configure_feishu.py scripts/verify_feishu_runtime.py scripts/check_startup_source.py \
+              ':(exclude,glob)deploy/**/*.md'; then
               echo "Server runtime/configuration code differs from the reviewed workflow version. Deploy it first."
               exit 1
             fi

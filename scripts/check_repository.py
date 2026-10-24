@@ -56,6 +56,9 @@ def documentation_errors(path: Path, root: Path) -> list[str]:
     errors = []
     for match in LINK.finditer(source):
         target = match.group(1).strip("<>")
+        if re.match(r"^/?[A-Za-z]:[/\\]", target):
+            errors.append(f"{path.relative_to(root).as_posix()}: machine-specific local link: {target}")
+            continue
         parsed = urlsplit(target)
         if parsed.scheme or parsed.netloc or not parsed.path:
             continue

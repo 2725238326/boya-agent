@@ -66,6 +66,12 @@ def test_current_document_links_ignore_samples_and_resolve_encoded_paths(tmp_pat
     assert len(errors) == 1 and "missing.md" in errors[0]
 
 
+def test_document_links_reject_machine_specific_paths_on_every_platform(tmp_path):
+    document = tmp_path / "README.md"
+    document.write_text("[drive](/E:/Demo/file.md) [drive2](C:/Demo/file.md)", encoding="utf-8")
+    assert len(checks.documentation_errors(document, tmp_path)) == 2
+
+
 @pytest.mark.parametrize("path", ["key/token.txt", "config/.env", "data/test.db-wal", "runtime/mail/a.eml", "src/__pycache__/a.pyc"])
 def test_private_runtime_paths_cannot_be_tracked(path):
     assert checks.runtime_file(path)

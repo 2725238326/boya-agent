@@ -8,6 +8,7 @@ on:
       - 'web/**'
       - 'config/**'
       - 'deploy/**'
+      - '!deploy/**/*.md'
       - 'requirements.txt'
       - 'constraints.txt'
   workflow_dispatch:

@@ -47,6 +47,7 @@
 - 当前服务器提交、服务状态、数据库完整性、资源和飞书发送核对见 [生产运行快照](project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。
 - 常规更新：运行代码、生产依赖或配置样例变更先通过本地/CI 验收，再形成 Git 提交；`main/master` 中命中部署路径的提交会触发生产工作流。单纯文档或工作流调整不会自动重启应用，工作流调整需要显式手动运行。功能分支不进入生产。
 - `config/**` 当前属于生产工作流的触发路径；即使只改 `.env.example`，合并到 `main/master` 前也必须完成生产影响审阅。配置样例不含真实凭据，但不能把它当作普通文档变更。
+- `deploy/**` 的脚本和配置仍触发应用部署；其中纯 Markdown 补充说明已排除，通知配置的运行内容等效比较也排除这类文档。
 - 修改环境变量：只按 [CONFIGURATION.md](development/CONFIGURATION.md) 操作，不从历史文档复制默认值。
 - 修改认证、课程状态、二维码或管理员边界：先阅读对应 ADR，再补回归测试。
 - 开始一轮重要改进：先阅读 [项目改进工作提示词](development/PROJECT_IMPROVEMENT_PROMPT.md)、[改进清单](project/IMPROVEMENT_BACKLOG.md) 和 [汇报标准](project/REPORTING_STANDARD.md)。

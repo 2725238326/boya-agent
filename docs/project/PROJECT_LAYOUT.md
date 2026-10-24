@@ -10,7 +10,7 @@
 | `web/` | Flask 接口、页面、静态资源与安全适配 | 保持公开 URL/字段兼容；不放数据库和上传原件 |
 | `tests/` | 回归、安全、迁移、隔离和维护测试 | 固定样例与 mock，不连接真实校园、SMTP、Telegram、飞书 |
 | `config/` | 环境示例与默认参考配置 | 只提交占位配置；现有生产上传目录为忽略产物 |
-| `deploy/` | systemd、Nginx、初始化和发布恢复 | 变更命中生产自动部署路径；服务样例不会自动替换现场单元 |
+| `deploy/` | systemd、Nginx、初始化和发布恢复 | 脚本/配置命中生产自动部署路径，Markdown 文档除外；服务样例不会自动替换现场单元 |
 | `scripts/` | 检查、预发布、预览和维护入口 | 用途见 [脚本目录](../../scripts/README.md)；保留 CLI 路径兼容 |
 | `.github/workflows/` | CI、部署、通知配置、独立诊断和目录维护 | 区分只读检查与生产变更；生产变更共享互斥组 |
 | `docs/architecture`、`product`、`development`、`operations`、`security` | 当前实现与操作 | 各主题只保留一份当前主文档 |
