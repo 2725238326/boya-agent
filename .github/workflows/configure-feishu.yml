@@ -15,6 +15,10 @@ on:
         description: 'Enable Telegram operations only (leave course Telegram switch unchanged)'
         type: boolean
         default: false
+      check_only:
+        description: 'Compare the live policy without changing files or restarting'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,13 +45,14 @@ jobs:
           ALERTS_ENABLED: ${{ inputs.alerts_enabled }}
           COURSES_ENABLED: ${{ inputs.courses_enabled }}
           OPS_ENABLED: ${{ inputs.ops_enabled }}
+          CHECK_ONLY: ${{ inputs.check_only }}
           EXPECTED_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 10m
-          envs: APP_DIR,SERVICE_NAME,FEISHU_WEBHOOK_URL,FEISHU_WEBHOOK_SECRET,TELEGRAM_OPS_PROXY_URL,ALERTS_ENABLED,COURSES_ENABLED,OPS_ENABLED,EXPECTED_SHA
+          envs: APP_DIR,SERVICE_NAME,FEISHU_WEBHOOK_URL,FEISHU_WEBHOOK_SECRET,TELEGRAM_OPS_PROXY_URL,ALERTS_ENABLED,COURSES_ENABLED,OPS_ENABLED,CHECK_ONLY,EXPECTED_SHA
           script: |
             set -euo pipefail
             APP_DIR="${APP_DIR:-/home/boya-agent}"
@@ -76,6 +81,10 @@ jobs:
             RESTART_NEEDED="$(./venv/bin/python "$POLICY_CHECK" --pid "${MAIN_PID:-0}")"
             rm -f "$POLICY_CHECK"
             case "$RESTART_NEEDED" in true|false) ;; *) echo "Invalid policy comparison result"; exit 1;; esac
+            if [ "$CHECK_ONLY" = "true" ]; then
+              echo "Read-only notification policy comparison: restart_needed=$RESTART_NEEDED"
+              exit 0
+            fi
             BACKUP_DIR=/var/lib/boya-agent/backups
             PRE_CONFIG="$(mktemp /var/lib/boya-agent/feishu-config-rollback.XXXXXX)"
             cp -p .env "$PRE_CONFIG"
