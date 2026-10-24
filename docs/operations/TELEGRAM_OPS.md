@@ -2,6 +2,8 @@
 
 用途：管理员接收采集异常、恢复、应用存活、采集时效与磁盘告警。飞书保留同学课程群用途。需求见 [通知需求](../product/NOTIFICATION_REQUIREMENTS.md)，本轮结果见 [发布验收](../project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。
 
+当前决定：服务器探测 Telegram 出现网络 URLError，用户明确选择暂不配置代理，运维保持关闭，待网络打通后启用。下面的启用步骤用于后续操作；不能从代码已部署推断 timer 或实际 Telegram 投递已可用。
+
 ## 配置
 
 `TELEGRAM_OPS_ENABLED=true` 独立启用运维，不依赖数据库的 `telegram_enabled` 课程开关。可配置独立 `TELEGRAM_OPS_BOT_TOKEN` / `TELEGRAM_OPS_CHAT_ID`；两项都空时复用原有 Telegram 凭据，不能只提供独立凭据的一半。`TELEGRAM_OPS_PROXY_URL` 支持显式 HTTP/HTTPS 代理；未设置时沿用 HTTPS_PROXY / HTTP_PROXY，不支持的代理不会静默绕过。真实值只放受控环境文件或 Secrets。

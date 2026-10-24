@@ -100,6 +100,19 @@ jobs:
             swapon --show --bytes || true
             uptime
             sudo systemctl show "$SERVICE_NAME" -p MemoryCurrent -p MemoryPeak -p MemoryMax --no-pager || true
+            echo "== independent operations watchdog =="
+            sudo systemctl show boya-agent-ops.timer -p ActiveState -p UnitFileState --no-pager || true
+            sudo systemctl show boya-agent-ops.service -p Result -p ExecMainStatus -p ExecMainStartTimestamp --no-pager || true
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+            path = Path('/var/lib/boya-agent/ops-watchdog.json')
+            if path.exists():
+                data = json.loads(path.read_text())
+                print('ops_watchdog_counters:', {key: data.get(key) for key in ('service', 'source', 'disk') if type(data.get(key)) is int})
+            else:
+                print('ops_watchdog_counters: unavailable')
+            PY
             echo "kernel memory events (last 24h):"
             sudo journalctl -k --since '24 hours ago' --no-pager \
               | grep -Ei 'out of memory|oom-killer|killed process|memory cgroup' \

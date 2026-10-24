@@ -41,7 +41,8 @@ def render(card):
             content.append("<hr>")
         elif tag == "action":
             for action in element["actions"]:
-                content.append(f'<a class="button" href="{escape(action["url"])}">{escape(action["text"]["content"])}</a>')
+                style = 'button secondary' if action.get('type') == 'default' else 'button'
+                content.append(f'<a class="{style}" href="{escape(action["url"])}">{escape(action["text"]["content"])}</a>')
         elif tag == "note":
             content.append('<p class="note">' + "<br>".join(escape(item["content"]) for item in element["elements"]) + '</p>')
         elif "fields" in element:
@@ -68,6 +69,7 @@ def main():
     .orange{background:#fff3e2;color:#9f5000}.red{background:#fde5e5;color:#a92323}.green{background:#e2f5e9;color:#187244}.blue{background:#e5edff;color:#235dc9}
     .body{padding:4px 20px 18px}p{white-space:pre-line;overflow-wrap:anywhere}.fields{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.fields p{margin:8px 0}
     hr{border:0;border-top:1px solid #eff0f1;margin:16px 0}.button{display:inline-block;background:#3370ff;color:white;padding:7px 17px;border-radius:6px;text-decoration:none;margin:8px 0}
+    .button+.button{margin-left:8px}.button.secondary{background:white;color:#245bdb;border:1px solid #b8caff;padding:6px 16px}
     .note{font-size:12px;color:#646a73}@media(max-width:500px){body{padding:16px}}
     </style><h1>博雅 · 飞书消息卡片</h1><p class="intro">本地结构预览，使用与发送相同的卡片 JSON。飞书客户端的字体、间距和最终效果以群内消息为准。以下均为验收演练，非真实课程或故障。</p><main class="grid">'''
     (directory / 'preview.html').write_text(html + ''.join(render(card) for card in cards) + '</main></html>', encoding='utf-8')

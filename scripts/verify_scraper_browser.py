@@ -87,6 +87,9 @@ async def main():
                 await page.set_content(fixture())
                 await page.evaluate('''() => {
                     document.querySelector('#prev').className = '';
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:transparent';
+                    document.body.append(overlay);
                     const root = document.querySelector('.pagination');
                     root.insertAdjacentHTML('afterbegin','<li><a id="first">首页</a></li>');
                     root.insertAdjacentHTML('beforeend','<li><a id="last">末页</a></li>');

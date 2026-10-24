@@ -32,9 +32,9 @@
 .venv\Scripts\python.exe scripts/preview_feishu_cards.py
 .venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt --send-card-test
 
-# 代码已部署且服务器与 main 精确一致时启用：飞书课程 + Telegram 运维
-# Telegram 使用服务器现有/独立凭据，先探测成功再激活
- gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=true -f ops_enabled=true
+# 代码已部署且服务器与 main 精确一致时启用飞书课程
+# 当前 Telegram 按用户决定保持关闭，待网络打通再启用
+gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=true -f ops_enabled=false
 ```
 
 接口 code=0 表示飞书接受，不替代群内人工确认。本地结构预览使用相同 JSON，不能冒充客户端截图。纯文档后续提交不改变服务器 HEAD；配置工作流要求目标提交与服务器一致，必要时先受控同步代码。
@@ -52,7 +52,7 @@
 ## 关闭与回退
 
 ```powershell
-gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=false -f ops_enabled=true
+gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=false -f ops_enabled=false
 ```
 
 可独立保留 Telegram 运维。工作流私有备份环境、只更新用途配置并保留其他值，串行重启、验证真实采集和实际进程；失败恢复旧环境及定时器启用状态。备份含凭据，权限 0600，只记录路径，不上传 Git 或公开工单。Telegram 检测细节见 [运维手册](TELEGRAM_OPS.md)。
