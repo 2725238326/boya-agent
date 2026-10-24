@@ -32,12 +32,12 @@
 .venv\Scripts\python.exe scripts/preview_feishu_cards.py
 .venv\Scripts\python.exe scripts/feishu_config.py --config key/webhook.txt --send-card-test
 
-# 代码已部署且服务器与 main 精确一致时启用飞书课程
+# 运行代码和配置脚本与工作流版本内容一致、工作树 clean 时启用飞书课程
 # 当前 Telegram 按用户决定保持关闭，待网络打通再启用
 gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=true -f ops_enabled=false
 ```
 
-接口 code=0 表示飞书接受，不替代群内人工确认。本地结构预览使用相同 JSON，不能冒充客户端截图。纯文档后续提交不改变服务器 HEAD；配置工作流要求目标提交与服务器一致，必要时先受控同步代码。
+接口 code=0 表示飞书接受，不替代群内人工确认。本地结构预览使用相同 JSON，不能冒充客户端截图。配置工作流核对 src/web/config/deploy、生产依赖及配置脚本的内容一致和工作树 clean；只改文档/控制工作流时，不必为了 SHA 不同重启同一份应用。先用相同参数加 `-f check_only=true` 可只读比较有效进程配置。
 
 ## 触发、去重和时效
 
@@ -55,6 +55,6 @@ gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f cours
 gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=false -f ops_enabled=false
 ```
 
-可独立保留 Telegram 运维。工作流私有备份环境、只更新用途配置并保留其他值，串行重启、验证真实采集和实际进程；失败恢复旧环境及定时器启用状态。备份含凭据，权限 0600，只记录路径，不上传 Git 或公开工单。Telegram 检测细节见 [运维手册](TELEGRAM_OPS.md)。
+可独立控制 Telegram 运维，当前按用户决定关闭。工作流私有备份环境、保留其他值；先私下比较进程中的课程开关、凭据及运维状态，不输出值。若有效配置一致且运维关闭，只同步无运行影响的旧配置，不发重复探测、不重启；实质变化仍探测、串行重启并验证真实采集和实际进程。失败恢复旧环境，只有本次实际重启过才重启回退。备份含凭据，权限 0600，只记录路径，不上传 Git 或公开工单。Telegram 检测细节见 [运维手册](TELEGRAM_OPS.md)。
 
 staging 清除并拒绝 FEISHU_* 与 TELEGRAM_OPS_* 配置，传输入口也阻断 staging；离线回归不连接真实群。

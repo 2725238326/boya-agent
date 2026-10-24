@@ -8,7 +8,7 @@
 
 `TELEGRAM_OPS_ENABLED=true` 独立启用运维，不依赖数据库的 `telegram_enabled` 课程开关。可配置独立 `TELEGRAM_OPS_BOT_TOKEN` / `TELEGRAM_OPS_CHAT_ID`；两项都空时复用原有 Telegram 凭据，不能只提供独立凭据的一半。`TELEGRAM_OPS_PROXY_URL` 支持显式 HTTP/HTTPS 代理；未设置时沿用 HTTPS_PROXY / HTTP_PROXY，不支持的代理不会静默绕过。真实值只放受控环境文件或 Secrets。
 
-生产配置工作流先从服务器发送验收消息，验证实际通道成功，再备份和更新环境。失败不激活；重启/验收失败恢复旧环境。以下命令在服务器与工作流提交精确一致且 clean 时运行：
+启用运维时，生产配置工作流先从服务器发送验收消息，成功后再备份和更新环境。失败不激活；重启/验收失败恢复旧环境。以下命令要求服务器运行代码、部署/依赖及配置脚本与工作流版本内容一致，且 worktree clean；文档/控制工作流的后续提交可以通过内容比对，不要求为此重启应用：
 
 ```powershell
 gh workflow run configure-feishu.yml --ref main -f alerts_enabled=false -f courses_enabled=true -f ops_enabled=true
