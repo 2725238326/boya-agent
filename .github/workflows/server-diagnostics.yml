@@ -251,7 +251,8 @@ jobs:
                         pager_text: Array.from(document.querySelectorAll('.pagination')).map(el => (el.innerText || '').slice(0,300)),
                         pager_structure: Array.from(document.querySelectorAll('.pagination')).map(root => Array.from(root.querySelectorAll('*')).map(el => ({
                           tag: el.tagName, text: (el.children.length ? '' : (el.textContent || '').trim()).slice(0,50),
-                          attributes: Object.fromEntries(Array.from(el.attributes).filter(a => ['class','id','name','type','value','aria-current','aria-label','data-page'].includes(a.name)).map(a => [a.name,a.value.slice(0,100)]))
+                          attribute_names: Array.from(el.attributes).map(a => a.name),
+                          attributes: Object.fromEntries(Array.from(el.attributes).filter(a => ['class','id','name','type','value','aria-current','aria-label','data-page','data-bind','ng-click','ng-disabled','@click',':class'].includes(a.name)).map(a => [a.name,a.value.slice(0,160)]))
                         }))),
                         pager_parent: Array.from(document.querySelectorAll('.pagination')).map(root => ({
                           tag: root.parentElement.tagName,
@@ -265,7 +266,8 @@ jobs:
                         numeric_controls: Array.from(document.querySelectorAll('select,input')).filter(el => /^\\d+$/.test(el.value || '')).map(el => ({
                           tag:el.tagName, value:el.value, id:el.id, name:el.name,
                           options:el.options ? Array.from(el.options).map(o => o.textContent.trim()).slice(0,25) : []
-                        }))
+                        })),
+                        scripts: Array.from(document.scripts).filter(el => el.src).map(el => new URL(el.src).pathname)
                       };
                     }''')
                     print('source_dom_audit:', json.dumps(result, ensure_ascii=False))
