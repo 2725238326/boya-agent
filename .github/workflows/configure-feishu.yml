@@ -37,6 +37,7 @@ jobs:
           SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          TELEGRAM_OPS_PROXY_URL: ${{ secrets.TELEGRAM_OPS_PROXY_URL }}
           ALERTS_ENABLED: ${{ inputs.alerts_enabled }}
           COURSES_ENABLED: ${{ inputs.courses_enabled }}
           OPS_ENABLED: ${{ inputs.ops_enabled }}
@@ -46,7 +47,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 10m
-          envs: APP_DIR,SERVICE_NAME,FEISHU_WEBHOOK_URL,FEISHU_WEBHOOK_SECRET,ALERTS_ENABLED,COURSES_ENABLED,OPS_ENABLED,EXPECTED_SHA
+          envs: APP_DIR,SERVICE_NAME,FEISHU_WEBHOOK_URL,FEISHU_WEBHOOK_SECRET,TELEGRAM_OPS_PROXY_URL,ALERTS_ENABLED,COURSES_ENABLED,OPS_ENABLED,EXPECTED_SHA
           script: |
             set -euo pipefail
             APP_DIR="${APP_DIR:-/home/boya-agent}"
@@ -70,7 +71,7 @@ jobs:
             restore_on_error() {
               code=$?
               trap - EXIT
-              if [ "$code" != "0" ] && [ "$MUTATED" = "1" ]; then
+              if [ "$code" != "0" ] && { [ "$MUTATED" = "1" ] || ! cmp -s .env "$PRE_CONFIG"; }; then
                 cp "$PRE_CONFIG" .env
                 sudo chown root:boya-agent .env
                 sudo chmod 640 .env
@@ -86,9 +87,9 @@ jobs:
             # A successful group probe precedes activation. No secrets are echoed.
             PROBE=()
             if [ "$ALERTS_ENABLED" = "true" ] || [ "$COURSES_ENABLED" = "true" ] || [ "$OPS_ENABLED" = "true" ]; then PROBE=(--probe); fi
-            MUTATED=1
             ./venv/bin/python scripts/configure_feishu.py --env-file .env --backup-dir "$BACKUP_DIR" \
               --alerts "$ALERTS_ENABLED" --courses "$COURSES_ENABLED" --ops "$OPS_ENABLED" "${PROBE[@]}"
+            MUTATED=1
             STARTED_AT="$(date --iso-8601=seconds)"
             sudo systemctl restart "$SERVICE_NAME"
             for attempt in $(seq 1 20); do

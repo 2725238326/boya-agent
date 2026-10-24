@@ -8,7 +8,7 @@ import os
 import re
 import uuid
 from urllib.request import build_opener, ProxyHandler, Request
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from loguru import logger
 from src.notification_jobs import NotificationDeliveryResult, drain_notification_jobs, enqueue_notification_job
@@ -80,6 +80,8 @@ def _send_sync(text, *, probe=False):
     except HTTPError as error:
         logger.warning("Telegram ops HTTP failure: status={}", error.code)
         error.close()
+    except URLError as error:
+        logger.warning("Telegram ops transport failed: type={}", type(error.reason).__name__)
     except Exception as error:
         logger.warning("Telegram ops send failed: type={}", type(error).__name__)
     return False

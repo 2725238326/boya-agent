@@ -1480,7 +1480,10 @@ async def _click_pager_endpoint(page: Page, *, first: bool) -> bool:
         if not await candidate.is_visible():
             continue
         if not await _pagination_control_disabled(candidate):
-            await candidate.click(timeout=4000)
+            # Read-only pager anchors sit behind transient campus overlays.
+            # Dispatch their native DOM click after checking disabled state;
+            # enrollment/action buttons never use this path.
+            await candidate.evaluate("el => el.click()")
             if not await _wait_for_network_idle(page):
                 raise ScrapePageNotReadyError("分页端点请求未稳定，拒绝不完整快照")
             if not await _wait_course_tables_ready(page):
@@ -2359,7 +2362,7 @@ async def _move_course_page(page: Page, *, forward: bool) -> bool:
                 continue
             is_disabled = await _pagination_control_disabled(candidate) or await _numeric_pager_boundary(candidate, forward=forward)
             if not is_disabled:
-                await candidate.click(timeout=4000)
+                await candidate.evaluate("el => el.click()")
                 await _wait_for_network_idle(page)
                 await _wait_course_tables_ready(page)
                 for _ in range(25):

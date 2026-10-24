@@ -18,6 +18,7 @@ def configure(env_file: Path, backup_dir: Path, alerts: bool, courses: bool, *, 
     from dotenv import dotenv_values, set_key
     from src.push.feishu_bot import _credential_config, _send_sync
     _credential_config()  # validates credentials passed as environment variables
+    ops_proxy_override = os.getenv("TELEGRAM_OPS_PROXY_URL", "").strip()
     if not env_file.is_file() or env_file.is_symlink():
         raise ValueError("Expected an existing regular environment file")
     if probe and courses and not _send_sync("博雅课程群接入验收\n本群用于新课和退选补位提醒。名额以官方系统为准；运维告警使用 Telegram。此消息为配置验收。", "alerts", probe=True):
@@ -30,6 +31,8 @@ def configure(env_file: Path, backup_dir: Path, alerts: bool, courses: bool, *, 
         before_env = {key: os.environ.get(key) for key in keys}
         try:
             for key in keys:
+                if key == "TELEGRAM_OPS_PROXY_URL" and ops_proxy_override:
+                    continue
                 if local.get(key):
                     os.environ[key] = local[key]
             ops_bot._credentials()
@@ -59,6 +62,8 @@ def configure(env_file: Path, backup_dir: Path, alerts: bool, courses: bool, *, 
                   "FEISHU_COURSES_ENABLED": str(courses).lower()}
         if ops is not None:
             values["TELEGRAM_OPS_ENABLED"] = str(ops).lower()
+        if ops and ops_proxy_override:
+            values["TELEGRAM_OPS_PROXY_URL"] = ops_proxy_override
         for key, value in values.items():
             set_key(str(temp), key, value, quote_mode="always")
         # Every unrelated configuration value must survive the update.

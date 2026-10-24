@@ -97,7 +97,8 @@ class OpsTests(IsolatedAsyncioTestCase):
         from scripts.configure_feishu import configure
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
             'FEISHU_WEBHOOK_URL': 'https://open.feishu.cn/open-apis/bot/v2/hook/fixture-only',
-            'FEISHU_WEBHOOK_SECRET': 'fixture-signing-secret'
+            'FEISHU_WEBHOOK_SECRET': 'fixture-signing-secret',
+            'TELEGRAM_OPS_PROXY_URL': 'http://fixture-proxy.test:8080'
         }):
             root = Path(directory)
             env_file = root / '.env'
@@ -113,3 +114,4 @@ class OpsTests(IsolatedAsyncioTestCase):
             self.assertEqual(values['TELEGRAM_OPS_ENABLED'], 'true')
             self.assertEqual(values['FEISHU_ALERTS_ENABLED'], 'false')
             self.assertEqual(values['EMAIL_DELIVERY_ENABLED'], 'false')
+            self.assertEqual(values['TELEGRAM_OPS_PROXY_URL'], 'http://fixture-proxy.test:8080')
