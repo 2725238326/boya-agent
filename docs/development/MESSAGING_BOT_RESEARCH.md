@@ -2,6 +2,8 @@
 
 整理时间：2026-09-20。目的：盘点 Telegram Bot API 近一年值得采用的新能力，并把飞书机器人的两种接入形态和本项目落地路径讲清楚。本文是调研笔记，落地时再补正式实现文档。
 
+2026-10-24 更新：用户已明确要求接入，课程/系统通知实现及验收见 [飞书接入记录](../project/FEISHU_RELEASE_2026_10_24.md)，配置见 [飞书手册](../operations/FEISHU.md)。下方实施排序保留为调研历史，不代表当前仍暂缓。
+
 ## 一、Telegram Bot API 近况
 
 当前最新版 **Bot API 10.3**（2026-08-24）。本项目锁定 `python-telegram-bot==22.8`，覆盖到 9.x 系列能力；现有代码只用了 `sendMessage` + MarkdownV2/HTML + URL 按钮，不升级也能继续用。
@@ -64,7 +66,7 @@ def feishu_sign(secret: str) -> dict:
     return {"timestamp": ts, "sign": sign}  # 并入请求体顶层
 ```
 
-注意：签名的 HMAC 消息体是 `timestamp\nsecret`，key 用空字节（`hmac.new` 第一个参数传 `b""` 或如上直接把内容当 key 输入的官方示例写法——以官方文档代码为准，实测一次即可确认）。限频建议避开整点/半点（官方明确提示此时段易触发 11232 限流）。
+签名计算：HMAC key 为 `timestamp + "\n" + secret`，消息体为空字节串，再做 Base64；不能把 key 与消息体交换。2026-10-24 项目实现采用该规则并已获飞书 code=0。限频由单进程串行间隔及 outbox 退避处理，实际操作见 [飞书手册](../operations/FEISHU.md)。
 
 ### 2.2 自建应用机器人
 

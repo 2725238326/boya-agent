@@ -1,0 +1,91 @@
+name: Configure Feishu
+
+on:
+  workflow_dispatch:
+    inputs:
+      alerts_enabled:
+        description: 'Enable signed scraping failure/recovery messages'
+        type: boolean
+        default: true
+      courses_enabled:
+        description: 'Enable course group notifications using current global filters'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref_name == 'main'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Configure and verify production Feishu
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          ALERTS_ENABLED: ${{ inputs.alerts_enabled }}
+          COURSES_ENABLED: ${{ inputs.courses_enabled }}
+          EXPECTED_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          envs: APP_DIR,SERVICE_NAME,FEISHU_WEBHOOK_URL,FEISHU_WEBHOOK_SECRET,ALERTS_ENABLED,COURSES_ENABLED,EXPECTED_SHA
+          script: |
+            set -euo pipefail
+            APP_DIR="${APP_DIR:-/home/boya-agent}"
+            SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
+            cd "$APP_DIR"
+            if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ] || [ -n "$(git status --porcelain)" ]; then
+              echo "Server must run the clean workflow commit before changing Feishu config."
+              exit 1
+            fi
+            BACKUP_DIR=/var/lib/boya-agent/backups
+            PRE_CONFIG="$(mktemp /var/lib/boya-agent/feishu-config-rollback.XXXXXX)"
+            cp -p .env "$PRE_CONFIG"
+            chmod 600 "$PRE_CONFIG"
+            MUTATED=0
+            restore_on_error() {
+              code=$?
+              trap - EXIT
+              if [ "$code" != "0" ] && [ "$MUTATED" = "1" ]; then
+                cp "$PRE_CONFIG" .env
+                sudo chown root:boya-agent .env
+                sudo chmod 640 .env
+                sudo systemctl restart "$SERVICE_NAME" || true
+                echo "Configuration failure; restored previous environment. Verify service before retrying."
+              fi
+              echo "Private rollback copy: $PRE_CONFIG"
+              exit "$code"
+            }
+            trap restore_on_error EXIT
+            # A successful group probe precedes activation. No secrets are echoed.
+            PROBE=()
+            if [ "$ALERTS_ENABLED" = "true" ] || [ "$COURSES_ENABLED" = "true" ]; then PROBE=(--probe); fi
+            MUTATED=1
+            ./venv/bin/python scripts/configure_feishu.py --env-file .env --backup-dir "$BACKUP_DIR" \
+              --alerts "$ALERTS_ENABLED" --courses "$COURSES_ENABLED" "${PROBE[@]}"
+            STARTED_AT="$(date --iso-8601=seconds)"
+            sudo systemctl restart "$SERVICE_NAME"
+            for attempt in $(seq 1 20); do
+              if curl --fail --silent --max-time 5 http://127.0.0.1:5000/healthz >/dev/null; then break; fi
+              sleep 3
+            done
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+            curl --fail --silent --max-time 5 http://127.0.0.1:5000/healthz >/dev/null
+            ./venv/bin/python scripts/check_startup_source.py --url http://127.0.0.1:5000/api/courses \
+              --started-at "$STARTED_AT" --timeout 300
+            ./venv/bin/python scripts/verify_feishu_runtime.py --alerts "$ALERTS_ENABLED" --courses "$COURSES_ENABLED"
+            trap - EXIT
+            echo "Feishu activation verified. Other channel settings were preserved."

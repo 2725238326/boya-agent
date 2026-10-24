@@ -25,6 +25,7 @@ class StagingRuntimeTests(unittest.TestCase):
         self.assertEqual(validate_staging(), self.root.resolve())
         for key, value in (("DATABASE_PATH", str(self.root.parent / "production.db")),
                            ("BUAA_PASSWORD", "inherited"), ("SMTP_SERVER", "smtp.example.test"),
+                           ("FEISHU_WEBHOOK_URL", "fixture-secret"),
                            ("WEB_HOST", "0.0.0.0"), ("WEB_PORT", "5000"),
                            ("NOTIFICATION_MODE", "smtp"), ("SCRAPE_SOURCE", "live")):
             with self.subTest(key=key), patch.dict(os.environ, {key: value}):
