@@ -122,7 +122,7 @@ jobs:
             MAIN_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             if [ "${MAIN_PID:-0}" != "0" ]; then ps -o pid,ppid,user,etime,cmd -p "$MAIN_PID"; fi
             sudo journalctl -u "$SERVICE_NAME" --since "${LOG_SINCE:-10 minutes ago}" --no-pager -n 500 \
-              | grep -E '抓取|scrape|Course coverage|Course pagination|Telegram ops|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
+              | grep -E '抓取|scrape|Course coverage|Course pagination|视图|课程分页完成|Telegram ops|系统已就绪|定时调度|本轮抓取|选课页面|暂无可选课程|ERROR|WARNING|登录|认证|Feishu' \
               | tail -n 180 || true
 
             echo "== database and notification state =="
