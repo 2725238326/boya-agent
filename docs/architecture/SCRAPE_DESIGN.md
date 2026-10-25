@@ -118,7 +118,7 @@ flowchart TD
 | --- | --- |
 | `observation_id` | 本次实际读取的唯一 ID；同批重试提交复用，重新读取必须新建 |
 | `run_id / page_sequence / acquisition_sequence` | 作业、页序列、单执行器递增读取序列，便于审计与排序 |
-| `session_epoch / source / scope` | 会话代次、适配器、可见范围 |
+| `engine_generation / session_epoch / source / scope` | 引擎切换代次、会话代次、适配器、可见范围 |
 | `course_id / source_key` | 兼容系统 ID 与经验证的上游身份映射 |
 | `observed_at / received_at / committed_at` | 实际读取、结果收到、事务提交；新审计表用带时区 UTC |
 | `capacity / enrolled / window` | 同一可信读取的完整名额对与报名窗口；字段可明确未知 |
@@ -204,6 +204,7 @@ event_id 使用不透明 ID，数据库唯一键为课+event_type+business_key�
 | --- | --- |
 | `collection_runs` | 意图、能力档位、起止、结果、coverage_grade、页数/唯一数、独立总数可空、checkpoint/错误类型；索引时间与结果 |
 | `collection_intents` | 范围唯一键、优先级、due_at、deadline、租约、合并计数；索引状态/到期 |
+| `collection_control` | 单行保存有效引擎与 generation、切换水位；事务检查代次，拒绝已停用执行器的迟到提交 |
 | `course_observations` | observation_id、课/来源/时钟/序列、名额对/摘要/有效性；唯一 observation_id+课，索引课+观测时间 |
 | `course_events` | 不透明 event_id、课/类型/episode、前后观察、规则版本、原因；唯一课+事件类型+业务阶段/episode |
 | `course_notification_intents` | 事件、目标哈希、策略版本、资格状态、not_before、expires_at、跳过原因；唯一目标+事件+阶段 |
@@ -227,6 +228,8 @@ event_id 使用不透明 ID，数据库唯一键为课+event_type+business_key�
 | 介绍更新/普通人数变化 | 网页更新，不刷课程群 |
 
 发送前只复核数据库最新状态和时效，不在发送函数内抓网页。陈旧时由规划器安排验证读取，任务等待到 TTL；过期则明确 skipped/expired，不能拿 10 分钟旧数据发补位。入队到实际发送间再次满额时跳过；传输在途后名额改变仍存在客观竞态，卡片保留准确观测时间与“以官方实时名额为准”。
+
+预告的 180 秒是交付目标，不是三分钟后抹掉新课资格：已知报名窗口时预告资格截止于开选，开选阶段由独立意图处理；窗口未知时候选上限为发现后 24 小时，并在窗口补齐时重算。目标超时记录违约，不能删除失败样本；课程明确结束或被过滤才终止对应资格。
 
 缺失自主签到等群必需条件时暂不发送，界面显示待确认；优先安排一次详情补全并持久重试，不能把暂时失败永久加入 attempted_ids。普通介绍不会阻塞名额更新；必要字段未确认时宁可延迟群推并记录原因。
 
@@ -295,6 +298,8 @@ seat_age 每 15 秒对全部应监控课程取样，按热点/普通课/能力�
 `course_event_v2` 由明确新处理器领取；旧处理器 job_types 白名单不得误领。回退切回 legacy、停 v2 任务生产与领取、保留新增表和 outbox，不删除业务数据；旧缓冲不跨引擎重放。再次启用 v2 时沿用事件/episode，过期任务记录过期，不重发历史当前课。
 
 本轮新事件类型仅接入已授权的飞书课程通道。切换前核对旧待发任务：仍有效的先完成或明确标为被替代，按目标/课/阶段建立迁移锚点；不能让旧任务与新事件各发一次。回退时新任务仍保留但旧版本不能误领，后续按 TTL 处理。
+
+切换先提升持久 engine_generation，再停止旧命令。每个写事务复核有效引擎和 generation；即使旧线程在取消后才返回，也不能在切回 legacy 后继续提交 v2 状态或创建群推。内存开关和取消 Task 本身不足以隔离迟到工作。通知领取同样检查活动模式，新请求关闭后不再发起，已在途请求按实际结果记录。
 
 每批必须明确实现状态、应用 SHA、数据/配置影响和实际业务观察。本文不能作为已发布功能说明；产品、API 和配置主文档只在对应实现批次更新当前行为。
 

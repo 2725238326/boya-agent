@@ -15,7 +15,7 @@
 
 ## 下一步按优先级推进
 
-采集下一版设计见 [SCRAPE_DESIGN.md](../architecture/SCRAPE_DESIGN.md)，工作拆为 [P1–P6 实施批次](SCRAPE_IMPLEMENTATION_PLAN.md)，含 26 类回归/故障场景与真实运行验收。本轮交付设计，表中相关实现仍待开始。
+采集下一版设计见 [SCRAPE_DESIGN.md](../architecture/SCRAPE_DESIGN.md)，工作拆为 [P1–P6 实施批次](SCRAPE_IMPLEMENTATION_PLAN.md)，含 27 类回归/故障场景与真实运行验收。本轮交付设计，表中相关实现仍待开始。
 
 | 优先级 | 工作 | 当前状态 | 完成条件 |
 | --- | --- | --- | --- |
