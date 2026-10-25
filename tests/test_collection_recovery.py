@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from src import scheduler
-from src.collection.pagination import course_page_identity
+from src.collection.pagination import CoursePager, course_page_identity
 from src.collection.recovery import browser_disconnected, requires_browser_reset
 from src.collection.timing import attempt_timings, measure_stage
 from src.scrape_outcome import ScrapeOutcome, ScrapeStatus
@@ -42,6 +42,17 @@ class CollectionPolicyTests(unittest.TestCase):
 
 
 class CollectionRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_endpoint_waits_for_deferred_identity_after_network_idle(self):
+        control = SimpleNamespace(is_visible=AsyncMock(return_value=True), evaluate=AsyncMock(return_value=False))
+        controls = SimpleNamespace(count=AsyncMock(return_value=1), nth=lambda _index:control)
+        controls.filter = lambda **_kwargs:controls
+        page = SimpleNamespace(locator=lambda _selector:controls, wait_for_timeout=AsyncMock())
+        read = AsyncMock(side_effect=[('last',), ('last',), ('last',), ('first',), ('first',), ('first',)])
+        pager = CoursePager(page, read, AsyncMock(return_value=True), AsyncMock(return_value=True))
+        self.assertTrue(await pager.endpoint(first=True))
+        self.assertEqual(read.await_count, 6)
+        self.assertGreaterEqual(page.wait_for_timeout.await_count, 4)
+
     async def test_parse_retry_reuses_browser_and_never_saves_failed_snapshot(self):
         for disconnected in (False, True):
             with self.subTest(disconnected=disconnected):

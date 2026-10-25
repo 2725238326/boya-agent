@@ -62,12 +62,28 @@ class CoursePager:
             if not await candidate.is_visible():
                 continue
             if not await control_disabled(candidate):
+                before = await self.read_identity()
                 # Only read-only pager controls use native clicks through overlays.
                 await candidate.evaluate("el => el.click()")
                 if not await self.wait_idle() or not await self.wait_ready():
                     raise ScrapePageNotReadyError("分页端点请求未稳定，拒绝不完整快照")
-                # Legacy endpoints have no marker and are idempotent at the edge.
-                await self.page.wait_for_timeout(500)
+                # A network-idle event can precede a deferred pager render. A
+                # fixed 500ms sleep was reading the previous final page as page 1.
+                # Require stable changed identities; an idempotent endpoint gets
+                # the full bounded window, not an early unchanged-table success.
+                previous, stable = (), 0
+                for _ in range(self.poll_count):
+                    after = await self.read_identity()
+                    if after and after != before:
+                        stable = stable + 1 if after == previous else 1
+                        if stable >= 3:
+                            return True
+                    else:
+                        stable = 0
+                    previous = after
+                    await self.page.wait_for_timeout(self.poll_ms)
+                if not previous or previous != before:
+                    raise ScrapePageNotReadyError("分页端点课程身份未稳定，拒绝不完整快照")
             return True
         return False
 
@@ -101,12 +117,19 @@ class CoursePager:
                     return False
                 await candidate.evaluate("el => el.click()")
                 await self.wait_idle()
-                await self.wait_ready()
+                if not await self.wait_ready():
+                    raise ScrapePageNotReadyError("翻页后课程表未就绪，拒绝不完整快照")
+                previous, stable = (), 0
                 for _ in range(self.poll_count):
                     after = await self.read_identity()
                     if after and after != before:
-                        logger.info("课程分页完成: direction={}", "next" if forward else "previous")
-                        return True
+                        stable = stable + 1 if after == previous else 1
+                        if stable >= 3:
+                            logger.info("课程分页完成: direction={}", "next" if forward else "previous")
+                            return True
+                    else:
+                        stable = 0
+                    previous = after
                     await self.page.wait_for_timeout(self.poll_ms)
                 # A value change on the same page is not movement. Use an
                 # independent endpoint, never infer an end from unchanged IDs alone.
