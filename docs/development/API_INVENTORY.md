@@ -10,6 +10,8 @@
 
 2026-10-24 增加管理员 GET /api/status 的 data.feishu 摘要：configured、alerts_enabled、courses_enabled、staging_blocked；不含 Webhook、secret 或群消息 payload。没有新增公开发送接口，飞书开关由受控环境配置管理。
 
+2026-10-25 P1 增量增加管理状态字段 last_scrape_total_ms、last_scrape_stage_ms、last_scrape_attempts、last_scrape_recovery。总耗时覆盖整轮，阶段值为最后一次尝试，恢复策略为 reuse_session/recreate_browser 或 null；不包含原响应、账号或凭据。公开课程接口没有随 P1 增加内部计时或异常信息。
+
 - “公开”表示不需要门户 Cookie；“会话”表示只接受 `HttpOnly` 的 `portal_token`，邮箱、URL token 和 JSON 字段都不能代替会话。
 - “管理员”表示应用层 Basic/Bearer 认证；生产还应经过 Nginx `.htpasswd`，两层不能互相替代。
 - 所有 POST/PUT/PATCH/DELETE 默认检查 `Origin` 或 `Referer`。没有这两个头的受控脚本请求保持兼容；带头请求必须是当前 Host 或 `APP_ALLOWED_ORIGINS` 中的来源。

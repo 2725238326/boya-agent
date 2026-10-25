@@ -56,6 +56,8 @@ sudo tail -n 200 /home/boya-agent/logs/boya_agent_$(date +%F).log
 
 ## 抓取与后台检查
 
+P1 版本增加 `scrape round timing` 日志，输出整轮总耗时、尝试次数、恢复策略和最后一次尝试的阶段耗时。管理 `/api/status` 同时提供 last_scrape_total_ms、last_scrape_stage_ms、last_scrape_attempts、last_scrape_recovery；阶段耗时不是通知端到端延迟。普通解析失败应看到 reuse_session，认证失效/断连才 recreate_browser。实际版本和验收见 [P1 记录](../project/SCRAPE_P1_2026_10_25.md)。
+
 ### SSH 不响应时的主机诊断
 
 如果 22 端口能建立 TCP 连接但 SSH banner、HTTPS 或本机健康检查均无响应，先在腾讯云 VNC/串口终端执行仓库中的 `deploy/host_health.sh`。脚本只读输出主机内存、Swap、负载、占用最高的进程、监听端口、服务状态、OOM 记录和近期抓取日志；不要在 SSH 未恢复时反复触发部署。

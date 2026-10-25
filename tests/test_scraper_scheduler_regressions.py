@@ -1484,7 +1484,7 @@ class EnrichDetailTests(unittest.IsolatedAsyncioTestCase):
         rows = [{"id": "a"}, {"id": "b"}]
         with (
             patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
-            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[rows])),
+            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(return_value=rows)),
             patch(
                 "src.scraper._enrich_with_details",
                 new=AsyncMock(side_effect=lambda _p, c, **_kw: c),
@@ -1511,7 +1511,7 @@ class EnrichDetailTests(unittest.IsolatedAsyncioTestCase):
         rows = [{"id": "a"}, {"id": "b"}]
         with (
             patch("src.scraper._ensure_session_with_retry", new=AsyncMock(return_value=True)),
-            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(side_effect=[rows])),
+            patch("src.scraper._parse_visible_course_tables", new=AsyncMock(return_value=rows)),
             patch(
                 "src.scraper._enrich_with_details",
                 new=AsyncMock(side_effect=lambda _p, c, **_kw: c),

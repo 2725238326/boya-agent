@@ -57,6 +57,7 @@ from src.push.telegram_bot import (
 from src.time_utils import now as business_now
 from src.push import feishu_bot, ops_bot
 from src.runtime import is_staging, validate_staging
+from src.collection.recovery import requires_browser_reset
 
 # 全局调度器实例
 scheduler = AsyncIOScheduler()
@@ -76,6 +77,10 @@ run_status = {
     "last_scrape_health": None,
     "last_scrape_status": None,
     "last_scrape_duration_ms": None,
+    "last_scrape_total_ms": None,
+    "last_scrape_stage_ms": {},
+    "last_scrape_attempts": 0,
+    "last_scrape_recovery": None,
     "last_daily_summary": None,
 }
 
@@ -198,10 +203,14 @@ async def _close_browser_local(pw, browser):
     try:
         if browser:
             await browser.close()
-        if pw:
-            await pw.stop()
     except Exception as e:
-        logger.warning(f"close browser failed: {e}")
+        logger.warning("close browser failed: type={}", type(e).__name__)
+    finally:
+        if pw:
+            try:
+                await pw.stop()
+            except Exception as error:
+                logger.warning("stop playwright failed: type={}", type(error).__name__)
 
 
 async def close_browser():
@@ -480,6 +489,9 @@ async def _run_scrape_task_impl(mode: str = "full"):
     run_status["is_running"] = True
     run_status["last_run"] = business_now()
     run_status["last_scrape_duration_ms"] = None
+    run_status["last_scrape_stage_ms"] = {}
+    run_status["last_scrape_attempts"] = 0
+    run_status["last_scrape_recovery"] = None
     run_status["total_runs"] += 1
 
     pushed_count = 0
@@ -513,14 +525,16 @@ async def _run_scrape_task_impl(mode: str = "full"):
             logger.warning(f"加载待补详情课程列表失败，本轮按普通 {mode} 抓取处理: {e}")
             detail_ids = None
             known_ids = None
+        recreate_on_retry = False
         for attempt in range(2):
+            run_status["last_scrape_attempts"] = attempt + 1
             if attempt > 0:
-                logger.warning("scrape failed, recreate browser and retry once")
+                logger.warning("scrape failed, retry once: recovery={}", "recreate_browser" if recreate_on_retry else "reuse_session")
             if is_staging():
                 validate_staging()
                 page = None
             else:
-                page = await _ensure_browser(force_recreate=attempt > 0)
+                page = await _ensure_browser(force_recreate=recreate_on_retry)
             if not page and not is_staging():
                 last_scrape_error = "browser/login unavailable"
                 last_scrape_status = "browser_unavailable"
@@ -543,13 +557,30 @@ async def _run_scrape_task_impl(mode: str = "full"):
                     _mark_browser_used()
                 scrape_status = outcome.status.value
                 run_status["last_scrape_duration_ms"] = outcome.metadata.get("duration_ms")
+                run_status["last_scrape_stage_ms"] = outcome.metadata.get("stages_ms", {})
                 if not outcome.success:
                     last_scrape_error = outcome.message or outcome.status.value
                     last_scrape_status = outcome.status.value
                     logger.error(
                         f"scrape attempt {attempt + 1}/2 failed: status={outcome.status.value}"
                     )
-                    await close_browser()
+                    recreate_on_retry = requires_browser_reset(outcome.status.value, outcome.metadata)
+                    run_status["last_scrape_recovery"] = "recreate_browser" if recreate_on_retry else "reuse_session"
+                    if recreate_on_retry:
+                        await close_browser()
+                    continue
+                scrape_health = assess_scrape_health(outcome.courses)
+                run_status["last_scrape_health"] = scrape_health
+                if not scrape_health["healthy"]:
+                    last_scrape_status = "parse_failed"
+                    last_scrape_error = (
+                        "scrape snapshot blocked as suspicious: "
+                        f"scraped={len(outcome.courses)}, db_active={scrape_health['db_active_count']}, "
+                        f"min_expected={scrape_health['minimum_expected']}"
+                    )
+                    logger.warning("{}; retry keeps authenticated session", last_scrape_error)
+                    recreate_on_retry = False
+                    run_status["last_scrape_recovery"] = "reuse_session"
                     continue
                 courses_data = outcome.courses
                 break
@@ -557,6 +588,8 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 last_scrape_error = str(e)
                 last_scrape_status = "task_failed"
                 logger.error(f"scrape attempt {attempt + 1}/2 failed: {e}")
+                recreate_on_retry = True
+                run_status["last_scrape_recovery"] = "recreate_browser"
                 await close_browser()
 
         if courses_data is None:
@@ -576,28 +609,6 @@ async def _run_scrape_task_impl(mode: str = "full"):
         run_status["last_scrape_status"] = scrape_status
         scraped_count = len(courses_data)
         if not courses_data:
-            scrape_health = assess_scrape_health([])
-            run_status["last_scrape_health"] = scrape_health
-            if not scrape_health["healthy"]:
-                msg = (
-                    "scrape returned no courses and was blocked as suspicious: "
-                    f"db_active={scrape_health['db_active_count']}, "
-                    f"min_expected={scrape_health['minimum_expected']}"
-                )
-                run_status["last_error"] = msg
-                logger.error(msg)
-                _consecutive_failures += 1
-                await _check_and_alert_failures()
-                return _scrape_result(
-                    False,
-                    msg,
-                    scraped_count=0,
-                    new_courses=0,
-                    mode=mode,
-                    scrape_health=scrape_health,
-                    scrape_status=scrape_status,
-                )
-
             logger.info("no courses scraped")
             await _note_scrape_success()
             return _scrape_result(
@@ -606,32 +617,7 @@ async def _run_scrape_task_impl(mode: str = "full"):
                 scraped_count=0,
                 new_courses=0,
                 mode=mode,
-                scrape_health=scrape_health,
-                scrape_status=scrape_status,
-            )
-
-        scrape_health = assess_scrape_health(courses_data)
-        run_status["last_scrape_health"] = scrape_health
-        if not scrape_health["healthy"]:
-            msg = (
-                "scrape snapshot blocked as suspiciously sparse: "
-                f"scraped={scrape_health['scraped_count']}, "
-                f"db_active={scrape_health['db_active_count']}, "
-                f"min_expected={scrape_health['minimum_expected']}, "
-                f"available={scrape_health['available_count']}, "
-                f"preview={scrape_health['preview_count']}"
-            )
-            run_status["last_error"] = msg
-            logger.error(msg)
-            _consecutive_failures += 1
-            await _check_and_alert_failures()
-            return _scrape_result(
-                False,
-                msg,
-                scraped_count=scraped_count,
-                new_courses=0,
-                mode=mode,
-                scrape_health=scrape_health,
+                scrape_health=run_status["last_scrape_health"],
                 scrape_status=scrape_status,
             )
 
@@ -779,6 +765,7 @@ def _clear_active_scrape_task(task: asyncio.Task) -> None:
 
 
 async def _execute_scrape_task(mode: str = "full"):
+    started_at = time.monotonic()
     try:
         return await asyncio.wait_for(
             _run_scrape_task_impl(mode=mode),
@@ -805,6 +792,11 @@ async def _execute_scrape_task(mode: str = "full"):
             timed_out=True,
             scrape_status="timeout",
         )
+    finally:
+        run_status["last_scrape_total_ms"] = max(0, int((time.monotonic() - started_at) * 1000))
+        logger.info("scrape round timing: mode={}, total_ms={}, attempts={}, recovery={}, stages_ms={}",
+                    mode, run_status["last_scrape_total_ms"], run_status["last_scrape_attempts"],
+                    run_status["last_scrape_recovery"], run_status["last_scrape_stage_ms"])
 
 
 async def _get_or_create_scrape_task(mode: str, join_existing: bool = True):

@@ -41,6 +41,8 @@ def boundary_errors(relative: str, source: str) -> list[str]:
         forbidden += ["src.models", "src.scheduler", "src.scraper", "src.push", "flask", "sqlalchemy", "playwright"]
     if path.name in {"models.py", "notification_jobs.py"} or "push" in path.parts:
         forbidden += ["src.scheduler", "src.scraper"]
+    if len(path.parts) > 2 and path.parts[1] == "collection":
+        forbidden += ["src.models", "src.scheduler", "src.scraper", "src.push", "sqlalchemy", "flask"]
     errors = []
     for module in sorted(imported_modules(source, ".".join(path.parts[:-1]))):
         if any(module == prefix or module.startswith(prefix + ".") for prefix in forbidden):
