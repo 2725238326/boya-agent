@@ -45,6 +45,42 @@ def fixture():
         </script>""".replace("FIRST", __import__("json").dumps(first)).replace("SECOND", __import__("json").dumps(second)))
 
 
+async def legacy_fixture(page, *, changing_seats=False, delayed=False):
+    await page.goto('about:blank')
+    await page.set_content(fixture())
+    await page.evaluate('''({changingSeats, delayed}) => {
+        const root = document.querySelector('.pagination');
+        root.insertAdjacentHTML('afterbegin','<li><a id="first">首页</a></li>');
+        root.insertAdjacentHTML('beforeend','<li><a id="last">末页</a></li>');
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:transparent';
+        document.body.append(overlay);
+        function show(index) {
+          current = index;
+          document.querySelector('tbody').innerHTML = pages[index];
+          document.querySelector('#prev').className = '';
+          document.querySelector('#next').className = '';
+        }
+        document.querySelector('#first').onclick = () => show(0);
+        document.querySelector('#last').onclick = () => {
+          if (current !== 1) show(1);
+        };
+        document.querySelector('#prev a').onclick = e => {e.preventDefault();show(Math.max(0,current-1));};
+        document.querySelector('#next a').onclick = e => {
+          e.preventDefault();
+          if (current === 0) {
+            if (delayed) {
+              document.querySelector('tbody tr:last-child td:nth-child(9)').textContent = '18/20';
+              setTimeout(() => show(1), 900);
+            } else show(1);
+          } else if (changingSeats) {
+            document.querySelector('tbody tr:last-child td:nth-child(9)').textContent = '19/20';
+          }
+        };
+        show(0);
+    }''', {'changingSeats':changing_seats, 'delayed':delayed})
+
+
 async def main():
     async with async_playwright() as pw:
         browser = await pw.chromium.launch()
@@ -116,7 +152,47 @@ async def main():
                     pass
                 else:
                     raise AssertionError('a moving last-page control must expose a broken next-page control')
-            print("PASS scraper browser: full-table signature, delayed pagination, disabled ancestor, first-page reset, incomplete rejection, numeric boundary")
+                # Counts may change while the legacy final-page arrow remains
+                # enabled. Reuse the same session twice to catch alternating failures.
+                await legacy_fixture(page, changing_seats=True)
+                for _ in range(2):
+                    await scraper._go_to_first_page(page)
+                    rows = await scraper._collect_current_view_courses(page, False, 'changing-seats')
+                    assert len(rows) == 3
+                    assert next(row for row in rows if row['name'] == '第二页独有')['enrolled'] == 19
+                await legacy_fixture(page, changing_seats=True, delayed=True)
+                delayed_rows = await scraper._collect_current_view_courses(page, False, 'seat-change-before-page-render')
+                assert {row['name'] for row in delayed_rows} >= {'第一页独有', '第二页独有'}
+                # A broken next arrow which only changes values is still not a
+                # terminal-page proof if the independent last control moves.
+                await legacy_fixture(page)
+                await page.evaluate('''() => { document.querySelector('#next a').onclick = e => {
+                    e.preventDefault(); document.querySelector('tbody tr:last-child td:nth-child(9)').textContent = '17/20';
+                }; }''')
+                try:
+                    await scraper._go_to_next_page(page)
+                except ScrapePageNotReadyError:
+                    pass
+                else:
+                    raise AssertionError('seat changes must not conceal a broken next arrow')
+                await legacy_fixture(page)
+                first_rows = await scraper._parse_visible_course_tables(page)
+                await scraper._go_to_next_page(page)
+                second_rows = await scraper._parse_visible_course_tables(page)
+                target = next(row['id'] for row in second_rows if row['name'] == '第二页独有')
+                await scraper._go_to_first_page(page)
+                async def wrong_return(_page, rows, **_kwargs):
+                    await _page.evaluate("document.querySelector('#first').click()")
+                    return rows
+                with patch.object(scraper, '_enrich_with_details', new=wrong_return):
+                    try:
+                        await scraper._collect_current_view_courses(page, True, 'detail-return',
+                            detail_ids={target}, known_ids={row['id'] for row in first_rows + second_rows})
+                    except ScrapePageNotReadyError:
+                        pass
+                    else:
+                        raise AssertionError('detail return to another page must not silently skip rows')
+            print("PASS scraper browser: identity/value separation, repeated-session final-page updates, delayed movement, broken arrows, detail-return identity, legacy/numeric boundaries")
         finally:
             await browser.close()
 

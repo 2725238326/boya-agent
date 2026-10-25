@@ -34,6 +34,14 @@ from src.scrape_outcome import (
     ScrapeStatus,
 )
 from src.time_utils import now as business_now
+from src.collection.pagination import (
+    CoursePager,
+    control_disabled as _pagination_control_disabled,
+    numeric_boundary as _numeric_pager_boundary,
+    course_page_identity,
+)
+from src.collection.recovery import browser_disconnected
+from src.collection.timing import attempt_timings, measure_stage, timed_stage
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -1126,7 +1134,7 @@ async def _get_visible_course_tables(page: Page) -> List[Tuple[int, Locator]]:
     return result
 
 
-async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
+async def _extract_visible_course_rows_via_dom(page: Page, *, log_matches: bool = True) -> List[dict]:
     """Fast-path DOM extraction done inside the browser to reduce round-trips."""
     try:
         extracted = await page.evaluate(
@@ -1324,7 +1332,7 @@ async def _extract_visible_course_rows_via_dom(page: Page) -> List[dict]:
         if payload:
             courses.append(payload)
 
-    if courses:
+    if courses and log_matches:
         logger.info(f"浏览器内 DOM 提取命中 {len(courses)} 条课程行")
     return courses
 
@@ -1459,45 +1467,33 @@ async def _reset_course_filters(page: Page) -> bool:
     return True
 
 
+def _course_pager(page: Page) -> CoursePager:
+    return CoursePager(
+        page=page,
+        read_identity=lambda: _capture_course_page_identity(page),
+        wait_ready=lambda: _wait_course_tables_ready(page),
+        wait_idle=lambda: _wait_for_network_idle(page),
+    )
+
+
+async def _capture_course_page_identity(page: Page) -> tuple[str, ...]:
+    rows = await _extract_visible_course_rows_via_dom(page, log_matches=False)
+    if not rows:
+        rows = await _parse_visible_course_tables(page)
+    return course_page_identity(rows)
+
+
 async def _go_to_first_page(page: Page) -> bool:
-    """Best-effort pagination reset before scraping a view."""
-    # The real campus pager exposes 首页/末页 without disabled/page-number
-    # markers. Scope 首页 strictly to the pager, avoiding the site's home link.
-    if await _click_pager_endpoint(page, first=True):
-        return True
-    for _ in range(MAX_PAGES_PER_VIEW):
-        if not await _move_course_page(page, forward=False):
-            return True
-    raise ScrapePageNotReadyError("无法确认已回到第一页，拒绝不完整快照")
+    with measure_stage("pagination"):
+        return await _course_pager(page).first(max_pages=MAX_PAGES_PER_VIEW)
 
 
 async def _click_pager_endpoint(page: Page, *, first: bool) -> bool:
-    label = "首页|第一页" if first else "末页|最后一页"
-    buttons = page.locator('.pagination a, .pagination button, .el-pagination a, .ant-pagination a').filter(
-        has_text=re.compile(f"^\\s*(?:{label})\\s*$"))
-    for index in range(await buttons.count()):
-        candidate = buttons.nth(index)
-        if not await candidate.is_visible():
-            continue
-        if not await _pagination_control_disabled(candidate):
-            # Read-only pager anchors sit behind transient campus overlays.
-            # Dispatch their native DOM click after checking disabled state;
-            # enrollment/action buttons never use this path.
-            await candidate.evaluate("el => el.click()")
-            if not await _wait_for_network_idle(page):
-                raise ScrapePageNotReadyError("分页端点请求未稳定，拒绝不完整快照")
-            if not await _wait_course_tables_ready(page):
-                raise ScrapePageNotReadyError("分页端点未出现课程表，拒绝不完整快照")
-            # A legacy endpoint is idempotent at the edge, so there is no page
-            # marker to wait on. Allow its deferred DOM render to settle before
-            # comparing the complete table (normal arrows use change polling).
-            await page.wait_for_timeout(500)
-        return True
-    return False
+    return await _course_pager(page).endpoint(first=first)
 
 
 async def _capture_visible_course_table_signature(page: Page) -> str:
-    """Build a compact signature of the currently visible course tables."""
+    """Full-value diagnostic digest; navigation uses course identities instead."""
     tables = await _get_visible_course_tables(page)
     if not tables:
         return "no-visible-course-table"
@@ -1516,6 +1512,7 @@ async def _capture_visible_course_table_signature(page: Page) -> str:
     return hashlib.sha256("\n".join(chunks).encode("utf-8")).hexdigest()
 
 
+@timed_stage("parse")
 async def _load_current_view_page_courses(page: Page) -> List[dict]:
     """Parse the current page, retrying once when the table briefly disappears."""
     page_courses = await _parse_visible_course_tables(page)
@@ -1555,10 +1552,12 @@ def _select_detail_enrich_targets(
       顺手补抓详情，避免新课程长时间停留在「待确认」状态
     """
     targets = set(detail_ids or ())
+    finished_ids = {course.get("id") for course in courses if _is_course_snapshot_finished(course)}
+    targets -= finished_ids
     if known_ids is not None:
         for course in courses:
             cid = course.get("id")
-            if cid and cid not in known_ids:
+            if cid and cid not in known_ids and cid not in finished_ids:
                 targets.add(cid)
     return targets
 
@@ -1589,13 +1588,14 @@ async def _collect_current_view_courses(
         logger.info(f"视图[{view_name}] 第 {page_no} 页解析到 {len(page_courses)} 门课程")
 
         if page_courses:
-            identity = tuple(sorted(course["id"] for course in page_courses))
+            identity = course_page_identity(page_courses)
             if identity in seen_pages:
                 raise ScrapePageNotReadyError(f"视图[{view_name}] 分页重复，快照不完整")
             seen_pages.add(identity)
             enriched = False
             if detail_ids is not None or known_ids is not None:
                 target_ids = _select_detail_enrich_targets(page_courses, detail_ids, known_ids)
+                target_ids &= {course["id"] for course in page_courses}
                 if target_ids:
                     page_courses = await _enrich_with_details(
                         page,
@@ -1612,6 +1612,8 @@ async def _collect_current_view_courses(
                 for course in page_courses:
                     course.pop("__row_index", None)
                     course.pop("__table_index", None)
+            elif await _capture_course_page_identity(page) != identity:
+                raise ScrapePageNotReadyError("详情返回后的课程页身份改变，拒绝跳页快照")
             courses.extend(page_courses)
         else:
             if not courses and await _confirm_course_page_empty_state(page):
@@ -1620,6 +1622,12 @@ async def _collect_current_view_courses(
 
         has_next = await _go_to_next_page(page)
         if not has_next:
+            # Endpoint verification can refresh seats on the final page without
+            # changing course identities. Keep that later complete observation.
+            terminal_rows = await _load_current_view_page_courses(page)
+            if course_page_identity(terminal_rows) != identity:
+                raise ScrapePageNotReadyError("分页边界课程身份改变，拒绝不完整快照")
+            courses.extend(terminal_rows)
             break
         page_no += 1
 
@@ -1628,7 +1636,7 @@ async def _collect_current_view_courses(
         raise ScrapePageNotReadyError(f"视图[{view_name}] 课程总数不符：声明{expected_total}，解析{unique_count}")
     logger.info("Course coverage: view={}, pages={}, unique={}, declared_total={}",
                 view_name, page_no, unique_count, expected_total if expected_total is not None else "unknown")
-    return courses
+    return _dedupe_scraped_courses(courses)
 
 
 def _merge_scraped_course(base: dict, incoming: dict) -> dict:
@@ -1706,6 +1714,7 @@ async def _refresh_course_list(page: Page) -> bool:
         return False
 
 
+@timed_stage("navigate")
 async def _open_course_select_page(page: Page) -> bool:
     if _is_course_select_url(page.url):
         logger.info(f"复用当前选课页: {safe_url_for_log(page.url)}")
@@ -1921,6 +1930,7 @@ async def scrape_courses_result(
     """
 
     started_at = asyncio.get_running_loop().time()
+    stages = {}
 
     def timing_metadata() -> Dict[str, Any]:
         return {
@@ -1929,17 +1939,19 @@ async def scrape_courses_result(
                 int((asyncio.get_running_loop().time() - started_at) * 1000),
             ),
             "include_details": include_details,
+            "stages_ms": dict(stages),
         }
 
     try:
-        courses = await _scrape_courses_impl(
-            page,
-            include_details=include_details,
-            detail_ids=detail_ids,
-            known_ids=known_ids,
-            attempted_ids=attempted_ids,
-            detail_limit=detail_limit,
-        )
+        with attempt_timings() as stages:
+            courses = await _scrape_courses_impl(
+                page,
+                include_details=include_details,
+                detail_ids=detail_ids,
+                known_ids=known_ids,
+                attempted_ids=attempted_ids,
+                detail_limit=detail_limit,
+            )
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -1952,6 +1964,7 @@ async def scrape_courses_result(
             message=message,
             metadata={
                 "exception_type": type(error).__name__,
+                "browser_disconnected": browser_disconnected(page, error),
                 **timing_metadata(),
             },
         )
@@ -1979,6 +1992,7 @@ async def scrape_courses(page: Page, include_details: bool = True) -> List[dict]
     return outcome.courses
 
 
+@timed_stage("details")
 async def _enrich_with_details(
     page: Page,
     courses: List[dict],
@@ -1995,9 +2009,9 @@ async def _enrich_with_details(
     没有「签到方式」字段的课程不会在同一个进程生命周期内被反复点击。
     """
     if target_ids is None:
-        targets = list(courses)
+        targets = [course for course in courses if not _is_course_snapshot_finished(course)]
     else:
-        targets = [c for c in courses if c.get("id") in target_ids]
+        targets = [c for c in courses if c.get("id") in target_ids and not _is_course_snapshot_finished(c)]
         if attempted_ids is not None:
             targets = [c for c in targets if c.get("id") not in attempted_ids]
     if limit > 0:
@@ -2306,88 +2320,9 @@ async def _parse_course_table(table: Locator, table_index: int) -> List[dict]:
     return courses
 
 
-async def _pagination_control_disabled(candidate: Locator) -> bool:
-    # Some upstream pagers put disabled only on <li>, not its child <a>.
-    return await candidate.evaluate("""el => {
-      for (let node = el; node && node !== document.body; node = node.parentElement) {
-        if (node.disabled || node.hasAttribute('disabled') ||
-            node.getAttribute('aria-disabled') === 'true' ||
-            /(^|[\\s_-])disabled($|[\\s_-])/.test(String(node.className || ''))) return true;
-      }
-      return false;
-    }""")
-
-
-async def _numeric_pager_boundary(candidate: Locator, *, forward: bool) -> bool:
-    # The campus pager leaves both arrows enabled even on a single page. Read
-    # its active numeric page instead; never infer a boundary from an unchanging
-    # table alone. Ellipsis/jump controls prevent a last-page inference.
-    return await candidate.evaluate("""(el, forward) => {
-      const root = el.closest('.pagination, .el-pagination, .ant-pagination');
-      if (!root) return false;
-      const items = Array.from(root.querySelectorAll('li'));
-      const numeric = items.map(node => ({
-        value: /^\\d+$/.test(node.textContent.trim()) ? Number(node.textContent.trim()) : null,
-        active: /(^|\\s)(active|current|selected|is-active)(\\s|$)/.test(String(node.className || '')) ||
-          node.getAttribute('aria-current') === 'page' || !!node.querySelector('[aria-current="page"]')
-      })).filter(item => item.value !== null);
-      const active = numeric.filter(item => item.active);
-      if (active.length !== 1) return false;
-      if (!forward) return active[0].value === 1;
-      if (/[.…]/.test(root.textContent) || root.querySelector('.ant-pagination-jump-next')) return false;
-      const pages = [...new Set(numeric.map(item => item.value))].sort((a,b) => a-b);
-      return pages.length > 0 && pages.every((value,index) => value === index+1) && active[0].value === pages.length;
-    }""", forward)
-
-
 async def _move_course_page(page: Page, *, forward: bool) -> bool:
-    """Only absent/disabled controls mean an end; failed movement is an error."""
-    try:
-        before_signature = await _capture_visible_course_table_signature(page)
-
-        label = "下一页" if forward else "上一页"
-        short_label = "下页" if forward else "上页"
-        extra = '.el-pagination .btn-next, .ant-pagination-next button, .ant-pagination-next a' if forward else (
-            '.el-pagination .btn-prev, .ant-pagination-prev button, .ant-pagination-prev a'
-        )
-        next_btn = page.locator(
-            f'a:has-text("{label}"), button:has-text("{label}"), li:has-text("{label}") a, '
-            f'a:text-is("{short_label}"), button:text-is("{short_label}"), '
-            f'[aria-label="{label}"], {extra}'
-        )
-        count = await next_btn.count()
-        for idx in range(count):
-            candidate = next_btn.nth(idx)
-            if not await candidate.is_visible():
-                continue
-            is_disabled = await _pagination_control_disabled(candidate) or await _numeric_pager_boundary(candidate, forward=forward)
-            if not is_disabled:
-                await candidate.evaluate("el => el.click()")
-                await _wait_for_network_idle(page)
-                await _wait_course_tables_ready(page)
-                for _ in range(25):
-                    after_signature = await _capture_visible_course_table_signature(page)
-                    if (after_signature != before_signature and after_signature != "no-visible-course-table"
-                            and not after_signature.startswith("visible-course-tables:")):
-                        break
-                    await page.wait_for_timeout(200)
-                else:
-                    # Legacy campus pager keeps arrows enabled at both edges.
-                    # Confirm the endpoint using its independent first/last
-                    # control. If that moves, next/prev missed rows: reject.
-                    if await _click_pager_endpoint(page, first=not forward):
-                        endpoint = await _capture_visible_course_table_signature(page)
-                        if endpoint == before_signature:
-                            logger.info("Course pagination boundary: explicit {} control confirmed unchanged table", "last" if forward else "first")
-                            return False
-                    raise ScrapePageNotReadyError(f"{label}未更新且无法确认分页边界，拒绝不完整快照")
-                logger.info("课程分页完成: direction={}", "next" if forward else "previous")
-                return True
-    except ScrapePageNotReadyError:
-        raise
-    except Exception as e:
-        raise ScrapePageNotReadyError("翻页失败，拒绝不完整快照") from e
-    return False
+    with measure_stage("pagination"):
+        return await _course_pager(page).move(forward=forward)
 
 
 async def _go_to_next_page(page: Page) -> bool:

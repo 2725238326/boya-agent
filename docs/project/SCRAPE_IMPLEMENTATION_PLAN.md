@@ -1,8 +1,8 @@
 # 抓取架构实施与验收计划
 
-日期：2026-10-25。状态：设计已完成；下列实现批次均未开始。当前应用仍为 `04fc2086c487`，本文件不构成已经部署的声明。
+日期：2026-10-25。状态：P1 代码已实现，正在验收；P2–P6 尚未实现。实际应用版本与发布结果见 [P1 执行记录](SCRAPE_P1_2026_10_25.md)，本文件不以实现代替上线结果。
 
-设计依据：[完整方案](../architecture/SCRAPE_DESIGN.md)、[ADR 0009](../decisions/0009-observation-driven-scraping.md)、[实际通知需求](../product/NOTIFICATION_REQUIREMENTS.md)。工作起点本地 `main@baddef4` clean，设计分支 `codex/scrape-architecture-design`；本轮只交付设计、交互导览和文档对齐。
+设计依据：[完整方案](../architecture/SCRAPE_DESIGN.md)、[ADR 0009](../decisions/0009-observation-driven-scraping.md)、[实际通知需求](../product/NOTIFICATION_REQUIREMENTS.md)。设计起点为 `main@baddef4`；P1 从 `ce84f3d` 开始，执行事实单独记录，保留后续目标与当前实现的边界。
 
 ## 1. 逐批交付
 
