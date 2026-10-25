@@ -175,6 +175,22 @@ async def main():
                     pass
                 else:
                     raise AssertionError('seat changes must not conceal a broken next arrow')
+                # Legacy endpoint requests can finish before deferred DOM work.
+                # Start on the final page and delay both endpoints beyond 500ms.
+                await legacy_fixture(page, changing_seats=True)
+                await scraper._go_to_next_page(page)
+                await page.evaluate('''() => {
+                    for (const id of ['first','last']) {
+                        const node = document.querySelector('#'+id);
+                        const original = node.onclick;
+                        node.onclick = () => setTimeout(original, 1500);
+                    }
+                }''')
+                for _ in range(2):
+                    await scraper._go_to_first_page(page)
+                    assert await page.evaluate('current') == 0
+                    settled = await scraper._collect_current_view_courses(page, False, 'deferred-endpoints')
+                    assert len(settled) == 3
                 await legacy_fixture(page)
                 first_rows = await scraper._parse_visible_course_tables(page)
                 await scraper._go_to_next_page(page)
