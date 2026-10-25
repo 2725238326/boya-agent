@@ -1,6 +1,6 @@
 # 抓取架构实施与验收计划
 
-日期：2026-10-25。状态：P1 代码已实现，正在验收；P2–P6 尚未实现。实际应用版本与发布结果见 [P1 执行记录](SCRAPE_P1_2026_10_25.md)，本文件不以实现代替上线结果。
+日期：2026-10-25。状态：P1 已部署并完成启动和短窗口复核；P2–P6 尚未实现，长期业务时效仍待验收。实际版本、首次失败与补充修复见 [P1 执行记录](SCRAPE_P1_2026_10_25.md)。
 
 设计依据：[完整方案](../architecture/SCRAPE_DESIGN.md)、[ADR 0009](../decisions/0009-observation-driven-scraping.md)、[实际通知需求](../product/NOTIFICATION_REQUIREMENTS.md)。设计起点为 `main@baddef4`；P1 从 `ce84f3d` 开始，执行事实单独记录，保留后续目标与当前实现的边界。
 

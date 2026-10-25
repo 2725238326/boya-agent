@@ -18,7 +18,7 @@
 | 采集准确性、课程卡片和通道分工验收 | [SCRAPE_CARDS_RELEASE_2026_10_24.md](project/SCRAPE_CARDS_RELEASE_2026_10_24.md) |
 | 系统组件和数据流 | [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | 下一版采集与补位通知设计（未实现） | [SCRAPE_DESIGN.md](architecture/SCRAPE_DESIGN.md)、[交互导览](architecture/scrape-design.html) |
-| 采集改造批次与故障验收（待执行） | [SCRAPE_IMPLEMENTATION_PLAN.md](project/SCRAPE_IMPLEMENTATION_PLAN.md) |
+| 采集改造批次与故障验收（P1 实施，后续待执行） | [SCRAPE_IMPLEMENTATION_PLAN.md](project/SCRAPE_IMPLEMENTATION_PLAN.md) |
 | 采集 P1 代码与实际验收进度 | [SCRAPE_P1_2026_10_25.md](project/SCRAPE_P1_2026_10_25.md) |
 | 用户可见行为 | [docs/product/PRODUCT_BEHAVIOR.md](product/PRODUCT_BEHAVIOR.md) |
 | 安全边界 | [docs/security/SECURITY.md](security/SECURITY.md) |

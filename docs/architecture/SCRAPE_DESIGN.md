@@ -1,8 +1,10 @@
 # 课程采集与补位通知架构设计
 
-日期：2026-10-25。状态：设计完成，尚未实现、迁移或部署。对应决定见 [ADR 0009](../decisions/0009-observation-driven-scraping.md)，开发顺序见 [实施与验收计划](../project/SCRAPE_IMPLEMENTATION_PLAN.md)，交互图见 [设计导览](scrape-design.html)。
+日期：2026-10-25。状态：P1 基础能力已部署，主体观察/事件引擎尚未迁移或部署。对应决定见 [ADR 0009](../decisions/0009-observation-driven-scraping.md)，开发顺序见 [实施与验收计划](../project/SCRAPE_IMPLEMENTATION_PLAN.md)，交互图见 [设计导览](scrape-design.html)。
 
 本文定义下一版的目标行为。当前运行实现仍以 [ARCHITECTURE.md](ARCHITECTURE.md) 和 [项目状态](../project/PROJECT_STATUS.md) 为准；表中周期、阈值和接口扩展均为待验证的候选设计。
+
+P1 已开始落实身份分页、分级恢复和阶段计时，实际代码、两次修复与现场状态见 [P1 执行记录](../project/SCRAPE_P1_2026_10_25.md)。这部分实现不代表下文页级入库、原子事件和时效目标已经达到。
 
 ## 1. 服务任务与成功条件
 

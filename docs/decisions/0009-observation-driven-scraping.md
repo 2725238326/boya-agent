@@ -1,6 +1,8 @@
 # ADR 0009：按观察更新课程，独立核对覆盖并持久化事件
 
-日期：2026-10-25。状态：采纳为下一版设计；实现与生产切换尚未执行。
+日期：2026-10-25。状态：采纳；P1 基础能力部分实施，主体观察/事件与新引擎切换待执行。
+
+执行进度：P1 基础分页/恢复/计时已经实施，见 [执行记录](../project/SCRAPE_P1_2026_10_25.md)；本 ADR 的观察、事务事件与引擎切换主体仍待后续批次，不将局部实施视为整份决定已部署。
 
 完整方案见 [SCRAPE_DESIGN.md](../architecture/SCRAPE_DESIGN.md)，实施顺序见 [SCRAPE_IMPLEMENTATION_PLAN.md](../project/SCRAPE_IMPLEMENTATION_PLAN.md)。本文不改变当前通道开关。
 
