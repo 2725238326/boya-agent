@@ -17,6 +17,8 @@
 | Telegram 独立运维检测 | [TELEGRAM_OPS.md](operations/TELEGRAM_OPS.md) |
 | 采集准确性、课程卡片和通道分工验收 | [SCRAPE_CARDS_RELEASE_2026_10_24.md](project/SCRAPE_CARDS_RELEASE_2026_10_24.md) |
 | 系统组件和数据流 | [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
+| 下一版采集与补位通知设计（未实现） | [SCRAPE_DESIGN.md](architecture/SCRAPE_DESIGN.md)、[交互导览](architecture/scrape-design.html) |
+| 采集改造批次与故障验收（待执行） | [SCRAPE_IMPLEMENTATION_PLAN.md](project/SCRAPE_IMPLEMENTATION_PLAN.md) |
 | 用户可见行为 | [docs/product/PRODUCT_BEHAVIOR.md](product/PRODUCT_BEHAVIOR.md) |
 | 安全边界 | [docs/security/SECURITY.md](security/SECURITY.md) |
 | API 清单 | [docs/development/API_INVENTORY.md](development/API_INVENTORY.md) |
@@ -44,6 +46,7 @@
 - 本地安装和启动：先看 [README.md](../README.md) 与 [DEVELOPMENT.md](development/DEVELOPMENT.md)。
 - 生产上线：先看 [DEPLOYMENT.md](operations/DEPLOYMENT.md)，再按 [RUNBOOK.md](operations/RUNBOOK.md) 做上线后检查。
 - 继续推进：从 [当前改进清单](project/IMPROVEMENT_BACKLOG.md) 选一个可验收批次；部署按当前运维文档，邮件与 Telegram 各自完成真实验收后启用。
+- 采集时效改造：按 [下一版设计](architecture/SCRAPE_DESIGN.md) 与 [实施计划](project/SCRAPE_IMPLEMENTATION_PLAN.md) 从分页/恢复止损开始；设计目标不能作为当前性能结论。
 - 当前生产实例：`https://buaaboya.top`；应用版本、运行事实和剩余风险见 [PROJECT_STATUS.md](project/PROJECT_STATUS.md)。
 - 当前服务器提交、服务状态、数据库完整性、资源和飞书发送核对见 [生产运行快照](project/SCRAPE_CARDS_RELEASE_2026_10_24.md)。
 - 常规更新：运行代码、生产依赖或配置样例变更先通过本地/CI 验收，再形成 Git 提交；`main/master` 中命中部署路径的提交会触发生产工作流。单纯文档或工作流调整不会自动重启应用，工作流调整需要显式手动运行。功能分支不进入生产。

@@ -63,6 +63,8 @@ docs/                   当前状态、架构、安全、配置、部署和历�
 
 详细入口见 [docs/README.md](docs/README.md)。当前实现、默认关闭项和待确认风险以 [PROJECT_STATUS.md](docs/project/PROJECT_STATUS.md) 为准。
 
+下一版采集改造已形成 [设计规格](docs/architecture/SCRAPE_DESIGN.md)、[交互导览](docs/architecture/scrape-design.html) 和 [实施与验收计划](docs/project/SCRAPE_IMPLEMENTATION_PLAN.md)，当前为待实现方案。
+
 目录维护按 [PROJECT_LAYOUT.md](docs/project/PROJECT_LAYOUT.md) 与 [维护手册](docs/operations/DIRECTORY_MAINTENANCE.md) 执行；状态页保持当前结论，旧记录在 `docs/archive/` 保留。
 
 ## 本地启动
