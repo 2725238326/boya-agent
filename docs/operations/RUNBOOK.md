@@ -60,6 +60,12 @@ sudo tail -n 200 /home/boya-agent/logs/boya_agent_$(date +%F).log
 
 应用正常上线且上游首页已自带备案链接后，执行同一工作流的 `remove` 清理临时规则。两种版本在过渡期间都只展示一个备案链接。
 
+## 暂停使用个人北航账号
+
+运行 GitHub Actions 的 **Pause Campus Account**。它以 systemd 的最后一份环境文件屏蔽生产采集账号，重启应用一次以关闭既有会话，并核对新进程未进入北航登录。原凭据、站点、数据库和通知配置不改动；公开课程不再刷新。暂停后不要另外触发需要校园账号的上游审计。
+
+只有账号持有者明确同意恢复后，才从 `/etc/systemd/system/boya-agent.service.d/` 移除 `99-campus-account-paused.conf` 和 `campus-account-paused.env`，执行 `sudo systemctl daemon-reload` 并按正常发布流程重启、验证成功采集。常规部署的实时采集验收仍会阻止暂停期间的应用更新。
+
 ## 抓取与后台检查
 
 P1 版本增加 `scrape round timing` 日志，输出整轮总耗时、尝试次数、恢复策略和最后一次尝试的阶段耗时。管理 `/api/status` 同时提供 last_scrape_total_ms、last_scrape_stage_ms、last_scrape_attempts、last_scrape_recovery；阶段耗时不是通知端到端延迟。普通解析失败应看到 reuse_session，认证失效/断连才 recreate_browser。实际版本和验收见 [P1 记录](../project/SCRAPE_P1_2026_10_25.md)。
