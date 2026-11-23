@@ -292,8 +292,6 @@ async def _ensure_browser(force_recreate: bool = False):
         _browser_state["context"] = context
         _browser_state["page"] = page
         _browser_state["scrape_runs"] = 0
-        _browser_create_failures = 0
-        _browser_retry_after = 0.0
 
         logged_in = await ensure_logged_in(page)
         if not logged_in:
@@ -302,6 +300,8 @@ async def _ensure_browser(force_recreate: bool = False):
             _note_browser_unavailable()
             return None
 
+        _browser_create_failures = 0
+        _browser_retry_after = 0.0
         return page
     except Exception as e:
         logger.error(f"create browser failed: {e}")

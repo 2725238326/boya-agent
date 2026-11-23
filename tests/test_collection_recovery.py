@@ -42,6 +42,36 @@ class CollectionPolicyTests(unittest.TestCase):
 
 
 class CollectionRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_login_failures_back_off_until_authenticated_browser_is_ready(self):
+        now = 100.0
+        page = SimpleNamespace(url="https://example.invalid/")
+        create = AsyncMock(return_value=(None, None, None, page))
+        authenticate = AsyncMock(side_effect=[False, False, False, True, False])
+        with (
+            patch.object(scheduler, "_browser_state", {}),
+            patch.object(scheduler, "_browser_create_failures", 0),
+            patch.object(scheduler, "_browser_retry_after", 0),
+            patch.object(scheduler, "BROWSER_RETRY_BACKOFF_BASE_SECONDS", 30),
+            patch.object(scheduler, "BROWSER_RETRY_BACKOFF_MAX_SECONDS", 100),
+            patch.object(scheduler, "time", SimpleNamespace(monotonic=lambda: now)),
+            patch.object(scheduler, "create_browser_context", create),
+            patch.object(scheduler, "ensure_logged_in", authenticate),
+        ):
+            for attempt, delay in enumerate((30, 60, 100), start=1):
+                self.assertIsNone(await scheduler._ensure_browser())
+                self.assertEqual(scheduler._browser_create_failures, attempt)
+                self.assertEqual(scheduler._browser_retry_after, now + delay)
+                now += delay - 1
+                self.assertIsNone(await scheduler._ensure_browser())
+                self.assertEqual(authenticate.await_count, attempt)
+                now += 1
+
+            self.assertIs(await scheduler._ensure_browser(), page)
+            self.assertEqual(scheduler._browser_create_failures, 0)
+            self.assertEqual(scheduler._browser_retry_after, 0)
+            self.assertIsNone(await scheduler._ensure_browser(force_recreate=True))
+            self.assertEqual(scheduler._browser_retry_after, now + 30)
+
     async def test_endpoint_waits_for_deferred_identity_after_network_idle(self):
         control = SimpleNamespace(is_visible=AsyncMock(return_value=True), evaluate=AsyncMock(return_value=False))
         controls = SimpleNamespace(count=AsyncMock(return_value=1), nth=lambda _index:control)
