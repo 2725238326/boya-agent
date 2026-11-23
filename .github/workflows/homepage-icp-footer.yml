@@ -40,10 +40,28 @@ jobs:
             set -euo pipefail
             cd "${APP_DIR:-/home/boya-agent}"
             SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
-            SITE=/etc/nginx/sites-available/boya-agent
-            test "$(readlink -f /etc/nginx/sites-enabled/boya-agent)" = "$SITE"
-            test "$(sudo nginx -V 2>&1 | grep -c -- --with-http_sub_module)" = 1
-            sudo nginx -t
+            ENABLED="$(sudo nginx -T | awk '
+              /^# configuration file / { file=$4; sub(/:$/, "", file) }
+              /^[[:space:]]*server_name[[:space:]]/ && file ~ /^\/etc\/nginx\/sites-enabled\/[^\/]+$/ {
+                for (i=2; i<=NF; i++) {
+                  name=$i; sub(/;$/, "", name)
+                  if (name == "buaaboya.top" && !seen[file]++) print file
+                }
+              }
+            ')"
+            if [ -z "$ENABLED" ] || [ "$(printf '%s\n' "$ENABLED" | wc -l)" -ne 1 ]; then
+              echo "Expected one enabled Nginx configuration for buaaboya.top." >&2
+              exit 1
+            fi
+            SITE="$(readlink -f "$ENABLED")"
+            case "$SITE" in
+              /etc/nginx/sites-enabled/*|/etc/nginx/sites-available/*) test -f "$SITE" ;;
+              *) echo "Unexpected location for the active Nginx site." >&2; exit 1 ;;
+            esac
+            if ! sudo nginx -V 2>&1 | grep -q -- --with-http_sub_module; then
+              echo "Nginx does not provide sub_filter." >&2
+              exit 1
+            fi
             sudo systemctl is-active --quiet "$SERVICE_NAME"
             BEFORE_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
             BEFORE_SHA="$(git rev-parse HEAD)"
