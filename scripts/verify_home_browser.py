@@ -97,6 +97,13 @@ def main():
                 failed, empty = False, True
                 page.get_by_role('button', name='重新加载列表').click()
                 expect(page.locator('#courseSummary')).to_contain_text('暂无课程')
+                filing_url = 'https://beian.miit.gov.cn/'
+                page.route(filing_url, lambda route: route.fulfill(body='MIIT fixture'))
+                filing = page.get_by_role('contentinfo').get_by_role('link', name='陇ICP备2026001417号-1', exact=True)
+                filing.scroll_into_view_if_needed()
+                expect(filing).to_be_in_viewport()
+                filing.click()
+                expect(page).to_have_url(filing_url)
                 page.goto('http://fixture.test/subscribe')
                 expect(page.locator('#submitBtn')).to_be_disabled()
                 expect(page.locator('#loginBtn')).to_be_disabled()
@@ -105,7 +112,7 @@ def main():
                 page.evaluate("sendLoginLink()")
                 assert not writes, writes
                 assert not errors, errors
-                print(f'PASS public browse width={width}: states, filters, source age, escaping, keyboard, recovery, mail pause')
+                print(f'PASS public browse width={width}: states, filters, source age, escaping, keyboard, recovery, ICP link, mail pause')
                 page.close()
         finally:
             browser.close()
