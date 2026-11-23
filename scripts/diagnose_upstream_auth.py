@@ -27,10 +27,7 @@ def classify_prompt(text: str) -> str | None:
                  if re.search(pattern, text, re.IGNORECASE)), None)
 
 
-async def observe(page) -> str:
-    username, password = os.getenv("BUAA_USERNAME"), os.getenv("BUAA_PASSWORD")
-    if not username or not password:
-        return "credentials_missing"
+async def observe(page, *, preflight_only=False) -> str:
     print("auth_phase: open_course_entry", flush=True)
     await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30_000)
     if not _is_sso_login_page(page.url):
@@ -46,6 +43,16 @@ async def observe(page) -> str:
             await tab.click(timeout=3_000)
     if not await account.count():
         account = target.locator('input[placeholder*="学工号"], input[name="username"]').first
+    await account.wait_for(state="visible", timeout=8_000)
+    challenge = target.locator("#cptPassword")
+    if await challenge.is_visible() and await challenge.is_enabled():
+        return "captcha_required_before_submission"
+    if preflight_only:
+        return "no_visible_challenge_before_submission"
+
+    username, password = os.getenv("BUAA_USERNAME"), os.getenv("BUAA_PASSWORD")
+    if not username or not password:
+        return "credentials_missing"
     await account.fill(username, timeout=8_000)
     print("auth_phase: fill_password", flush=True)
     password_input = target.locator("#pwPassword").first
@@ -78,10 +85,10 @@ async def observe(page) -> str:
     return classify_prompt(top_text) or "still_on_sso_no_recognized_prompt"
 
 
-async def main() -> str:
+async def main(*, preflight_only: bool) -> str:
     pw, browser, _, page = await create_browser_context()
     try:
-        return await observe(page)
+        return await observe(page, preflight_only=preflight_only)
     finally:
         await browser.close()
         await pw.stop()
@@ -90,8 +97,10 @@ async def main() -> str:
 if __name__ == "__main__":
     logger.remove()
     try:
-        load_dotenv(".env")
-        result = asyncio.run(asyncio.wait_for(main(), timeout=70))
+        preflight_only = os.getenv("AUTH_PREFLIGHT_ONLY") == "true"
+        if not preflight_only:
+            load_dotenv(".env")
+        result = asyncio.run(asyncio.wait_for(main(preflight_only=preflight_only), timeout=70))
     except Exception as error:
         print("upstream_auth_diagnostic:", type(error).__name__, file=sys.stderr)
         raise SystemExit(1) from None
