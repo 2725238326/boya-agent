@@ -36,8 +36,8 @@ async def observe(page) -> str:
     if not _is_sso_login_page(page.url):
         return "course_reached_without_submission" if await is_logged_in(page) else "unexpected_initial_page"
 
-    iframe = page.locator('iframe[name="loginIframe"]')
-    target = iframe.content_frame if await iframe.count() else page
+    # Playwright's frame name can come from an iframe ID as well as its name.
+    target = page.frame(name="loginIframe") or page
     print("auth_phase: find_password_form", flush=True)
     account = target.locator("#unPassword").first
     if not await account.is_visible():
@@ -71,8 +71,9 @@ async def observe(page) -> str:
 
     # Inspect text in memory only. Do not log the DOM, URLs, or form state.
     top_text = await page.locator("body").inner_text(timeout=5_000)
-    if await iframe.count():
-        frame_text = await iframe.content_frame.locator("body").inner_text(timeout=5_000)
+    login_frame = page.frame(name="loginIframe")
+    if login_frame:
+        frame_text = await login_frame.locator("body").inner_text(timeout=5_000)
         return classify_prompt(frame_text) or classify_prompt(top_text) or "still_on_sso_no_recognized_prompt"
     return classify_prompt(top_text) or "still_on_sso_no_recognized_prompt"
 
