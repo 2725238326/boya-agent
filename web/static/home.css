@@ -26,7 +26,8 @@ body.home-body {
 }
 
 .home-nav,
-.home-main {
+.home-main,
+.home-footer {
     width: min(1180px, calc(100vw - 32px));
     margin: 0 auto;
 }
@@ -82,6 +83,18 @@ body.home-body {
 
 .home-main {
     padding: 20px 0 48px;
+}
+
+.home-footer {
+    padding: 16px 0 24px;
+    border-top: 1px solid var(--home-line);
+    text-align: center;
+    font-size: 14px;
+}
+
+.home-footer a {
+    color: var(--home-muted);
+    text-underline-offset: 3px;
 }
 
 .home-hero {
