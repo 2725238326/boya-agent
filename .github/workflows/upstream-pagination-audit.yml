@@ -2,6 +2,11 @@ name: Upstream Pagination Audit
 
 on:
   workflow_dispatch:
+    inputs:
+      auth_diagnostic:
+        description: 'Check one SSO password submission instead of inspecting pagination'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,6 +18,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Inspect authenticated upstream DOM without business writes
+        if: ${{ !inputs.auth_diagnostic }}
         uses: appleboy/ssh-action@v1.0.3
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
@@ -62,3 +68,22 @@ jobs:
                 print('Upstream audit incomplete:', type(error).__name__)
                 raise SystemExit(1)
             PY
+
+      - name: Classify the result of one SSO submission
+        if: ${{ inputs.auth_diagnostic }}
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          AUDIT_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 2m
+          envs: APP_DIR,AUDIT_SHA
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR:-/home/boya-agent}"
+            git fetch --no-tags origin "$AUDIT_SHA"
+            git show "$AUDIT_SHA:scripts/diagnose_upstream_auth.py" |
+              PLAYWRIGHT_BROWSERS_PATH=/var/lib/boya-agent/playwright ./venv/bin/python -
