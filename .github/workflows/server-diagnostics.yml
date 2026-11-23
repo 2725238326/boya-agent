@@ -55,6 +55,19 @@ jobs:
             sudo systemctl show "$SERVICE_NAME" -p MainPID -p ExecMainStartTimestamp -p ActiveEnterTimestamp --no-pager
             sudo systemctl show "$SERVICE_NAME" -p User -p Group -p TasksMax -p MemoryMax --no-pager
             sudo nginx -t
+            echo "== homepage edge prerequisites =="
+            ls -l /etc/nginx/sites-enabled
+            if sudo nginx -V 2>&1 | grep -q -- --with-http_sub_module; then
+              echo "nginx sub_filter: available"
+            else
+              echo "nginx sub_filter: unavailable"
+            fi
+            sudo nginx -T 2>/dev/null | awk '
+              /^# configuration file / { config=$4 }
+              /^[[:space:]]*server_name[[:space:]].*buaaboya\.top/ { print config, $0 }
+              /^[[:space:]]*location[[:space:]]*=[[:space:]]*\/[[:space:]]*\{/ { print config, $0 }
+              /^[[:space:]]*set[[:space:]]+\$boya_upstream/ { print config, $0 }
+            '
             python3 - <<'PY'
             from pathlib import Path
             count = 0
