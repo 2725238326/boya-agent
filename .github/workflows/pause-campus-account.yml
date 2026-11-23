@@ -1,0 +1,76 @@
+name: Pause Campus Account
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  pause:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Stop campus account access while retaining the website
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 5m
+          envs: SERVICE_NAME
+          script: |
+            set -euo pipefail
+            UNIT="$(sudo systemctl show -p Id --value "${SERVICE_NAME:-boya-agent}")"
+            if [ "$UNIT" != boya-agent.service ]; then
+              echo "Refusing to change the environment of an unexpected systemd service." >&2
+              exit 1
+            fi
+            DROPIN="/etc/systemd/system/$UNIT.d"
+            PAUSED_ENV="$DROPIN/campus-account-paused.env"
+            PAUSED_CONF="$DROPIN/99-campus-account-paused.conf"
+            PUBLIC_URL=https://buaaboya.top
+            sudo systemctl is-active --quiet "$UNIT"
+            curl -fsS --max-time 10 "$PUBLIC_URL/healthz" >/dev/null
+
+            # Load the masks last. Empty values also prevent python-dotenv
+            # from substituting the original credentials.
+            sudo install -d -m 0755 "$DROPIN"
+            printf 'BUAA_USERNAME=\nBUAA_PASSWORD=\n' | sudo tee "$PAUSED_ENV" >/dev/null
+            printf '[Service]\nEnvironmentFile=%s\n' "$PAUSED_ENV" | sudo tee "$PAUSED_CONF" >/dev/null
+            sudo systemctl daemon-reload
+            FILES="$(sudo systemctl show -p EnvironmentFiles --value "$UNIT")"
+            case "$FILES" in
+              *"$PAUSED_ENV (ignore_errors=no)") ;;
+              *) echo "The account pause must be the last environment file; service not restarted." >&2; exit 1 ;;
+            esac
+            sudo systemctl restart "$UNIT"
+            PID="$(sudo systemctl show -p MainPID --value "$UNIT")"
+            test "$PID" -gt 0
+
+            # The new process must report the guard before campus navigation.
+            # Keep the account masked even if a later health check fails.
+            for attempt in $(seq 1 15); do
+              if sudo journalctl -u "$UNIT" "_PID=$PID" --no-pager -o cat |
+                grep -F '缺少 BUAA_USERNAME 或 BUAA_PASSWORD 环境变量' >/dev/null; then
+                break
+              fi
+              if [ "$attempt" -eq 15 ]; then
+                echo "The new process did not report that its campus credentials are disabled." >&2
+                exit 1
+              fi
+              sleep 2
+            done
+            sudo systemctl is-active --quiet "$UNIT"
+            curl -fsS --retry 3 --retry-delay 2 --max-time 10 "$PUBLIC_URL/healthz" >/dev/null
+            curl -fsS --max-time 15 "$PUBLIC_URL/api/courses" |
+              python3 -c 'import json, sys; p = json.load(sys.stdin); assert p["success"] and p["source"]["last_success"] is None'
+            echo "Campus account masked in the running service. Website and stored course data remain available."
