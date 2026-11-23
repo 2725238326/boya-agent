@@ -54,6 +54,12 @@ sudo tail -n 200 /home/boya-agent/logs/boya_agent_$(date +%F).log
 
 日志应能说明抓取模式、健康检查、保存数量、推送渠道和失败原因；邮箱只应以脱敏形式出现，不能出现完整 token、密码或 Cookie。
 
+### 首页备案号独立发布
+
+应用发布若因课程采集不可用而回滚，可在 GitHub Actions 的 **Homepage ICP Footer** 工作流执行 `apply`。它只给旧版首页加备案链接，平滑重载 Nginx，不重启应用，也不变更采集或部署验收。工作流会保留原配置，在公网路由、备案链接或管理员边界检查失败时恢复；备份路径见工作流日志。
+
+应用正常上线且上游首页已自带备案链接后，执行同一工作流的 `remove` 清理临时规则。两种版本在过渡期间都只展示一个备案链接。
+
 ## 抓取与后台检查
 
 P1 版本增加 `scrape round timing` 日志，输出整轮总耗时、尝试次数、恢复策略和最后一次尝试的阶段耗时。管理 `/api/status` 同时提供 last_scrape_total_ms、last_scrape_stage_ms、last_scrape_attempts、last_scrape_recovery；阶段耗时不是通知端到端延迟。普通解析失败应看到 reuse_session，认证失效/断连才 recreate_browser。实际版本和验收见 [P1 记录](../project/SCRAPE_P1_2026_10_25.md)。
