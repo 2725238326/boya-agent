@@ -31,21 +31,33 @@ async def observe(page) -> str:
     username, password = os.getenv("BUAA_USERNAME"), os.getenv("BUAA_PASSWORD")
     if not username or not password:
         return "credentials_missing"
-    await page.goto(BYKC_COURSE_URL, wait_until="load", timeout=30_000)
+    print("auth_phase: open_course_entry", flush=True)
+    await page.goto(BYKC_COURSE_URL, wait_until="networkidle", timeout=30_000)
     if not _is_sso_login_page(page.url):
         return "course_reached_without_submission" if await is_logged_in(page) else "unexpected_initial_page"
 
     iframe = page.locator('iframe[name="loginIframe"]')
     target = iframe.content_frame if await iframe.count() else page
-    tab = target.get_by_text("密码登录", exact=True).first
-    if await tab.is_visible():
-        await tab.click(timeout=3_000)
-    await target.locator("#unPassword").fill(username, timeout=8_000)
-    await target.locator("#pwPassword").fill(password, timeout=8_000)
+    print("auth_phase: find_password_form", flush=True)
+    account = target.locator("#unPassword").first
+    if not await account.is_visible():
+        tab = target.get_by_text("密码登录", exact=True).first
+        if await tab.is_visible():
+            await tab.click(timeout=3_000)
+    if not await account.count():
+        account = target.locator('input[placeholder*="学工号"], input[name="username"]').first
+    await account.fill(username, timeout=8_000)
+    print("auth_phase: fill_password", flush=True)
+    password_input = target.locator("#pwPassword").first
+    if not await password_input.count():
+        password_input = target.locator('input[placeholder*="密码"], input[type="password"]').first
+    await password_input.fill(password, timeout=8_000)
     submit = target.locator('input[value="登录"]')
     if not await submit.count():
         submit = target.locator('button:has-text("登录"), input[type="submit"], input.submit-btn')
+    print("auth_phase: submit_once", flush=True)
     await submit.first.click(timeout=5_000)
+    print("auth_phase: read_result", flush=True)
     await page.wait_for_timeout(3_000)
     try:
         await page.wait_for_load_state("networkidle", timeout=8_000)
@@ -58,9 +70,11 @@ async def observe(page) -> str:
         return "left_sso_without_course"
 
     # Inspect text in memory only. Do not log the DOM, URLs, or form state.
-    target = iframe.content_frame if await iframe.count() else page
-    text = await target.locator("body").inner_text(timeout=5_000)
-    return classify_prompt(text) or "still_on_sso_no_recognized_prompt"
+    top_text = await page.locator("body").inner_text(timeout=5_000)
+    if await iframe.count():
+        frame_text = await iframe.content_frame.locator("body").inner_text(timeout=5_000)
+        return classify_prompt(frame_text) or classify_prompt(top_text) or "still_on_sso_no_recognized_prompt"
+    return classify_prompt(top_text) or "still_on_sso_no_recognized_prompt"
 
 
 async def main() -> str:
