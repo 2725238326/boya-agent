@@ -1,0 +1,105 @@
+name: Homepage ICP Footer
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Install the temporary edge footer, or remove it after the app serves its own'
+        type: choice
+        options: [apply, remove]
+        default: apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - name: Update only the public homepage at the edge
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          SERVICE_NAME: ${{ secrets.SERVER_SERVICE_NAME }}
+          EXPECTED_SHA: ${{ github.sha }}
+          ACTION: ${{ inputs.action }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 5m
+          envs: APP_DIR,SERVICE_NAME,EXPECTED_SHA,ACTION
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR:-/home/boya-agent}"
+            SERVICE_NAME="${SERVICE_NAME:-boya-agent}"
+            SITE=/etc/nginx/sites-available/boya-agent
+            test "$(readlink -f /etc/nginx/sites-enabled/boya-agent)" = "$SITE"
+            test "$(sudo nginx -V 2>&1 | grep -c -- --with-http_sub_module)" = 1
+            sudo nginx -t
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+            BEFORE_PID="$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")"
+            BEFORE_SHA="$(git rev-parse HEAD)"
+            git fetch --no-tags origin "$EXPECTED_SHA"
+
+            WORK="$(mktemp -d /tmp/boya-icp.XXXXXX)"
+            trap 'rm -rf -- "$WORK"' EXIT
+            git show "$EXPECTED_SHA:scripts/maintain_homepage_icp.py" > "$WORK/tool.py"
+            curl -fsS --max-time 15 http://127.0.0.1:5000/ > "$WORK/origin.html"
+            if [ "$ACTION" = remove ]; then
+              python3 "$WORK/tool.py" verify "$WORK/origin.html"
+            elif ! python3 "$WORK/tool.py" verify "$WORK/origin.html" 2>/dev/null; then
+              python3 "$WORK/tool.py" verify-legacy "$WORK/origin.html"
+            fi
+
+            sudo cat "$SITE" > "$WORK/original"
+            python3 "$WORK/tool.py" "$ACTION" "$WORK/original" > "$WORK/candidate"
+            BACKUP=
+            rollback() {
+              local code=$?
+              if [ "$code" -ne 0 ] && [ -n "$BACKUP" ]; then
+                echo "Homepage verification failed; restoring the previous Nginx config."
+                sudo cp --preserve=mode,ownership,timestamps "$BACKUP" "$SITE"
+                sudo nginx -t
+                sudo systemctl reload nginx
+              fi
+              rm -rf -- "$WORK"
+              exit "$code"
+            }
+            trap rollback EXIT
+            if ! cmp -s "$WORK/original" "$WORK/candidate"; then
+              SNAPSHOT="$(sudo mktemp /etc/nginx/boya-icp-before.XXXXXX)"
+              sudo cp --preserve=mode,ownership,timestamps "$SITE" "$SNAPSHOT"
+              BACKUP="$SNAPSHOT"
+              sudo tee "$SITE" < "$WORK/candidate" >/dev/null
+              sudo nginx -t
+              sudo systemctl reload nginx
+            fi
+
+            public() {
+              curl --resolve buaaboya.top:443:127.0.0.1 --max-time 15 "$@"
+            }
+            for attempt in 1 2 3 4 5; do
+              if public -fsS --compressed https://buaaboya.top/ > "$WORK/public.html" &&
+                python3 "$WORK/tool.py" verify "$WORK/public.html"; then
+                break
+              fi
+              sleep 1
+            done
+            python3 "$WORK/tool.py" verify "$WORK/public.html"
+            public -fsS https://buaaboya.top/healthz >/dev/null
+            public -fsS https://buaaboya.top/api/courses >/dev/null
+            test "$(public -sS -o /dev/null -w '%{http_code}' https://buaaboya.top/api/status)" = 401
+            test "$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")" = "$BEFORE_PID"
+            test "$(git rev-parse HEAD)" = "$BEFORE_SHA"
+            echo "ICP footer verified; courses, admin boundary and application process unchanged."
+            if [ -n "$BACKUP" ]; then
+              echo "Previous Nginx config: $BACKUP"
+            fi
